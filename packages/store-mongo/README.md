@@ -5,10 +5,10 @@ The MongoDB `CollectionStore` for Lattice CMS. Each collection is a Mongo collec
 ## Install
 
 ```bash
-npm install @latticecms/store-mongo @latticecms/core zod @hexok/logger
+npm install @latticecms/store-mongo @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server zod @hexok/logger
 ```
 
-`@latticecms/core`, `zod` and `@hexok/logger` are peer dependencies. The `mongodb` driver is this package's own dependency: the store owns its client.
+`@latticecms/core`, `hexok`, `zod` and `@hexok/logger` are peer dependencies, and core's own peers come with it. The `mongodb` driver is this package's own dependency: the store owns its client.
 
 ## Wiring
 

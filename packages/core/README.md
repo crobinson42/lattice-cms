@@ -7,10 +7,10 @@ Status: unpublished, before 1.0. The design and the reasons behind it are in [do
 ## Install
 
 ```sh
-npm i @latticecms/core zod @hexok/logger
+npm install @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server zod @hexok/logger
 ```
 
-`zod` 4 and `@hexok/logger` are peer dependencies. `hexok`, `@ts-pf/contract`, `@ts-pf/server` and `@ts-pf/protocol` are dependencies. Serve the result with `@ts-pf/server-http`, and call it with `@ts-pf/client`.
+Every package after `@latticecms/core` is a peer dependency: `hexok` 2, `@ts-pf/*` 0.6, `zod` 4 and `@hexok/logger` 0.2. The app installs them, so it and Lattice share one copy, and a `UseCase` or `Port` the app imports is the same class Lattice built. Serve the result with `@ts-pf/server-http`, and call it with `@ts-pf/client`.
 
 ## Example
 
