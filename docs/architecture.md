@@ -63,7 +63,7 @@ A collection is a declaration. Lattice turns it into hexok use cases, hexok even
 
 ### Define a collection
 
-This example shows the full design. Phase 0 built `schema` and `.hooks()`, and Phase 1 has added `tenant` and `indexes`; `ref()`, `many()`, `relations` and `entity` arrive in Phase 1, as the [phased build plan](#phased-build-plan) says. [`packages/core/README.md`](../packages/core/README.md) shows what runs today.
+This example shows the design as built, except `entity`, which is not built yet. [`packages/core/README.md`](../packages/core/README.md) shows what runs today.
 
 ```ts
 // collections/posts.ts
@@ -90,8 +90,8 @@ export const Posts = collection('posts', {
 ```
 
 - `schema` is a Zod 4 object ([0013](decisions/0013-zod-4-for-collection-schemas.md)). Lattice adds `id`, `createdAt`, `updatedAt` and the tenant field.
-- (Phase 1) A collection may pass `entity: Post` instead of `schema`, where `Post extends Entity('Post', schema)`. Then domain rules live on the entity, the hexok way.
-- (Phase 1) `ref()` and `many()` are the only field helpers. Everything else is plain Zod.
+- (Not built yet; unscheduled) A collection may pass `entity: Post` instead of `schema`, where `Post extends Entity('Post', schema)`. Then domain rules live on the entity, the hexok way.
+- `ref()` and `many()` are the only field helpers. Everything else is plain Zod.
 - Only `z.object()`. Unknown keys are stripped. A loose object's index signature would reach every client type.
 - `id`, `createdAt`, `updatedAt`, `and` and `or` are reserved field names.
 - No `z.date()` and no transforms (`.transform()`, `.pipe()`, `z.preprocess`, codecs), anywhere in the schema. A Date reaches an HTTP client as a string, and a transform hides the field's kind from `Where`. Normalizing belongs in a `beforeChange` hook. `collection()` throws at definition time and, for top-level Dates, fails to compile.
@@ -117,7 +117,7 @@ export const lattice = framework({
   .collection(Posts, {
     methods: { publish: PublishPost },
     overrides: { delete: ArchivePost },
-    access: {                                                      // Phase 1
+    access: {
       read: () => true,
       update: ({ actor }) => ({ authorId: { eq: actor.userId } }), // a Where on Posts
       delete: ({ actor }) => actor.roles.includes('admin'),
@@ -162,8 +162,8 @@ Every write returns the document: `create` and `update` the stored one, `delete`
 - `get`, `update` and `delete` on a missing or out-of-scope id throw `NOT_FOUND`.
 - Each generated use case parses its own input, because hexok passes `execute` the raw value. The family guard has already rejected bad input.
 
-- Use cases, in the app's one family: `posts.find`, `posts.count`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, plus `posts.categories.list` and `posts.categories.set` for each `many()` relation (Phase 1).
-- A contract slice: `posts.find`, `posts.count`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, `posts.publish`, and `posts.categories.*` in Phase 1.
+- Use cases, in the app's one family: `posts.find`, `posts.count`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, plus `posts.categories.list` and `posts.categories.set` for each `many()` relation.
+- A contract slice: `posts.find`, `posts.count`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, `posts.publish`, and `posts.categories.*`.
 - Event classes: `posts.created`, `posts.updated`, `posts.deleted`, for the app's catalog.
 
 ### Custom methods and overrides
@@ -186,7 +186,7 @@ export class PublishPost extends AppUseCase('posts.publish', {
 }
 ```
 
-- The family guards check the actor, validate input, and check access for the action (`publish`) before `execute`. A guard cannot hand `execute` a value, so `execute` asks `ctx.access` for its scope; the answer is kept on the context, so access runs once per call. Tenancy scoping joins the scope in Phase 1.
+- The family guards check the actor, validate input, and check access for the action (`publish`) before `execute`. A guard cannot hand `execute` a value, so `execute` asks `ctx.access` for its scope; the answer is kept on the context, so access runs once per call. The scope also carries the tenant clause.
 - The class's `collection` static and its token (`posts.publish`) must match where it is attached. `execute` must take the class's `input` schema output and return its `output` schema output.
 - The app constructs the instance in `build()`'s `methods` or `overrides` factory, as hexok requires, with the typed `repos` it receives. `build()` is a type error when a declared method or override has no instance or an instance of another class, the same completeness check as ts-pf `impl.router()`, and it checks `instanceof` at runtime.
 - `overrides: { delete: ArchivePost }` swaps one generated operation. The class must accept and return the generated operation's types, so clients see no change.
@@ -199,7 +199,7 @@ Collection hooks transform data and nothing else: `beforeChange` and `afterRead`
 
 ## Storage
 
-Every collection talks to one hexok port, `CollectionStore`. MongoDB is the default adapter ([0002](decisions/0002-mongodb-is-the-default-store.md)). In Phase 1 a collection can name its own store, so one app can keep collections on different clusters or regions.
+Every collection talks to one hexok port, `CollectionStore`. MongoDB is the default adapter ([0002](decisions/0002-mongodb-is-the-default-store.md)). One `build({ store })` serves every collection today. A per-collection store, so one app can keep collections on different clusters or regions, is not built yet.
 
 ```ts
 abstract class CollectionStore extends Port('CollectionStore') {
@@ -494,7 +494,7 @@ Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the sc
 | `@hexok/authz` | hexok (already planned) | Phase 2 | Build it; add list checks that return a filter | Every product needs it. Lattice adapts its `Access` port to it |
 | Tracing port | hexok | Phase 2 | No new package. Lattice calls `@opentelemetry/api` directly | The OTel API is already vendor-neutral and a no-op without an SDK, so an app can solve this today (gate question 2) |
 | Blob storage port, `@hexok/blob` + `@hexok/blob-s3` | hexok | Phase 3 | Build it, shaped like `email` / `sms` | Any product with uploads needs it. S3 covers DigitalOcean Spaces |
-| Mongo client lifecycle | `@latticecms/store-mongo` | Phase 1 | Keep it in Lattice | Only the store uses it. Move to hexok when a second package needs it, the way `ioredis-lifecycle` was extracted |
+| Mongo client lifecycle | `@latticecms/store-mongo` | Phase 1 (done) | Kept in Lattice | Only the store uses it. Move to hexok when a second package needs it, the way `ioredis-lifecycle` was extracted |
 | Outbox relay | `@latticecms/store-mongo` | Phase 4 | Keep it in Lattice | It is Mongo-specific. `@hexok/integration-events` already accepts a stable `id` |
 | Middleware context narrowing | ts-pf (`Q4`, deferred to v2) | Nice to have | Wait for ts-pf v2 | Generated routers can declare the actor key up front, as ts-pf documents today |
 | Admin metadata on procedures | ts-pf | Phase 3 | No change | Procedure `.meta()` already flows into `catalog()` |
@@ -508,8 +508,9 @@ The repo copies hexok and ts-pf tooling: npm workspaces, Turbo, Biome, Changeset
 packages/
   core/            @latticecms/core            collection(), Where, Sort, family(), framework(), build(),
                                                CollectionStore port, MemoryStore, LatticeError;
-                                               ref(), many(), Access port (Phase 1)
-  store-mongo/     @latticecms/store-mongo     MongoStore, Mongo mappers, migrations runner (Phase 1)
+                                               ref(), many(), populate, Access port, tenancy;
+                                               /store (adapter surface), /store/conformance
+  store-mongo/     @latticecms/store-mongo     MongoStore, Where translation, migrate()
   admin/           @latticecms/admin           React admin on @shadalaya + @ts-pf/client (Phase 3)
   cli/             @latticecms/cli             scaffold collection, run migrations (Phase 3)
   store-postgres/  @latticecms/store-postgres  (Phase 4)
@@ -525,6 +526,9 @@ examples/
 
 - Every `@ts-pf/*` package moves together on one version. `@latticecms/core` pins one ts-pf minor and one hexok major, and a bump is its own changeset.
 - A package README is its docs page, as in hexok and ts-pf.
+- No casts. Where a value built at runtime meets a precise type, one asserted overload states the precise type over an erased implementation. There are 8 in core: `build`, `contractOf`, `patchSchema`, `relationsOf`, `repo`, `sortSchema`, `tenantShapes` and `whereSchema`. Adding one needs a reason in review. Each Zod-typed overload states both of Zod's type parameters, or ts-pf callers get `unknown`.
+- `rootRouter()` in `build.ts` calls ts-pf's `router()` through runtime guards, and `ReadUseCase` names a populating read for declaration emit. Both work around ts-pf typing limits and go when ts-pf changes (proposed changes table).
+- A compile error that Lattice raises is a `{ '~error': '…' }` property that names the problem. A key union in an error is wrapped in a template literal, so the message prints the union, not an alias.
 - `@latticecms/core` ships an agent skill (`skills/lattice/`) that walks a feature from collection to override, the way the `hexok` skill does. Phase 3.
 
 ## Phased build plan
@@ -534,7 +538,7 @@ Each phase ends at a gate; the next starts when its exit holds. Phase 0 builds t
 | Phase | Scope | Exit |
 | --- | --- | --- |
 | 0. Kernel, in memory (done) | `collection()`, `family()`, `framework()`, `build()`, `MemoryStore`; generated CRUD use cases, contract slice, event classes; overrides, custom methods, family guards, logging | A three-collection example serves `/rpc` and all tests pass on `MemoryStore` |
-| 1. Mongo, relations, access, tenancy ([plan](plans/phase-1.md)) | `MongoStore`, `Where` translation, indexes, migrations runner; `ref()`, `many()`, join collections, batched population; `Access` port with default functions, row-level tenancy, `count` | `examples/crm` runs on Mongo; tenant isolation tests pass |
+| 1. Mongo, relations, access, tenancy (done) | `MongoStore`, `Where` translation, indexes, migrations runner; `ref()`, `many()`, join collections, batched population; `Access` port with default functions, row-level tenancy, `count` | `examples/crm` runs on Mongo; tenant isolation tests pass |
 | 2. Production wiring | `@hexok/auth` recipe, `@hexok/authz` adapter, field masking; integration-events and webhooks recipes, MCP, OpenAPI; OpenTelemetry spans | One internal tool runs in production on Lattice |
 | 3. Admin and CLI | Admin SPA from `catalog()` and `.meta()`, on `@shadalaya`; CLI scaffolding and migrations; uploads through `@ts-pf/file` and a blob port | A new tool reaches CRUD, auth and admin in under one day |
 | 4. Hardening | Outbox relay, versions and drafts, Postgres store, index and performance tooling, security review | Ongoing; picked up as products need it |
