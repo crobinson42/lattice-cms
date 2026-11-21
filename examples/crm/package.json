@@ -13,14 +13,14 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "devDependencies": {
-    "@ts-pf/client": "^0.5.2"
+    "@ts-pf/client": "^0.6.0"
   },
   "dependencies": {
     "@hexok/logger": "^0.2.0",
     "@latticecms/core": "*",
-    "@ts-pf/protocol": "^0.5.2",
-    "@ts-pf/server": "^0.5.2",
-    "@ts-pf/server-http": "^0.5.2",
+    "@ts-pf/protocol": "^0.6.0",
+    "@ts-pf/server": "^0.6.0",
+    "@ts-pf/server-http": "^0.6.0",
     "hexok": "^2.2.7",
     "srvx": "^1.0.8",
     "zod": "^4.1.0"

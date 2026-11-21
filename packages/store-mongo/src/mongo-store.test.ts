@@ -1,13 +1,5 @@
 import { storeCases } from '@latticecms/core/store/conformance';
-import { MongoMemoryServer } from 'mongodb-memory-server';
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  it,
-} from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, inject, it } from 'vitest';
 import { MongoStore } from './index.js';
 import { databases } from './test/databases.js';
 
@@ -36,20 +28,11 @@ describe('MongoStore conformance', () => {
 // A standalone server has no transactions: the cases that need them are
 // filtered out, and the rest pass, so the tag is honest.
 describe('MongoStore conformance on a standalone server', () => {
-  let standalone: MongoMemoryServer;
   let store: MongoStore;
-
-  beforeAll(async () => {
-    standalone = await MongoMemoryServer.create();
-  });
-
-  afterAll(async () => {
-    await standalone.stop();
-  });
 
   beforeEach(async () => {
     store = new MongoStore({
-      url: standalone.getUri(),
+      url: inject('standaloneUrl'),
       database: `case_${crypto.randomUUID().replaceAll('-', '')}`,
     });
     await store.start();

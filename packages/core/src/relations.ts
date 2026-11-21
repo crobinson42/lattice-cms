@@ -89,7 +89,10 @@ export function many<
     readonly fields?: z.ZodObject<Fields, z.core.$strip>;
     readonly onDelete?: D;
   },
-): Many<Target, Through, Fields, D> {
+  // NoInfer: inside `collection({ relations })`, the relations constraint
+  // would otherwise infer an omitted `fields` as any shape and an omitted
+  // `onDelete` as both options, instead of their defaults.
+): Many<Target, Through, NoInfer<Fields>, NoInfer<D>> {
   return {
     kind: 'many',
     target,

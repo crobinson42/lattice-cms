@@ -1,7 +1,14 @@
 import { MemoryLogger } from '@hexok/logger';
 import { MongoClient } from 'mongodb';
-import { MongoMemoryServer } from 'mongodb-memory-server';
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  inject,
+  it,
+} from 'vitest';
 import {
   type Migration,
   MigrationError,
@@ -284,8 +291,10 @@ describe('transaction: true', () => {
   });
 
   it('is NoTransactions on a deployment without a replica set, before anything runs', async () => {
-    const standalone = await MongoMemoryServer.create();
-    const single = new MongoStore({ url: standalone.getUri(), database: 'm' });
+    const single = new MongoStore({
+      url: inject('standaloneUrl'),
+      database: `m_${crypto.randomUUID().replaceAll('-', '')}`,
+    });
     await single.start();
     const log: number[] = [];
     try {
@@ -300,7 +309,6 @@ describe('transaction: true', () => {
       expect(log).toEqual([]);
     } finally {
       await single.stop();
-      await standalone.stop();
     }
   });
 });

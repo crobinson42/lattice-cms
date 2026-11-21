@@ -182,7 +182,7 @@ expect(again.error.status).toBe(409);
 
 ## Reference
 
-### `collection(slug, { schema, tenant?, indexes? })`
+### `collection(slug, { schema, tenant?, indexes?, relations? })`
 
 Returns a `Collection` with `slug`, `schema`, `tenant`, `indexes`, `output`, `events` and `hooks()`. `output` is the stored document's schema: the collection's schema plus `id`, `createdAt`, `updatedAt` and the tenant field.
 
@@ -249,7 +249,30 @@ const Posts = collection('posts', {
 - `posts.categories.list({ id, where?, sort?, limit?, after? })` pages the post's links, with find's `where`, `sort` and cursor over the link documents. It runs the post's `read` access: a post outside it is `NOT_FOUND`.
 - `posts.categories.set({ id, links })` replaces the post's links: each link is `{ categoriesId, ...fields }`, at most 1000, and a target repeated is `VALIDATION`. It runs the post's `update` access. It diffs, in one `store.transaction()`: links no longer listed are deleted, new ones inserted, and changed fields updated; an unchanged link keeps its id and `createdAt`. Each change emits its own join event, after the commit. It returns the links in the order given. A tenant bypass cannot set.
 - Both are use cases in the family (`useCases.posts.categories.set`), and can be overridden: `overrides: { categories: { set: ReorderCategories } }`.
-- A relation name may not be a schema field, an operation, `read`, a method or a ts-pf implementer key, and `through` may not be another collection's slug. A collection cannot relate to itself with `many()`. Method names may not contain a dot. Each is a compile error and a throw.
+- A relation name may not be a schema field, an operation, `read`, a method or a ts-pf implementer key, and `through` may not be another collection's slug. A collection cannot relate to itself with `many()`. A link field may not be named like the two ref fields, a reserved name or the tenant field. Method names may not contain a dot. Each is a compile error and a throw.
+
+### Population
+
+A read takes `populate`, a list of what to replace with documents. The output type follows the list on every ts-pf client, and on `useCases`, through ts-pf's expandable outputs:
+
+```ts
+const post = await client.posts.get({ id, populate: ['authorId', 'categories'] })
+post.authorId // Doc<typeof Users> | Withheld
+post.categories // { sortOrder: number; doc: Doc<typeof Categories> | Withheld }[]
+const plain = await client.posts.get({ id })
+plain.authorId // string
+const page = await client.posts.find({ populate: ['authorId'] })
+const links = await client.posts.categories.list({ id, populate: ['categoriesId'] })
+```
+
+- `get` populates ref fields and `many()` relations. `find` populates ref fields only, so one page cannot fetch up to 1000 links per document; a relation on `find` is a compile error and `VALIDATION`. A relation's `list` populates its links' refs, which is how a page of links gets its documents.
+- A ref populates as the target document. A list of ids populates element-wise. A nullable or optional ref keeps its `null` or `undefined`. A relation populates as its links, each `{ ...fields, doc }`, and is in the output only when populated.
+- A populated document the caller may not read, or one that no longer exists, is `Withheld`: `{ id }` only. Narrow with a field: `'email' in post.authorId`.
+- Each target collection is read once per call, with `getMany`, for all the documents and fields that refer to it. It runs under the caller's `read` access there, which carries the tenant, and through its `afterRead`. A relation's links are read in one `find` on the join collection, inside the parent's tenant, under the parent's `read`.
+- A `read: false` on a target does not fail the read: every document of that target is `{ id }`.
+- One level deep: a populated document's own refs stay ids.
+- A `populate` list held in a `K[]` variable gives the wide type, where each ref is the id or the document, because it could hold any subset.
+- An overridden `get`, `find` or `list` is plain: it takes no `populate`, because the override serves it and population runs in the generated read.
 
 ### Hooks
 
@@ -509,9 +532,10 @@ The tests prove each of these.
 - Each access function runs once per call.
 - No call reaches another tenant's rows, and every bypassed call is logged.
 - Events publish only after a successful write.
+- A populated document passes its collection's `read` access and tenant, or comes back as `{ id }`.
 - An update patch never resets a field to its default.
 - On update, the merged document is validated with the whole schema.
 
 ## Not yet
 
-Population and auth arrive in later steps. See the [phase table](../../docs/architecture.md#phased-build-plan).
+Auth arrives in a later step. See the [phase table](../../docs/architecture.md#phased-build-plan).

@@ -3,6 +3,9 @@ import {
   type ContractProcedure,
   type ContractRouterBrand,
   type ErrorMap,
+  type Expansion,
+  type InferContractProcedure,
+  type InferExpandedOutput,
   type InferSchemaInput,
   type InferSchemaOutput,
   isContractProcedure,
@@ -18,7 +21,7 @@ import {
   type MiddlewareFn,
 } from '@ts-pf/server';
 import { validate } from 'hexok';
-import type { z } from 'zod';
+import { z } from 'zod';
 import {
   type Access,
   type AccessCheck,
@@ -31,6 +34,7 @@ import {
 import {
   type Action,
   type AnyCollection,
+  type AnyRelation,
   type Operations,
   operations,
 } from './collection.js';
@@ -54,8 +58,14 @@ import {
   type FamilyContext,
   loggedByFamily,
 } from './family.js';
+import {
+  expansionOf,
+  populateKeys,
+  populateShape,
+  type Withheld,
+} from './populate.js';
 import { type CascadeFields, type RefSlugs, referrersOf } from './relations.js';
-import { type Repo, repo } from './repo.js';
+import { type Doc, type Repo, repo } from './repo.js';
 import type { CollectionStore } from './store.js';
 import type { TenantField } from './tenancy.js';
 
@@ -282,22 +292,213 @@ type Procedure<In, Out, D extends ErrorMap> = ContractProcedure<
   InferSchemaOutput<In>
 >;
 
-/** One collection's contract slice: the generated operations plus its methods. */
-type Slice<E extends Entry, D extends ErrorMap> = {
-  [K in Action | (keyof E['methods'] & string)]: K extends Action
+type Flat<T> = { [K in keyof T]: T[K] } & {};
+
+/** The ref fields of `Col`, and the slug each refers to. */
+type RefsOf<Col extends AnyCollection> = RefSlugs<Col['schema']['shape']>;
+
+/** A read that populates: `get` takes refs and relations, `find` refs only. */
+type PopulatingRead = 'get' | 'find';
+
+/** The `many()` relations a read of `Col` may populate. */
+type RelationsOf<
+  Col extends AnyCollection,
+  R extends PopulatingRead,
+> = R extends 'get' ? keyof Col['relations'] : never;
+
+/**
+ * What `populate` may name on read `R` of `Col`. A template literal, so an
+ * error prints the union rather than the alias.
+ */
+type PopulateKey<
+  Col extends AnyCollection,
+  R extends PopulatingRead,
+> = `${(keyof RefsOf<Col> | RelationsOf<Col, R>) & string}`;
+
+/** A populated ref's document: the target's, or `Withheld`. */
+type Target<E extends Entries, Slug> =
+  | (Slug extends keyof E ? Doc<E[Slug]['collection']> : never)
+  | Withheld;
+
+/** A ref field's expanded type, one target or a list. Null and undefined stay the field's own. */
+type Swap<V, T> = V extends string
+  ? T
+  : V extends readonly string[]
+    ? T[]
+    : never;
+
+/** A populated link of `Rel`: its fields and its target document. */
+type Link<E extends Entries, Rel extends AnyRelation> = Flat<
+  Omit<
+    Doc<Rel['through']>,
+    | 'id'
+    | 'createdAt'
+    | 'updatedAt'
+    | Rel['parentField']
+    | Rel['targetField']
+    | TenantField<Rel['through']>
+  > & { doc: Target<E, Rel['target']> }
+>;
+
+/** Each ref field of `Col`, populated. */
+type ExpandedRefs<E extends Entries, Col extends AnyCollection> = {
+  [K in keyof RefsOf<Col>]: Swap<
+    Doc<Col>[K & keyof Doc<Col>],
+    Target<E, RefsOf<Col>[K]>
+  >;
+};
+
+/** Each relation read `R` of `Col` may populate, as its links. */
+type ExpandedLinks<
+  E extends Entries,
+  Col extends AnyCollection,
+  R extends PopulatingRead,
+> = {
+  [N in RelationsOf<Col, R>]: Link<E, Col['relations'][N]>[];
+};
+
+/** What `populate` gives on read `R` of `Col`: the expansion's `fields`. */
+type Expanded<
+  E extends Entries,
+  Col extends AnyCollection,
+  R extends PopulatingRead,
+> = Flat<ExpandedRefs<E, Col> & ExpandedLinks<E, Col, R>>;
+
+/**
+ * `Col`'s document as read `R` sends it: each ref field plain or
+ * populated, and each relation only when populated.
+ */
+type Wide<
+  E extends Entries,
+  Col extends AnyCollection,
+  R extends PopulatingRead,
+> = Flat<
+  {
+    [K in keyof Doc<Col>]: K extends keyof ExpandedRefs<E, Col>
+      ? Doc<Col>[K] | ExpandedRefs<E, Col>[K]
+      : Doc<Col>[K];
+  } & Partial<ExpandedLinks<E, Col, R>>
+>;
+
+/**
+ * A read of `Col`, as `contractOf` builds it: its output follows `populate`
+ * through ts-pf's expandable outputs (0022), at the root (`get`) or in
+ * `docs` (`find`, `list`). Plain when `Col` has no ref field.
+ */
+type Read<
+  E extends Entries,
+  Col extends AnyCollection,
+  In,
+  R extends PopulatingRead,
+  D extends ErrorMap,
+> = [PopulateKey<Col, R>] extends [never]
+  ? never
+  : ContractProcedure<
+      Flat<InferSchemaInput<In> & { populate?: PopulateKey<Col, R>[] }>,
+      R extends 'get'
+        ? Wide<E, Col, R>
+        : { docs: Wide<E, Col, R>[]; next: string | null },
+      Declared<D>,
+      Record<never, never>,
+      Flat<
+        InferSchemaOutput<In> & {
+          populate?: PopulateKey<Col, R>[] | undefined;
+        }
+      >,
+      Expansion<
+        'populate',
+        R extends 'get' ? [] : ['docs'],
+        Expanded<E, Col, R>
+      >
+    >;
+
+/** `Read`, or the plain procedure when there is nothing to populate. */
+type ReadOr<
+  E extends Entries,
+  Col extends AnyCollection,
+  In,
+  Out,
+  R extends PopulatingRead,
+  D extends ErrorMap,
+> = [Read<E, Col, In, R, D>] extends [never]
+  ? Procedure<In, Out, D>
+  : Read<E, Col, In, R, D>;
+
+/**
+ * Generated operation `A` of entry `S`. An overridden read is plain: the
+ * override serves it, and Lattice's population runs in the generated read.
+ */
+type Operation<
+  E extends Entries,
+  S extends Entry,
+  A extends Action,
+  D extends ErrorMap,
+> = A extends 'get' | 'find'
+  ? A extends keyof S['overrides']
     ? Procedure<
-        Ops<E['collection']>[K]['input'],
-        Ops<E['collection']>[K]['output'],
+        Ops<S['collection']>[A]['input'],
+        Ops<S['collection']>[A]['output'],
         D
       >
-    : Procedure<E['methods'][K]['input'], E['methods'][K]['output'], D>;
-} & {
-  [R in keyof E['collection']['relations']]: {
-    [Op in RelationOp]: Procedure<
-      E['collection']['relations'][R][Op]['input'],
-      E['collection']['relations'][R][Op]['output'],
+    : ReadOr<
+        E,
+        S['collection'],
+        Ops<S['collection']>[A]['input'],
+        Ops<S['collection']>[A]['output'],
+        A,
+        D
+      >
+  : Procedure<
+      Ops<S['collection']>[A]['input'],
+      Ops<S['collection']>[A]['output'],
       D
     >;
+
+/** Operation `Op` of relation `R` of entry `S`. An overridden list is plain. */
+type RelationOperation<
+  E extends Entries,
+  S extends Entry,
+  R extends keyof S['collection']['relations'],
+  Op extends RelationOp,
+  D extends ErrorMap,
+> = Op extends 'list'
+  ? R extends keyof S['overrides']
+    ? 'list' extends keyof S['overrides'][R]
+      ? Procedure<
+          S['collection']['relations'][R]['list']['input'],
+          S['collection']['relations'][R]['list']['output'],
+          D
+        >
+      : RelationList<E, S, R, D>
+    : RelationList<E, S, R, D>
+  : Procedure<
+      S['collection']['relations'][R][Op]['input'],
+      S['collection']['relations'][R][Op]['output'],
+      D
+    >;
+
+type RelationList<
+  E extends Entries,
+  S extends Entry,
+  R extends keyof S['collection']['relations'],
+  D extends ErrorMap,
+> = ReadOr<
+  E,
+  S['collection']['relations'][R]['through'],
+  S['collection']['relations'][R]['list']['input'],
+  S['collection']['relations'][R]['list']['output'],
+  'find',
+  D
+>;
+
+/** One collection's contract slice: the generated operations plus its methods. */
+type Slice<E extends Entries, S extends Entry, D extends ErrorMap> = {
+  [K in Action | (keyof S['methods'] & string)]: K extends Action
+    ? Operation<E, S, K, D>
+    : Procedure<S['methods'][K]['input'], S['methods'][K]['output'], D>;
+} & {
+  [R in keyof S['collection']['relations']]: {
+    [Op in RelationOp]: RelationOperation<E, S, R, Op, D>;
   };
 };
 
@@ -323,7 +524,7 @@ type SlugsCheck<E extends Entries> = [Unresolved<E>] extends [never]
 
 /** The generated ts-pf contract: one slice per collection. */
 export type Contract<E extends Entries, D extends ErrorMap> = {
-  [S in keyof Sliced<E>]: Slice<E[S], D>;
+  [S in keyof Sliced<E>]: Slice<E, E[S], D>;
 } & ContractRouterBrand;
 
 /** The contract as `.contract` gives it: with an `'~error'` key while a ref is unresolved. */
@@ -404,26 +605,69 @@ type GeneratedRelationUseCase<Schemas_ extends Schemas, Ctx> = {
   ): Promise<z.output<Schemas_['output']>>;
 };
 
+/**
+ * A generated read as a direct caller sees it: its output follows
+ * `populate`, as a client's does.
+ */
+// An interface, so a declaration file names it rather than spelling out
+// ts-pf's ExpandResult, which @ts-pf/contract does not export.
+export interface ReadUseCase<Proc, Ctx> {
+  execute<const P extends readonly ExpansionKeys<Proc>[] = readonly []>(
+    ctx: Ctx,
+    input: InferContractProcedure<Proc>['input'] & { readonly populate?: P },
+  ): Promise<InferExpandedOutput<Proc, P>>;
+}
+
+// ts-pf's InferExpansionKeys, which it does not export. The same type, so it
+// satisfies InferExpandedOutput's constraint.
+type ExpansionKeys<T> =
+  InferContractProcedure<T>['expand'] extends infer X extends Expansion
+    ? keyof X['fields'] & string
+    : never;
+
+/** The use case of generated operation `A`: a populating read, or plain. */
+type OperationUseCase<
+  E extends Entries,
+  S extends Entry,
+  A extends Action,
+  Ctx,
+> = [InferContractProcedure<Operation<E, S, A, ErrorMap>>['expand']] extends [
+  never,
+]
+  ? GeneratedUseCase<S['collection'], A, Ctx>
+  : ReadUseCase<Operation<E, S, A, ErrorMap>, Ctx>;
+
 /** The instances of one collection's relation operations. */
-type RelationUseCases<S extends Entry, Ctx> = {
+type RelationUseCases<E extends Entries, S extends Entry, Ctx> = {
   [R in keyof S['collection']['relations']]: {
     [Op in RelationOp]: R extends keyof S['overrides']
       ? Op extends keyof S['overrides'][R]
         ? Instance<S['overrides'][R][Op]>
-        : GeneratedRelationUseCase<S['collection']['relations'][R][Op], Ctx>
-      : GeneratedRelationUseCase<S['collection']['relations'][R][Op], Ctx>;
+        : RelationUseCase<E, S, R, Op, Ctx>
+      : RelationUseCase<E, S, R, Op, Ctx>;
   };
 };
+
+/** The generated use case of relation operation `Op`: list populates. */
+type RelationUseCase<
+  E extends Entries,
+  S extends Entry,
+  R extends keyof S['collection']['relations'],
+  Op extends RelationOp,
+  Ctx,
+> = Op extends 'list'
+  ? ReadUseCase<RelationList<E, S, R, ErrorMap>, Ctx>
+  : GeneratedRelationUseCase<S['collection']['relations'][R][Op], Ctx>;
 
 /** The instance that serves each procedure: generated, override or method. */
 type UseCases<E extends Entries, Ctx> = {
   [S in keyof Sliced<E>]: {
     [A in Action]: A extends keyof E[S]['overrides']
       ? Instance<E[S]['overrides'][A]>
-      : GeneratedUseCase<E[S]['collection'], A, Ctx>;
+      : OperationUseCase<E, E[S], A, Ctx>;
   } & {
     [N in keyof E[S]['methods']]: Instance<E[S]['methods'][N]>;
-  } & RelationUseCases<E[S], Ctx>;
+  } & RelationUseCases<E, E[S], Ctx>;
 };
 
 /** What `build()` returns. */
@@ -446,7 +690,15 @@ type Built<E extends Entries, D extends ErrorMap, Actor> = {
   readonly context: (base: CallContext<Actor>) => FamilyContext<Actor>;
 };
 
-type RuntimeProcedure = ContractProcedure<unknown, unknown, ErrorMap>;
+/** Any procedure of the contract, a populated read's expansion included. */
+type RuntimeProcedure = ContractProcedure<
+  unknown,
+  unknown,
+  ErrorMap,
+  Record<never, never>,
+  unknown,
+  Expansion
+>;
 
 /** A relation's node in a slice: its `list` and `set` procedures. */
 type RuntimeRelation = Record<string, RuntimeProcedure>;
@@ -699,6 +951,9 @@ export class Framework<
     const referrers = referrersOf(
       this.entries.map((entry) => entry.collection),
     );
+    const collections = new Map(
+      this.entries.map(({ collection }) => [collection.slug, collection]),
+    );
     const access =
       options.access ??
       new CollectionAccess(
@@ -752,6 +1007,7 @@ export class Framework<
                 ops,
                 action,
                 referrers,
+                collections,
               );
       }
       for (const [name, method] of Object.entries(methods)) {
@@ -785,6 +1041,7 @@ export class Framework<
                   name,
                   relation,
                   op,
+                  collections,
                 )
               : instanceOf(
                   'override',
@@ -908,8 +1165,14 @@ function contractOf(
   declared: ErrorMap,
 ): RuntimeContract {
   const call = procedure.errors({ ...declaredErrors, ...declared });
+  const outputs = new Map(
+    entries.map(({ collection }) => [collection.slug, collection.output]),
+  );
+  /** A page of `doc`s, as find and list return them. */
+  const page = (doc: z.ZodObject) =>
+    z.object({ docs: z.array(doc), next: z.string().nullable() });
   const slices: RuntimeContract = {};
-  for (const { collection, methods, join } of entries) {
+  for (const { collection, methods, overrides, join } of entries) {
     if (join) continue;
     const slice: Record<string, RuntimeProcedure | RuntimeRelation> = {};
     const ops = operations(collection.schema, collection.output);
@@ -917,12 +1180,49 @@ function contractOf(
       const { input, output } = ops[action];
       slice[action] = call.input(input).output(output);
     }
+    // A read's output follows its `populate` list, through ts-pf's
+    // expandable outputs (0022): the output is the wide document.
+    // An overridden read is plain: Lattice populates in the generated one.
+    if (
+      overrides.get === undefined &&
+      populateKeys(collection, 'get').length > 0
+    ) {
+      const { fields, wide } = expansionOf(collection, outputs, 'get');
+      slice.get = call
+        .input(
+          ops.get.input.extend(populateShape(populateKeys(collection, 'get'))),
+        )
+        .output(wide)
+        .expand({ key: 'populate', fields });
+    }
+    if (
+      overrides.find === undefined &&
+      populateKeys(collection, 'find').length > 0
+    ) {
+      const { fields, wide } = expansionOf(collection, outputs, 'find');
+      slice.find = call
+        .input(
+          ops.find.input.extend(
+            populateShape(populateKeys(collection, 'find')),
+          ),
+        )
+        .output(page(wide))
+        .expand({ key: 'populate', at: ['docs'], fields });
+    }
     for (const [name, method] of Object.entries(methods)) {
       slice[name] = call.input(method.input).output(method.output);
     }
     for (const [name, relation] of Object.entries(collection.relations)) {
+      const declared = overrides[name];
+      const { fields, wide } = expansionOf(relation.through, outputs, 'find');
       slice[name] = {
-        list: call.input(relation.list.input).output(relation.list.output),
+        list:
+          typeof declared === 'object' && declared.list !== undefined
+            ? call.input(relation.list.input).output(relation.list.output)
+            : call
+                .input(relation.list.input)
+                .output(page(wide))
+                .expand({ key: 'populate', at: ['docs'], fields }),
         set: call.input(relation.set.input).output(relation.set.output),
       };
     }
@@ -997,11 +1297,15 @@ function isRouter<Ctx>(
 }
 
 /**
- * The finished root router. ts-pf types a slice node as a procedure when it
- * may be one, so a slice of procedures and relation routers cannot be typed
- * against the runtime contract; the root implementer's `router()` is called
- * through its runtime shape. At runtime it checks the tree against the
- * whole contract, sets each procedure's path and adds the root middleware.
+ * The finished root router. The runtime contract's slice node is
+ * `RuntimeProcedure | RuntimeRelation`, and ts-pf (0.6.0) types a node that
+ * may be a procedure as one: `IsContractProcedure` of the union is true, so
+ * `RouterImplCheck` wants an implemented procedure where a relation's
+ * router sits. The root implementer's `router()` is therefore called
+ * through its runtime shape. At runtime ts-pf still checks the tree against
+ * the whole contract, sets each procedure's path and adds the root
+ * middleware. Remove this when ts-pf's `RouterImplCheck` decides a mixed
+ * node by the implementation's node, not the contract's.
  */
 function rootRouter<Ctx>(
   implementer: object,

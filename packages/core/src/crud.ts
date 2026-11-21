@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { CallAccess } from './access.js';
 import type {
   Action,
@@ -11,8 +11,10 @@ import type {
   Events,
   Operations,
 } from './collection.js';
+import { maxLinks } from './collection.js';
 import { LatticeError, parse } from './errors.js';
 import type { Family, FamilyContext } from './family.js';
+import { linkFields, populateKeys, populateShape } from './populate.js';
 import type { Referrers, RefField } from './relations.js';
 import { findQuery, stamped, touched } from './repo.js';
 import type { CollectionStore, StoredDoc } from './store.js';
@@ -53,6 +55,10 @@ type Call = {
   readonly tenantId: string | undefined;
   /** Who refers to each collection, for onDelete. */
   readonly referrers: Referrers;
+  /** The call's access, for the collections a read populates. */
+  readonly access: CallAccess;
+  /** Every collection, by slug: what a populated ref reads. */
+  readonly collections: ReadonlyMap<string, AnyCollection>;
 };
 
 /**
@@ -244,10 +250,103 @@ async function applyPlan(
   return events;
 }
 
-async function read(call: Call, doc: StoredDoc): Promise<Document<AnyShape>> {
+async function read(
+  call: Pick<Call, 'collection'>,
+  doc: StoredDoc,
+): Promise<Document<AnyShape>> {
   const document = documentOf(call, doc);
   const { afterRead } = call.collection;
   return afterRead === undefined ? document : afterRead({ doc: document });
+}
+
+/** A read's `populate` list. The family guard has checked each key. */
+const populateList = z.object({ populate: z.array(z.string()).optional() });
+
+/** What populating a read works with. */
+type Populating = Pick<Call, 'store' | 'access' | 'collections'>;
+
+/** The ids a ref field holds: one, a list, or none. */
+function idsIn(value: unknown): string[] {
+  return (Array.isArray(value) ? value : [value]).filter(
+    (id): id is string => typeof id === 'string',
+  );
+}
+
+/**
+ * The documents of `slug` among `ids` that the caller may read, by id: one
+ * getMany under the caller's read scope there, which carries the tenant,
+ * then each through its afterRead. A `false` read access withholds them
+ * all rather than failing the read that populates them.
+ */
+async function readable(
+  call: Populating,
+  slug: string,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, Document<AnyShape>>> {
+  const collection = call.collections.get(slug);
+  if (collection === undefined) {
+    throw new Error(`Lattice: no collection "${slug}" to populate`);
+  }
+  const scope = await call.access.scope(collection, 'read').catch((error) => {
+    if (LatticeError.is(error) && error.code === 'FORBIDDEN') return null;
+    throw error;
+  });
+  if (scope === null) return new Map();
+  const stored = await call.store.getMany(slug, ids, scope.where);
+  return new Map(
+    await Promise.all(
+      stored.map(
+        async (doc): Promise<[string, Document<AnyShape>]> => [
+          doc.id,
+          await read({ collection }, doc),
+        ],
+      ),
+    ),
+  );
+}
+
+/**
+ * `docs` of `collection` with the ref fields in `keys` populated (0022).
+ * Ids are collected per target collection across all of `docs`, and each
+ * target is read once. A target the caller may not read, or one that no
+ * longer exists, is `{ id }`. A list of ids populates element-wise.
+ */
+async function populated(
+  call: Populating,
+  collection: AnyCollection,
+  keys: readonly string[],
+  docs: readonly Document<AnyShape>[],
+): Promise<Document<AnyShape>[]> {
+  const refs = collection.refs.filter((ref) => keys.includes(ref.field));
+  if (refs.length === 0) return [...docs];
+  const wanted = new Map<string, Set<string>>();
+  for (const doc of docs) {
+    for (const ref of refs) {
+      const ids = wanted.get(ref.slug) ?? new Set();
+      for (const id of idsIn(doc[ref.field])) ids.add(id);
+      wanted.set(ref.slug, ids);
+    }
+  }
+  const found = new Map(
+    await Promise.all(
+      [...wanted].map(
+        async ([slug, ids]): Promise<
+          [string, ReadonlyMap<string, Document<AnyShape>>]
+        > => [slug, await readable(call, slug, [...ids])],
+      ),
+    ),
+  );
+  return docs.map((doc) => {
+    const next = { ...doc };
+    for (const ref of refs) {
+      const targets = found.get(ref.slug);
+      const swap = (id: unknown) =>
+        typeof id === 'string' ? (targets?.get(id) ?? { id }) : id;
+      const value = doc[ref.field];
+      next[ref.field] = Array.isArray(value) ? value.map(swap) : swap(value);
+    }
+    return next;
+  });
 }
 
 async function change(
@@ -268,12 +367,59 @@ async function change(
  * write publishes nothing. A publish that fails reaches the caller although
  * the write stays: the delivery gap architecture.md accepts until the outbox.
  */
+/**
+ * `document` with the `many()` relations in `keys` populated, as `get`
+ * does: each relation's links in one find on its join collection, inside
+ * the parent's tenant, then their targets in one getMany. `set` keeps a
+ * parent to at most 1000 links, so one find holds them all. The links run
+ * under the parent's read, as `list` does, which the get has passed.
+ */
+async function withLinks(
+  call: Populating,
+  collection: AnyCollection,
+  keys: readonly string[],
+  parent: StoredDoc,
+  document: Document<AnyShape>,
+): Promise<Document<AnyShape>> {
+  const next = { ...document };
+  for (const [name, relation] of Object.entries(collection.relations)) {
+    if (!keys.includes(name)) continue;
+    const join = relation.through;
+    const where = both(
+      { [relation.parentField]: { eq: parent.id } },
+      tenantClause(join, tenantOfDoc(collection, parent)),
+    );
+    const { docs } = await call.store.find(
+      findQuery(join.slug, { where, limit: maxLinks }),
+    );
+    const targets = await readable(
+      call,
+      relation.target,
+      docs.flatMap((link) => idsIn(link[relation.targetField])),
+    );
+    const fields = linkFields(relation);
+    next[name] = docs.map((link) => {
+      const id = link[relation.targetField];
+      return {
+        ...Object.fromEntries(
+          fields
+            .filter((field) => link[field] !== undefined)
+            .map((field) => [field, link[field]]),
+        ),
+        doc: typeof id === 'string' ? (targets.get(id) ?? { id }) : id,
+      };
+    });
+  }
+  return next;
+}
+
 const operations: Record<
   Action,
   (call: Call, raw: unknown) => Promise<unknown>
 > = {
   async find(call, raw) {
     const { where, sort, limit, after } = parse(call.ops.find.input, raw);
+    const { populate = [] } = parse(populateList, raw);
     const page = await call.store.find(
       findQuery(call.collection.slug, {
         where: both(where, call.scope),
@@ -282,8 +428,9 @@ const operations: Record<
         after,
       }),
     );
+    const docs = await Promise.all(page.docs.map((doc) => read(call, doc)));
     return {
-      docs: await Promise.all(page.docs.map((doc) => read(call, doc))),
+      docs: await populated(call, call.collection, populate, docs),
       next: page.next,
     };
   },
@@ -300,9 +447,15 @@ const operations: Record<
 
   async get(call, raw) {
     const { id } = parse(call.ops.get.input, raw);
+    const { populate = [] } = parse(populateList, raw);
     const doc = await call.store.get(call.collection.slug, id, call.scope);
     if (doc === null) throw notFound(call, id);
-    return read(call, doc);
+    const [document] = await populated(call, call.collection, populate, [
+      await read(call, doc),
+    ]);
+    return document === undefined
+      ? document
+      : withLinks(call, call.collection, populate, doc, document);
   },
 
   async create(call, raw) {
@@ -415,8 +568,16 @@ export function generated<Actor>(
   ops: Operations<AnyShape>,
   action: Action,
   referrers: Referrers,
+  collections: ReadonlyMap<string, AnyCollection>,
 ): Executable<FamilyContext<Actor>> {
-  const { input, output } = ops[action];
+  const { output } = ops[action];
+  // A read's input takes `populate`, so the family guard checks its keys.
+  const input =
+    action === 'get' || action === 'find'
+      ? ops[action].input.extend(
+          populateShape(populateKeys(collection, action)),
+        )
+      : ops[action].input;
   const run = operations[action];
   class Generated extends family(`${collection.slug}.${action}`, {
     collection,
@@ -442,6 +603,8 @@ export function generated<Actor>(
           actorId: family.actorId(ctx.actor),
           tenantId: CallAccess.stampOf(ctx.access, collection),
           referrers,
+          access: ctx.access,
+          collections,
         },
         raw,
       );
@@ -464,6 +627,7 @@ export function generatedRelation<Actor>(
   name: string,
   relation: AnyRelation,
   op: 'list' | 'set',
+  collections: ReadonlyMap<string, AnyCollection>,
 ): Executable<FamilyContext<Actor>> {
   const { input, output } = relation[op];
   const join = relation.through;
@@ -491,7 +655,10 @@ export function generatedRelation<Actor>(
   }
 
   async function list(ctx: FamilyContext<Actor>, raw: unknown) {
-    const { id, where, sort, limit, after } = parse(relation.list.input, raw);
+    const { id, where, sort, limit, after, populate } = parse(
+      relation.list.input,
+      raw,
+    );
     const parent = await parentOf(ctx, id);
     const page = await store.find(
       findQuery(join.slug, {
@@ -502,7 +669,12 @@ export function generatedRelation<Actor>(
       }),
     );
     return {
-      docs: page.docs.map((doc) => documentOf({ collection: join }, doc)),
+      docs: await populated(
+        { store, access: ctx.access, collections },
+        join,
+        populate ?? [],
+        page.docs.map((doc) => documentOf({ collection: join }, doc)),
+      ),
       next: page.next,
     };
   }

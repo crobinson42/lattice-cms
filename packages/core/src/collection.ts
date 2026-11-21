@@ -253,13 +253,18 @@ export type AnyRelation = {
   readonly parentField: string;
   readonly targetField: string;
   readonly list: {
-    readonly input: z.ZodType<{
-      readonly id: string;
-      readonly where?: AnyWhere | undefined;
-      readonly sort: readonly string[];
-      readonly limit: number;
-      readonly after?: string | undefined;
-    }>;
+    readonly input: z.ZodType<
+      {
+        readonly id: string;
+        readonly where?: AnyWhere | undefined;
+        readonly sort: readonly string[];
+        readonly limit: number;
+        readonly after?: string | undefined;
+        readonly populate?: readonly string[] | undefined;
+      },
+      // The input type too: the contract's expansion reads `populate` there.
+      { readonly populate?: readonly string[] | undefined }
+    >;
     readonly output: z.ZodType;
   };
   readonly set: {
@@ -309,7 +314,12 @@ export type Relation<
           readonly input: z.ZodObject<
             z.core.util.Extend<
               JoinOps<P, Tenant, T, D, F>['find']['input']['shape'],
-              { id: z.ZodString }
+              {
+                id: z.ZodString;
+                populate: z.ZodOptional<
+                  z.ZodArray<z.ZodEnum<{ [K in `${P}Id` | `${T}Id`]: K }>>
+                >;
+              }
             >,
             z.core.$strip
           >;
@@ -452,10 +462,35 @@ function checkField(path: string, schema: z.core.$ZodType): void {
   }
 }
 
+/** `<relation>.<field>` for each link field a join collection cannot have. */
+type BadLinkField<Slug extends string, Tenant extends string, R> = {
+  [K in keyof R]: R[K] extends Many<
+    infer T extends string,
+    string,
+    infer F,
+    ManyOnDelete
+  >
+    ? `${K & string}.${keyof F & (`${Slug}Id` | `${T}Id` | ReservedField | Tenant | StoreName) & string}`
+    : never;
+}[keyof R];
+
 // A rejected relation adds a key the options lack, so the error names it.
-type RelationCheck<Slug extends string, Shape extends z.core.$ZodShape, R> = [
-  keyof R & (keyof Shape | Action | 'read'),
-] extends [never]
+type RelationCheck<
+  Slug extends string,
+  Shape extends z.core.$ZodShape,
+  Tenant extends string,
+  R,
+> = [BadLinkField<Slug, Tenant, R>] extends [never]
+  ? RelationNameCheck<Slug, Shape, R>
+  : {
+      readonly '~error': `link field "${BadLinkField<Slug, Tenant, R>}" is a ref field, a reserved name, the tenant or an invalid field name`;
+    };
+
+type RelationNameCheck<
+  Slug extends string,
+  Shape extends z.core.$ZodShape,
+  R,
+> = [keyof R & (keyof Shape | Action | 'read')] extends [never]
   ? {
       [K in keyof R]: R[K] extends { readonly target: Slug }
         ? `${K & string} relates ${Slug} to itself, which many() does not support`
@@ -499,7 +534,7 @@ export function collection<
   } & FieldCheck<Shape> &
     RefCheck<Shape> &
     TenantCheck<Shape, Tenant> &
-    RelationCheck<Slug, Shape, R>,
+    RelationCheck<Slug, Shape, Tenant, R>,
 ): Collection<Slug, Shape, Tenant, RelationsOf<Slug, Tenant, R>> {
   for (const [name, field] of Object.entries(options.schema.shape)) {
     if (reservedFields.some((reserved) => reserved === name)) {
@@ -663,7 +698,7 @@ function relationOf(
   );
   if (clash !== undefined) {
     throw new Error(
-      `Lattice: "${relation.through}" link field "${clash}" is a ref, a reserved, the tenant or an invalid field name`,
+      `Lattice: "${relation.through}" link field "${clash}" is a ref field, a reserved name, the tenant or an invalid field name`,
     );
   }
   const keys = (...fields: string[]): Index['fields'] =>
@@ -693,7 +728,11 @@ function relationOf(
     parentField,
     targetField,
     list: {
-      input: ops.find.input.extend({ id: z.string() }),
+      // A link's ref fields populate as on any read.
+      input: ops.find.input.extend({
+        id: z.string(),
+        populate: z.array(z.enum([parentField, targetField])).optional(),
+      }),
       output: ops.find.output,
     },
     set: {

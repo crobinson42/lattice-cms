@@ -4,7 +4,12 @@ export {
   type CallAccess,
   unscoped,
 } from './access.js';
-export { type Contract, type Framework, framework } from './build.js';
+export {
+  type Contract,
+  type Framework,
+  framework,
+  type ReadUseCase,
+} from './build.js';
 export {
   type Collection,
   collection,
@@ -17,11 +22,14 @@ export {
   type FamilyContext,
   family,
 } from './family.js';
+export type { Withheld } from './populate.js';
 export {
+  type JoinShape,
   type Many,
   type ManyOnDelete,
   many,
   type OnDelete,
+  type Ref,
   ref,
 } from './relations.js';
 export type { Doc, Repo } from './repo.js';

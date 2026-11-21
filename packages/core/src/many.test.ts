@@ -184,10 +184,25 @@ describe('many()', () => {
         isPrimary?: boolean | undefined;
       }[];
     }>();
-    expectTypeOf(a.posts.categories.list).returns.resolves.toEqualTypeOf<{
+    // list is generic in its populate list; without one it is plain.
+    expectTypeOf<
+      Awaited<ReturnType<typeof a.posts.categories.list<readonly []>>>
+    >().toEqualTypeOf<{
       docs: Link[];
       next: string | null;
     }>();
+    // Without fields or onDelete, a relation keeps many()'s defaults.
+    expectTypeOf<Doc<typeof Posts.relations.tags.through>>().toEqualTypeOf<{
+      postsId: string;
+      tagsId: string;
+      id: string;
+      createdAt: string;
+      updatedAt: string;
+      organizationId: string;
+    }>();
+    expectTypeOf(
+      Posts.relations.categories.onDelete,
+    ).toEqualTypeOf<'restrict'>();
     expectTypeOf(a.posts.tags.set).returns.resolves.toEqualTypeOf<{
       docs: Doc<typeof Posts.relations.tags.through>[];
     }>();
@@ -502,6 +517,46 @@ describe('overrides and names', () => {
         relations: { friends: many('users', { through: 'friendships' }) },
       }),
     ).toThrow('friends relates users to itself');
+  });
+
+  it('a link field named like a ref field, a reserved name or the tenant', () => {
+    expect(() =>
+      // @ts-expect-error link field "tags.notesId" is a ref field, a reserved name, the tenant or an invalid field name
+      collection('notes', {
+        schema: z.object({ text: z.string() }),
+        relations: {
+          tags: many('tags', {
+            through: 'note_tags',
+            fields: z.object({ notesId: z.string() }),
+          }),
+        },
+      }),
+    ).toThrow('"note_tags" link field "notesId"');
+    expect(() =>
+      // @ts-expect-error link field "tags.organizationId" is a ref field, a reserved name, the tenant or an invalid field name
+      collection('notes', {
+        schema: z.object({ text: z.string() }),
+        tenant: 'organizationId',
+        relations: {
+          tags: many('tags', {
+            through: 'note_tags',
+            fields: z.object({ organizationId: z.string() }),
+          }),
+        },
+      }),
+    ).toThrow('"note_tags" link field "organizationId"');
+    expect(() =>
+      // @ts-expect-error link field "tags.createdAt" is a ref field, a reserved name, the tenant or an invalid field name
+      collection('notes', {
+        schema: z.object({ text: z.string() }),
+        relations: {
+          tags: many('tags', {
+            through: 'note_tags',
+            fields: z.object({ createdAt: z.string() }),
+          }),
+        },
+      }),
+    ).toThrow('"note_tags" link field "createdAt"');
   });
 
   it('a method named like a relation, and a join slug already in use', () => {

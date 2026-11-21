@@ -495,6 +495,33 @@ describe('type errors', () => {
     );
   });
 
+  it('an unknown operator, an operand of the wrong type, an unknown action and a Where on create', () => {
+    typeOnly(() => [
+      framework({ family: AppUseCase }).collection(Notes, {
+        access: {
+          // @ts-expect-error "equals" is not an operator
+          read: () => ({ title: { equals: 'x' } }),
+        },
+      }),
+      framework({ family: AppUseCase }).collection(Notes, {
+        access: {
+          // @ts-expect-error rank is a number
+          read: () => ({ rank: { eq: 'high' } }),
+        },
+      }),
+      // @ts-expect-error "publish" is not an action of notes
+      framework({ family: AppUseCase }).collection(Notes, {
+        access: { publish: () => true },
+      }),
+      framework({ family: AppUseCase }).collection(Notes, {
+        access: {
+          // @ts-expect-error create has no row to filter
+          create: () => ({ rank: { gt: 1 } }),
+        },
+      }),
+    ]);
+  });
+
   it('a missing access', () => {
     typeOnly(() =>
       // @ts-expect-error Property 'access' is missing
