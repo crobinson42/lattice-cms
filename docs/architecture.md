@@ -540,10 +540,11 @@ examples/
 
 | Package | Depends on | Peer |
 | --- | --- | --- |
-| `@latticecms/core` | `hexok`, `@ts-pf/contract`, `@ts-pf/server`, `@ts-pf/protocol` | `zod` 4, `@hexok/logger` |
-| `@latticecms/store-mongo` | `hexok`, `mongodb` | `@latticecms/core`, `zod` 4 |
+| `@latticecms/core` | none | `hexok`, `@ts-pf/contract`, `@ts-pf/server`, `@ts-pf/protocol`, `zod` 4, `@hexok/logger` |
+| `@latticecms/store-mongo` | `mongodb` | `@latticecms/core` `^0.1.0`, `hexok`, `zod` 4, `@hexok/logger` |
 | `@latticecms/admin` | `@ts-pf/client`, `@ts-pf/client-http`, `@ts-pf/docs` | `react`, `@shadalaya/react` |
 
+- hexok and ts-pf are peers, so the app and Lattice share one copy of each class and type ([0029](decisions/0029-hexok-and-ts-pf-are-peers.md)). An adapter's peer range on core is a caret range, never `*`. Every package publishes public.
 - Every `@ts-pf/*` package moves together on one version. `@latticecms/core` pins one ts-pf minor and one hexok major, and a bump is its own changeset.
 - A package README is its docs page, as in hexok and ts-pf.
 - No casts. Where a value built at runtime meets a precise type, one asserted overload states the precise type over an erased implementation. There are 8 in core: `build`, `contractOf`, `patchSchema`, `relationsOf`, `repo`, `sortSchema`, `tenantShapes` and `whereSchema`. Adding one needs a reason in review. Each Zod-typed overload states both of Zod's type parameters, or ts-pf callers get `unknown`.

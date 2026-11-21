@@ -28,7 +28,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
 ### 1. The pilot and the release path **Checkpoint**
 
 - [ ] The maintainer names the internal tool that exits this phase, and what it needs from Lattice that this plan lacks. Deferred by the maintainer: name it before step 8 starts. Steps 2–7 go ahead without it.
-- [ ] Settle the dependency ranges for the first publish ([0029](../decisions/0029-hexok-and-ts-pf-are-peers.md)):
+- [x] Settle the dependency ranges for the first publish ([0029](../decisions/0029-hexok-and-ts-pf-are-peers.md)):
   - `hexok` and the `@ts-pf/*` packages core imports become peers (and devDependencies) of core, and `hexok` of store-mongo;
   - store-mongo's peer range on core becomes `^0.1.0`, from `*`;
   - every package publishes with `access: public`.
@@ -95,4 +95,7 @@ Candidates, not commitments. Each needs a reason from this phase's work before i
 
 Add a line here when the work teaches something the plan did not know. Each line says what was found and where it went.
 
-- None yet.
+- core's emitted `.d.ts` failed under `skipLibCheck: false` (a distributive `RelationsOf` in `collection()`'s return type). Root `skipLibCheck: true` hid it. Fixed in task 2.1b, with a check over the built declarations in the four checks.
+- The packages had no license. The maintainer chose MIT, matching hexok and ts-pf (task 2.1b).
+- In the workspace, npm does not check a linked package against a peer range. Only a packed install catches a wrong internal peer range.
+- Turbo ignores `peerDependencies` when ordering builds, so store-mongo keeps `@latticecms/core` as a devDependency too.
