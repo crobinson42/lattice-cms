@@ -41,22 +41,25 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 The risk is types again: population changes output types per call.
 
-- [ ] In a test file, the smallest `ref()`, `many()`, `tenant`, `access` and `populate` that type-check end to end: `local.posts.get({ id, populate: ['authorId'] })` returns `authorId` as the user type, and as `string` without `populate`.
-- [ ] `populate` with a field that is not a relation is a type error. `access` functions are typed from the actor and the collection's `Where`.
-- [ ] Measure type-check time on `examples/crm`-sized definitions.
+- [x] In a test file, the smallest `ref()`, `many()`, `tenant`, `access` and `populate` that type-check end to end: `local.posts.get({ id, populate: ['authorId'] })` returns `authorId` as the user type, and as `string` without `populate`.
+- [x] `populate` with a field that is not a relation is a type error. `access` functions are typed from the actor and the collection's `Where`.
+- [x] Measure type-check time on `examples/crm`-sized definitions.
 
 Stop and show the maintainer the public signatures and one populated call site.
 
+Done. The spike is `packages/core/src/spike-relations.test.ts` and `src/fixtures/spike-relations.ts`. Later steps build the real code from it. Delete both when step 9 lands. The maintainer chose: access attaches at composition ([0021](../decisions/0021-access-attaches-at-composition.md)); populated types come from ts-pf expandable outputs, and a withheld document is `{ id }` ([0022](../decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)).
+
 ### 2. Access **Checkpoint**
 
-- [ ] The `Access` port as `architecture.md` shows it, and the default adapter reading each collection's `access` functions. A missing function denies.
+- [ ] The `Access` port as `architecture.md` shows it, and the default adapter reading the `access` functions given at `framework().collection(C, { access })` ([0021](../decisions/0021-access-attaches-at-composition.md)). A missing function denies. Return types are checked as the spike checks them: an inferred return, with its keys checked on the options object.
 - [ ] The generated operations get their scope from `scopeOf` in `crud.ts`, the seam Phase 0 left: `true` means no clause, `false` throws `FORBIDDEN`, and a `Where` merges into the store call. A row outside the filter is `NOT_FOUND`.
-- [ ] Decide how a method's access for its own action (`posts.publish`) runs. Family guards are fixed at `family()` and see only the call, so the `Access` instance must reach them through the call context or through `build()`. Propose before building.
+- [ ] Decide how a method's access for its own action (`posts.publish`) runs. It is declared beside the method (0021). Family guards are fixed at `family()` and see only the call, so the `Access` instance must reach them through the call context or through `build()`. Propose before building.
 - [ ] Decide whether access functions are the home for a default filter, such as hiding soft-deleted rows (Phase 0 found an archived deal still returned by `find`).
 
 ### 3. Tenancy
 
-- [ ] `collection(slug, { tenant: 'organizationId' })` and `family({ tenantOf })`. Create stamps the tenant field, every filter adds it, and clients cannot set or change it.
+- [ ] `collection(slug, { tenant: 'organizationId' })` and `family({ tenantOf })`. Create stamps the tenant field, every filter adds it, and clients cannot set or change it. A tenant field in the schema is a compile error, as in the spike.
+- [ ] A tenanted collection added to a framework whose family has no `tenantOf` fails at compile time if the spike's approach allows it, otherwise at `.collection()`. Decide whether the tenant field stays in the client `Where` (harmless, since the tenant clause is ANDed in).
 - [ ] `tenancy.bypass(actor)` reads across tenants, and every bypassed call is logged with the actor and collection.
 - [ ] Events carry `tenantId`, and log lines carry `tenantId`.
 - [ ] Isolation tests through `createLocalClient` on `MemoryStore`: find, get, update, delete, cursors and events.
@@ -87,10 +90,13 @@ Stop and show the maintainer the subpath's exports and how an adapter runs the s
 ### 8. Relations
 
 - [ ] `ref()` fields and `many()` relations with real join collections that get generated use cases, access (the parent's `update` access by default), tenancy, indexes and events.
-- [ ] `<slug>.<relation>.list` and `.set` use cases and procedures.
+- [ ] `<slug>.<relation>.list` and `.set` use cases and procedures, as a nested router node in the slice. Decide whether the join collection also gets its own slice. A relation name must not equal a field, an action, a method or an override.
+- [ ] `ref()` takes a slug, so mutual refs do not cycle. A slug that is not in the framework fails at `build()`; make `.contract` fail the same way. Arrays of refs (`z.array(ref('tags'))`) are typed and checked like single refs.
 - [ ] `onDelete`: `restrict` (default), `cascade` and `nullify`, in one transaction when the store supports it, otherwise in order with the parent last. Across stores, `cascade` and `nullify` are idempotent event handlers.
 
 ### 9. Population
+
+Blocked on ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)). Requested from the ts-pf session `lattice-populated-types` on 2026-11-21. Bump `@ts-pf/*` when it ships. If ts-pf declines, stop and ask the maintainer before falling back to the spike's typed client.
 
 - [ ] `populate` on reads, one level deep. Ids are collected per target collection, and `getMany` is called once each.
 - [ ] Access and tenancy apply to populated documents. A populated document the caller may not read comes back as `{ id }` only.
@@ -116,4 +122,8 @@ Stop and show the maintainer the subpath's exports and how an adapter runs the s
 
 Add a line here when the work teaches something the plan did not know. Each line says what was found and where it went.
 
-- None yet.
+- ts-pf's `ProcedureClient` is one non-generic signature, so a read's output cannot follow `populate` from inside Lattice. Went to 0022 and the architecture's proposed changes table.
+- TypeScript does not check excess properties on an object literal an arrow function returns, so `() => ({ authorID: … })` passes as `Where<Doc>`. Access checks inferred return types on the options object. Went to 0021.
+- A template literal around a key union (`` `${K}` ``) makes a compile error print the union instead of the alias name. Use it wherever a key list reaches an error message.
+- A computed key (`{ [tenant]: z.string() }`) types as an index signature, so the tenant shape needs one asserted overload. Expected count after Phase 1: 7.
+- Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.

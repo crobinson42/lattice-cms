@@ -63,7 +63,7 @@ A collection is a declaration. Lattice turns it into hexok use cases, hexok even
 
 ### Define a collection
 
-This example shows the full design. Phase 0 builds `schema` and `.hooks()`; `ref()`, `many()`, `tenant`, `access`, `relations`, `indexes` and `entity` arrive in Phase 1, as the [phased build plan](#phased-build-plan) says. [`packages/core/README.md`](../packages/core/README.md) shows what runs today.
+This example shows the full design. Phase 0 builds `schema` and `.hooks()`; `ref()`, `many()`, `tenant`, `relations`, `indexes` and `entity` arrive in Phase 1, as the [phased build plan](#phased-build-plan) says. [`packages/core/README.md`](../packages/core/README.md) shows what runs today.
 
 ```ts
 // collections/posts.ts
@@ -78,11 +78,6 @@ export const Posts = collection('posts', {
     authorId: ref('users'),
   }),
   tenant: 'organizationId',
-  access: {
-    read: () => true,
-    update: ({ actor }) => ({ authorId: { eq: actor.userId } }),
-    delete: ({ actor }) => actor.roles.includes('admin'),
-  },
   relations: {
     categories: many('categories', {
       through: 'post_categories',
@@ -101,7 +96,7 @@ export const Posts = collection('posts', {
 - `id`, `createdAt`, `updatedAt`, `and` and `or` are reserved field names.
 - No `z.date()` and no transforms (`.transform()`, `.pipe()`, `z.preprocess`, codecs), anywhere in the schema. A Date reaches an HTTP client as a string, and a transform hides the field's kind from `Where`. Normalizing belongs in a `beforeChange` hook. `collection()` throws at definition time and, for top-level Dates, fails to compile.
 - `createdAt` and `updatedAt` are ISO 8601 strings, not `Date`. ts-pf sends JSON, so a `Date` would reach an HTTP client as a string while its type said `Date`.
-- A collection names no use case classes. Methods and overrides attach where the app composes ([0018](decisions/0018-methods-and-overrides-attach-in-the-framework.md)).
+- A collection names no use case classes and no access rules. Methods, overrides and access attach where the app composes ([0018](decisions/0018-methods-and-overrides-attach-in-the-framework.md), [0021](decisions/0021-access-attaches-at-composition.md)).
 
 ### Compose and build
 
@@ -119,7 +114,16 @@ export const lattice = framework({
   errors: { declared: clientErrors, map: toRpcError }, // the app's servers/rpc/errors.ts
 })
   .collection(Users)
-  .collection(Posts, { methods: { publish: PublishPost }, overrides: { delete: ArchivePost } })
+  .collection(Posts, {
+    methods: { publish: PublishPost },
+    overrides: { delete: ArchivePost },
+    access: {                                                      // Phase 1
+      read: () => true,
+      update: ({ actor }) => ({ authorId: { eq: actor.userId } }), // a Where on Posts
+      delete: ({ actor }) => actor.roles.includes('admin'),
+      publish: ({ actor }) => actor.roles.includes('editor'),      // a method's own action
+    },
+  })
   .collection(Categories)
 
 export const contract = lattice.contract
@@ -257,7 +261,7 @@ Join collections are real collections. They get generated use cases, access, ten
 - A read takes `populate: ['authorId', 'categories']`, one level deep in v1.
 - Lattice collects IDs per target collection and calls `getMany` once each. Access and tenancy filters apply to the populated documents too.
 - A populated document the caller may not read comes back as `{ id }` only.
-- Output types follow `populate`: `authorId` is a `string`, or a `User` when populated.
+- Output types follow `populate`: `authorId` is a `string`, or `User | Withheld` when populated, where `Withheld` is `{ id }`. A caller narrows with `'email' in post.authorId`. ts-pf types this through expandable outputs, so every client gets it without a wrapper ([0022](decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)).
 
 ### Deleting a parent
 
@@ -293,6 +297,7 @@ abstract class Access extends Port('Access') {
 
 - Access is a filter in the query ([0005](decisions/0005-access-and-tenancy-are-query-filters.md)).
 - The default adapter reads each collection's `access` functions, Payload style. A missing function denies.
+- Access functions attach at `framework().collection(C, { access })`, where the actor type is known ([0021](decisions/0021-access-attaches-at-composition.md)). Each gets `{ actor }`, and `create` also gets `data`. `read`, `update`, `delete` and custom methods return `boolean | Where<Doc<C>>`; `create` returns `boolean`. A `Where` on a field the collection lacks is a compile error.
 - A `Where` result is merged into the query (`find`) or the write's `where` (`get`, `update`, `delete`). Access is never checked by loading a row and then deciding.
 - `false` throws one `FORBIDDEN` error. A row outside a `Where` is `NOT_FOUND`, so callers cannot probe for IDs.
 - When `@hexok/authz` ships, it becomes an adapter of this port. Its list checks must return a filter, not only a yes or no.
@@ -402,10 +407,11 @@ Every generated operation logs and times itself through the family's hexok `hook
 
 ## Proposed changes to hexok and ts-pf
 
-Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the schema's input type, so a defaulted field is optional for callers. Phase 1 needs no change to either library. The items below are later needs. Each goes through hexok's scope gate or ts-pf's `DECISIONS.md` process before it lands; this table is the input to that discussion, not approval.
+Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the schema's input type, so a defaulted field is optional for callers. Phase 1 needs one ts-pf feature, expandable outputs, for populated reads ([0022](decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)). The other items are later needs. Each goes through hexok's scope gate or ts-pf's `DECISIONS.md` process before it lands; this table is the input to that discussion, not approval.
 
 | Item | Where | Needed by | Recommendation | Why |
 | --- | --- | --- | --- | --- |
+| Expandable outputs: `procedure.output(O).expand({ key, at, fields })`, so the output type follows a list in the input | ts-pf | Phase 1 step 9 | Build it (requested) | Population changes a read's output per call. ts-pf's client is one non-generic signature per procedure, so no Lattice-side type reaches swr, mvc-kit or codegen clients |
 | `@hexok/authz` | hexok (already planned) | Phase 2 | Build it; add list checks that return a filter | Every product needs it. Lattice adapts its `Access` port to it |
 | Tracing port | hexok | Phase 2 | No new package. Lattice calls `@opentelemetry/api` directly | The OTel API is already vendor-neutral and a no-op without an SDK, so an app can solve this today (gate question 2) |
 | Blob storage port, `@hexok/blob` + `@hexok/blob-s3` | hexok | Phase 3 | Build it, shaped like `email` / `sms` | Any product with uploads needs it. S3 covers DigitalOcean Spaces |
