@@ -109,10 +109,13 @@ Decided in [0028](../decisions/0028-relations-delete-in-a-store-transaction-as-s
 - [x] Ref indexes in `ensure()`.
 
 8b. `many()`:
-- [ ] Derived join collections with `list` and `set`, the parent's access, the parent's tenant, events in the catalog, join indexes, and nested overrides.
-- [ ] Name rules for relations.
+- [x] Derived join collections with `list` and `set`, the parent's access, the parent's tenant, events in the catalog, join indexes, and nested overrides.
+- [x] Name rules for relations.
 
 ### 9. Population
+
+- [ ] Remove `rootRouter()` in `build.ts` if ts-pf offers a typed `router()` for an erased tree that mixes procedures and nested routers (asked of `lattice-populated-types` on 2026-11-21). Otherwise, keep it and record why next to it.
+- [ ] A link field named like a ref field, a reserved name or the tenant is a compile error, not only a throw.
 
 Uses ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)), released in `@ts-pf/*` 0.6.0 on 2026-11-21. Bump all `@ts-pf/*` packages together, then run `npx skills experimental_sync -y`:
 - `.output(Wide).expand({ key: 'populate', at: ['docs'], fields })`, where the output schema is the wide type the server sends.
@@ -171,5 +174,9 @@ Add a line here when the work teaches something the plan did not know. Each line
 - Zod's checks (`.min()`, `.trim()`) clone a schema and drop own properties, so a ref marker on the instance was lost. It is a no-op check now. Went to `architecture.md`.
 - A cascade into a collection that overrides `delete` would hard-delete what the app soft-deletes, so it is a compile error. Conformance cases that need transactions carry `needs: ['transactions']`; a standalone MongoStore runs the other 37.
 - After 8a: core type-check 1.76 s (1.60 s without relations.test.ts), crm 0.49 s, store-mongo 0.30 s. Asserted overloads: 7.
+- ts-pf's router types read a node that may be a procedure or a router as a procedure, so the erased runtime tree with relation nodes fails `RouterImplCheck`. `build()` calls the root `router()` through `rootRouter()`, which uses runtime guards and no casts. Raised with ts-pf.
+- A self `many()` (`users.friends`) is refused: `<parent>Id` and `<target>Id` would collide. It needs a naming rule later.
+- Apps with relations need the `Many` and `RelationsOf` types exported, or declaration emit fails with TS2883.
+- After 8b: core type-check 2.10 s (1.97 s without many.test.ts), crm 0.49 s, store-mongo 0.37 s. Asserted overloads: 8 (`relationsOf`).
 - Type-check after access: core check 1.08 s to 1.15 s (with a 500-line test file), crm 0.40 s, unchanged. Asserted overloads: 6.
 - Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.

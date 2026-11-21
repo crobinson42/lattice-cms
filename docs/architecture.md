@@ -303,7 +303,11 @@ Relations are IDs plus explicit join collections ([0004](decisions/0004-no-datab
 | Many to many, or one to many with metadata | `many('categories', { through, fields })` | A join collection, such as `post_categories`, with `postsId`, `categoriesId` and the `fields` |
 | A short ordered list with no metadata | `tagIds: z.array(ref('tags'))` | An ID array on the parent, capped by the schema's `max()` |
 
-Join collections are real collections. They get generated use cases, access, tenancy, indexes and events. Their default access is the parent's `update` access.
+Join collections are derived from `many(target, { through, fields?, onDelete? })` ([0028](decisions/0028-relations-delete-in-a-store-transaction-as-system-work.md)). The join collection `through` holds `<parent>Id` (cascading from the parent), `<target>Id` (with `onDelete`, `restrict` or `cascade`) and `fields`. It has the system fields, the parent's tenant field, its own events, a unique index on the pair, and a `Repo` in `repos`. It gets no CRUD slice. Each relation adds two operations to the parent's slice:
+
+- `posts.categories.list({ id, where?, sort?, limit?, after? })` returns `{ docs: Link[], next }`. It runs the parent's `read`: the parent is fetched under that scope, so a parent outside it is `NOT_FOUND`.
+- `posts.categories.set({ id, links })` replaces the set by diffing: removed links are deleted, new ones inserted, changed fields updated, and unchanged links keep their id. It runs the parent's `update`, inside a transaction, with up to 1000 links and an event per change. A bypass cannot `set`.
+- Both are family use cases, overridable with `overrides: { categories: { set } }`. A relation name cannot be a field, an action, a method or an override, and `many()` cannot target its own collection.
 
 ### Population
 
