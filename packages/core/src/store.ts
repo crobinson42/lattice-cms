@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { Adapter, Port } from 'hexok';
 import { LatticeError } from './errors.js';
 import { after, compareDocs, encodeCursor, orderOf } from './sort.js';
@@ -26,11 +27,28 @@ export type FindQuery = {
 export type Page = { readonly docs: StoredDoc[]; readonly next: string | null };
 
 /**
+ * An index on a collection. `fields` maps each field to its direction, in
+ * the index's key order. A unique index treats a missing field as null, as
+ * MongoDB does, so two documents missing it conflict.
+ */
+export type Index = {
+  readonly fields: Readonly<Record<string, 1 | -1>>;
+  readonly unique?: boolean;
+};
+
+/**
  * Storage for every collection. `where` on a single-row call is the access
  * and tenant filter: a row outside it acts as missing.
  */
 export abstract class CollectionStore extends Port('CollectionStore') {
+  /**
+   * Creates the indexes `collection` lacks, and never drops one. Rejects
+   * when a new unique index meets documents that already break it.
+   */
+  abstract ensure(collection: string, indexes: readonly Index[]): Promise<void>;
   abstract find(query: FindQuery): Promise<Page>;
+  /** How many documents match `where`. */
+  abstract count(collection: string, where?: AnyWhere): Promise<number>;
   abstract get(
     collection: string,
     id: string,
@@ -42,9 +60,12 @@ export abstract class CollectionStore extends Port('CollectionStore') {
     ids: readonly string[],
     where?: AnyWhere,
   ): Promise<StoredDoc[]>;
-  /** Throws `CONFLICT` when the id exists. */
+  /** Throws `CONFLICT` when the id exists, or a unique index would break. */
   abstract insert(collection: string, doc: StoredDoc): Promise<void>;
-  /** The updated doc, or null when no row matched. */
+  /**
+   * The updated doc, or null when no row matched. Throws `CONFLICT` when a
+   * unique index would break.
+   */
   abstract update(
     collection: string,
     id: string,
@@ -65,6 +86,7 @@ export abstract class CollectionStore extends Port('CollectionStore') {
  */
 export class MemoryStore extends Adapter(CollectionStore) {
   private readonly collections = new Map<string, Map<string, StoredDoc>>();
+  private readonly indexes = new Map<string, Index[]>();
 
   private rows(collection: string): Map<string, StoredDoc> {
     const existing = this.collections.get(collection);
@@ -72,6 +94,74 @@ export class MemoryStore extends Adapter(CollectionStore) {
     const rows = new Map<string, StoredDoc>();
     this.collections.set(collection, rows);
     return rows;
+  }
+
+  /** The unique indexes of `collection`. */
+  private unique(collection: string): Index[] {
+    return (this.indexes.get(collection) ?? []).filter(
+      (index) => index.unique === true,
+    );
+  }
+
+  /**
+   * Throws CONFLICT when `doc` would share a unique index's key with another
+   * row. A missing field keys as null, as in MongoDB.
+   */
+  private checkUnique(collection: string, doc: StoredDoc): void {
+    for (const index of this.unique(collection)) {
+      const key = keyOf(index, doc);
+      for (const row of this.rows(collection).values()) {
+        if (row.id !== doc.id && isDeepStrictEqual(keyOf(index, row), key)) {
+          throw LatticeError.CONFLICT({ collection, id: doc.id });
+        }
+      }
+    }
+  }
+
+  async ensure(collection: string, indexes: readonly Index[]): Promise<void> {
+    const known = this.indexes.get(collection) ?? [];
+    const added: Index[] = [];
+    for (const index of indexes) {
+      const fields = Object.keys(index.fields).join(', ');
+      const existing = [...known, ...added].find((other) =>
+        sameKeys(other, index),
+      );
+      // Changing an index is a migration, so the same keys with other
+      // options reject, as MongoDB's IndexOptionsConflict does.
+      if (existing !== undefined) {
+        if ((existing.unique === true) !== (index.unique === true)) {
+          throw new Error(
+            `MemoryStore: "${collection}" has an index on ${fields} with other options`,
+          );
+        }
+        continue;
+      }
+      if (index.unique === true && this.hasDuplicates(collection, index)) {
+        throw new Error(
+          `MemoryStore: "${collection}" has duplicates for the unique index on ${fields}`,
+        );
+      }
+      added.push(index);
+    }
+    this.indexes.set(collection, [...known, ...added]);
+  }
+
+  /** Whether two rows of `collection` share `index`'s key. */
+  private hasDuplicates(collection: string, index: Index): boolean {
+    const keys = [...this.rows(collection).values()].map((row) =>
+      keyOf(index, row),
+    );
+    return keys.some((key, i) =>
+      keys.slice(i + 1).some((other) => isDeepStrictEqual(key, other)),
+    );
+  }
+
+  async count(collection: string, where?: AnyWhere): Promise<number> {
+    let count = 0;
+    for (const doc of this.rows(collection).values()) {
+      if (where === undefined || matches(doc, where)) count += 1;
+    }
+    return count;
   }
 
   private visible(
@@ -133,6 +223,7 @@ export class MemoryStore extends Adapter(CollectionStore) {
     if (rows.has(doc.id)) {
       throw LatticeError.CONFLICT({ collection, id: doc.id });
     }
+    this.checkUnique(collection, doc);
     rows.set(doc.id, structuredClone(doc));
   }
 
@@ -151,6 +242,7 @@ export class MemoryStore extends Adapter(CollectionStore) {
       ...Object.fromEntries(fields),
       id,
     });
+    this.checkUnique(collection, doc);
     this.rows(collection).set(id, doc);
     return structuredClone(doc);
   }
@@ -165,4 +257,14 @@ export class MemoryStore extends Adapter(CollectionStore) {
     this.rows(collection).delete(id);
     return doc;
   }
+}
+
+/** An index's key for `doc`: its fields' values, a missing one as null. */
+function keyOf(index: Index, doc: StoredDoc): unknown[] {
+  return Object.keys(index.fields).map((field) => doc[field] ?? null);
+}
+
+/** Whether two indexes have the same keys, in the same order and directions. */
+function sameKeys(a: Index, b: Index): boolean {
+  return isDeepStrictEqual(Object.entries(a.fields), Object.entries(b.fields));
 }

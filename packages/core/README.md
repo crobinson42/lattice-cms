@@ -389,7 +389,30 @@ export class ArchiveDeal extends AppUseCase('deals.delete', {
 
 ### `CollectionStore` and `MemoryStore`
 
-`CollectionStore` is the hexok port every collection uses: `find`, `get`, `getMany`, `insert`, `update` and `remove`. A `where` on a single-row call limits the rows it can touch; a row outside it acts as missing. `MemoryStore` is the in-memory adapter, for tests and examples. It stores copies.
+`CollectionStore` is the hexok port every collection uses: `ensure`, `find`, `count`, `get`, `getMany`, `insert`, `update` and `remove`. A `where` on a single-row call limits the rows it can touch; a row outside it acts as missing. `MemoryStore` is the in-memory adapter, for tests and examples. It stores copies and enforces unique indexes.
+
+- `ensure(collection, indexes)` creates the indexes a collection lacks and never drops one. An `Index` is `{ fields: { status: 1, createdAt: -1 }, unique? }`. A unique index treats a missing field as null, as MongoDB does, and a write that breaks one is `CONFLICT`.
+- `count(collection, where?)` counts the documents that match.
+
+### Writing a store adapter
+
+`@latticecms/core/store` has what an adapter needs: the `CollectionStore` port, its types (`StoredDoc`, `Patch`, `FindQuery`, `Page`, `Index`), the parsed filter (`AnyWhere`, with `FieldOps` for each field's operators), and the cursor helpers (`orderOf`, `after`, `encodeCursor`). A store receives values Lattice has parsed. Filters follow MongoDB's null and missing rules, and the keyset of `after` is itself an `AnyWhere`, so a store applies it like any filter.
+
+`@latticecms/core/store/conformance` has `storeCases`: the cases every store passes, asserted with `node:assert`, so any test runner runs them. Give each case a fresh store:
+
+```ts
+import { storeCases } from '@latticecms/core/store/conformance';
+
+describe('MongoStore conformance', () => {
+  let store: MongoStore;
+  beforeEach(async () => {
+    store = await freshStore();
+  });
+  afterEach(() => store.stop());
+
+  it.each(storeCases)('$name', ({ run }) => run(store));
+});
+```
 
 ## Guarantees
 

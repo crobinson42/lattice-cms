@@ -10,6 +10,16 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./store": {
+      "types": "./dist/store/index.d.ts",
+      "import": "./dist/store/index.js",
+      "default": "./dist/store/index.js"
+    },
+    "./store/conformance": {
+      "types": "./dist/store/conformance.d.ts",
+      "import": "./dist/store/conformance.js",
+      "default": "./dist/store/conformance.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

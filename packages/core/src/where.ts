@@ -301,7 +301,8 @@ export function parseWhere<S extends z.ZodObject>(
   throw invalid(result.error.issues);
 }
 
-type FieldOps = {
+/** The operators of one field in a parsed `Where`. */
+export type FieldOps = {
   readonly eq?: unknown;
   readonly ne?: unknown;
   readonly in?: readonly unknown[];
