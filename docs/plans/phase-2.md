@@ -51,8 +51,12 @@ Built: [0030](../decisions/0030-the-edge-checks-membership-per-request.md).
 
 ### 4. Field-level read masking **Checkpoint**
 
-- [ ] `fields: { salary: { read } }`, or the shape the design settles on. Output types cannot follow the actor, so decide what a masked field's type is: optional, `Withheld`-like, or a separate read.
-- [ ] Masking applies to `get`, `find`, `list`, population and events' `doc`. A filter or sort on a masked field must not leak it.
+Approved design: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundary.md) (proposed).
+
+- [ ] `collection({ maskable })`, `clientOutput` and `ClientDoc<C>`; `.collection(C, { fields: { f: { read } } })`; `Access.readable`, failing closed. A withheld field is absent, and optional in client types.
+- [ ] Masking at the implemented router covers get, find, list, population, overrides, methods, and create and update responses. Maskable fields are found by a field-schema marker. Repos, direct `useCases` and events stay whole.
+- [ ] A `where` or `sort` on a withheld field is `VALIDATION`, and a unique index on a maskable field throws. A bisection test proves no leak, with teeth.
+- [ ] The crm: a membership `role`. Members see deals without `amount`; managers and support see it.
 
 ### 5. Tracing
 

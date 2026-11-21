@@ -42,6 +42,8 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 
 These are not decided yet. Treat them as context, not rules.
 
-None.
+| ID | Decision | Strength | Revisit when |
+| --- | --- | --- | --- |
+| [0031](0031-masked-fields-are-withheld-at-the-client-boundary.md) | Masked fields are declared on the collection, decided per actor through the Access port, and withheld at the client boundary | default | An app needs a field's visibility to depend on the row, not just the actor, or a client generator cannot handle optional properties in output. |
 
 1 superseded record is history and not listed. Do not follow them.
