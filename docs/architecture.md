@@ -274,6 +274,8 @@ Authentication stays in `@hexok/auth` at the edge ([0006](decisions/0006-use-cas
 
 The app follows hexok's `app-template` pattern unchanged. A ts-pf context function reads the credential, `Sessions` or `resolving()` turns it into the actor, and the actor goes on the use case context. Lattice validates the actor against the family's actor schema and never imports `@hexok/auth`. Swapping to the company IdP changes the composition root only.
 
+`FamilyContext.actor` is typed as a valid actor, so an edge cannot hand the family guard "no actor" without a cast. The edge refuses a missing credential itself, as app-template does; the family guard rejects a present but invalid actor. Phase 2's auth recipe revisits this.
+
 ### Access
 
 Access is a hexok port, so the decision engine can be replaced:
@@ -446,8 +448,8 @@ Each phase ends at a gate; the next starts when its exit holds. Phase 0 builds t
 
 | Phase | Scope | Exit |
 | --- | --- | --- |
-| 0. Kernel, in memory ([plan](plans/phase-0.md)) | `collection()`, `family()`, `framework()`, `build()`, `MemoryStore`; generated CRUD use cases, contract slice, event classes; overrides, custom methods, family guards, logging | A three-collection example serves `/rpc` and all tests pass on `MemoryStore` |
-| 1. Mongo, relations, access, tenancy | `MongoStore`, `Where` translation, indexes, migrations runner; `ref()`, `many()`, join collections, batched population; `Access` port with default functions, row-level tenancy, `withTotal` | `examples/crm` runs on Mongo; tenant isolation tests pass |
+| 0. Kernel, in memory (done) | `collection()`, `family()`, `framework()`, `build()`, `MemoryStore`; generated CRUD use cases, contract slice, event classes; overrides, custom methods, family guards, logging | A three-collection example serves `/rpc` and all tests pass on `MemoryStore` |
+| 1. Mongo, relations, access, tenancy ([plan](plans/phase-1.md)) | `MongoStore`, `Where` translation, indexes, migrations runner; `ref()`, `many()`, join collections, batched population; `Access` port with default functions, row-level tenancy, `withTotal` | `examples/crm` runs on Mongo; tenant isolation tests pass |
 | 2. Production wiring | `@hexok/auth` recipe, `@hexok/authz` adapter, field masking; integration-events and webhooks recipes, MCP, OpenAPI; OpenTelemetry spans | One internal tool runs in production on Lattice |
 | 3. Admin and CLI | Admin SPA from `catalog()` and `.meta()`, on `@shadalaya`; CLI scaffolding and migrations; uploads through `@ts-pf/file` and a blob port | A new tool reaches CRUD, auth and admin in under one day |
 | 4. Hardening | Outbox relay, versions and drafts, Postgres store, index and performance tooling, security review | Ongoing; picked up as products need it |
