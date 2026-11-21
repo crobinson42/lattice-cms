@@ -8,7 +8,7 @@ Lattice CMS is a TypeScript framework for internal tools, CRMs, admin panels and
 | --- | --- | --- |
 | The current design | [`docs/architecture.md`](docs/architecture.md) | Edited in place, in the same PR as the code. It states what is true now: no history |
 | Why a choice was made | [`docs/decisions/README.md`](docs/decisions/README.md), then only the records that bear on your task | A new record supersedes an old one. Accepted records are never rewritten |
-| What to do now | The current phase plan: [`docs/plans/phase-1.md`](docs/plans/phase-1.md) | Ticked as you go. Deleted when the phase exits |
+| What to do now | The current phase plan: [`docs/plans/phase-2.md`](docs/plans/phase-2.md) | Ticked as you go. Deleted when the phase exits |
 | What a package does | Its `README.md` | Edited in place |
 | History | `git log` | Never loaded by default |
 
@@ -57,7 +57,7 @@ Write only the code the phase needs. Keep one behavior in one place. Do not add 
 npm workspaces with Turbo. Node 24 (`.nvmrc`), engines `>=22.11`. ESM only.
 
 - `packages/core`: `@latticecms/core`.
-- `packages/store-mongo`: `@latticecms/store-mongo`, Phase 1. Do not create it earlier.
+- `packages/store-mongo`: `@latticecms/store-mongo`: `MongoStore` and `migrate()`.
 - `examples/crm`: the example app. Private.
 - `docs/`: architecture, decisions, plans. `scripts/decisions.mjs`: the decisions index.
 

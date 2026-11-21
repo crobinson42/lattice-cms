@@ -6,7 +6,7 @@ Status: Phase 0. Nothing is published yet.
 
 - Design: [docs/architecture.md](docs/architecture.md)
 - Decisions in force: [docs/decisions/README.md](docs/decisions/README.md)
-- Current work: [docs/plans/phase-1.md](docs/plans/phase-1.md)
+- Current work: [docs/plans/phase-2.md](docs/plans/phase-2.md)
 - Working on this repo, by hand or with an agent: [AGENTS.md](AGENTS.md)
 
 ```bash

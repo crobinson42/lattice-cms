@@ -482,6 +482,26 @@ Every generated operation logs and times itself through the family's hexok `hook
 - Tracing (Phase 2): one span per procedure (ts-pf server call interceptor), one per use case (`preExecute` / `onFinally`), one per store call (inside the adapter). Spans use `@opentelemetry/api` and follow OpenTelemetry names.
 - Tests: `MemoryLogger` and a no-op tracer, so assertions can read what was logged.
 
+## Known limits
+
+What the built system does not do yet, or does with a known gap. Each is a candidate for a later phase.
+
+- **Relations.**
+  - A collection cannot relate to itself with `many()`; it is a compile error.
+  - `restrict` counts every child row, including soft-deleted ones, so an archived deal still blocks deleting its company.
+  - Population is one level deep, and `find` populates refs only.
+- **Repos.** `Repo.update` writes its patch as given and does not re-validate the merged document, as generated update does.
+- **Stores.**
+  - `MemoryStore.transaction` restores on a throw, but does not isolate calls made outside `work`.
+  - A standalone MongoDB runs a transaction's work in order, without atomicity.
+  - `MemoryStore` and MongoDB differ on string order outside the BMP, and on non-ASCII case folding in `contains`.
+  - One store serves every collection.
+- **Auth.** The example authenticates with dev headers. The `@hexok/auth` recipe, the `@hexok/authz` adapter and field masking are Phase 2.
+- **Publishing.** Before the first publish:
+  - `@latticecms/store-mongo` needs a real peer range on `@latticecms/core`, which is `*` today;
+  - decide whether `hexok` and `@ts-pf/*` become peers.
+- **Type-check cost.** After Phase 1, a full check takes 0.98 s for core's sources (0.87 s after Phase 0), 0.41 s for the crm's sources (0.38 s), and 0.51 s for the crm with tests. Core's own suite takes 2.2 s, mostly type tests. [0003](decisions/0003-collections-compile-at-runtime.md)'s revisit condition does not hold.
+
 ## Proposed changes to hexok and ts-pf
 
 Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the schema's input type, so a defaulted field is optional for callers. Phase 1 needed one ts-pf feature, expandable outputs, released in 0.6.0 ([0022](decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)). The other items are later needs or nice to have. Each goes through hexok's scope gate or ts-pf's `DECISIONS.md` process before it lands; this table is the input to that discussion, not approval.
@@ -539,6 +559,6 @@ Each phase ends at a gate; the next starts when its exit holds. Phase 0 builds t
 | --- | --- | --- |
 | 0. Kernel, in memory (done) | `collection()`, `family()`, `framework()`, `build()`, `MemoryStore`; generated CRUD use cases, contract slice, event classes; overrides, custom methods, family guards, logging | A three-collection example serves `/rpc` and all tests pass on `MemoryStore` |
 | 1. Mongo, relations, access, tenancy (done) | `MongoStore`, `Where` translation, indexes, migrations runner; `ref()`, `many()`, join collections, batched population; `Access` port with default functions, row-level tenancy, `count` | `examples/crm` runs on Mongo; tenant isolation tests pass |
-| 2. Production wiring | `@hexok/auth` recipe, `@hexok/authz` adapter, field masking; integration-events and webhooks recipes, MCP, OpenAPI; OpenTelemetry spans | One internal tool runs in production on Lattice |
+| 2. Production wiring ([plan](plans/phase-2.md)) | `@hexok/auth` recipe, `@hexok/authz` adapter, field masking; integration-events and webhooks recipes, MCP, OpenAPI; OpenTelemetry spans | One internal tool runs in production on Lattice |
 | 3. Admin and CLI | Admin SPA from `catalog()` and `.meta()`, on `@shadalaya`; CLI scaffolding and migrations; uploads through `@ts-pf/file` and a blob port | A new tool reaches CRUD, auth and admin in under one day |
 | 4. Hardening | Outbox relay, versions and drafts, Postgres store, index and performance tooling, security review | Ongoing; picked up as products need it |
