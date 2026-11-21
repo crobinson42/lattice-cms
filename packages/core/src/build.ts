@@ -1,15 +1,19 @@
 import {
   type ContractProcedure,
   type ContractRouterBrand,
+  type ErrorMap,
   type InferSchemaOutput,
   procedure,
   router,
 } from '@ts-pf/contract';
+import { isPFError } from '@ts-pf/protocol';
 import {
   createImplementer,
   type ImplementedProcedure,
   type ImplementedRouter,
+  type MiddlewareFn,
 } from '@ts-pf/server';
+import { validate } from 'hexok';
 import type { z } from 'zod';
 import {
   type Action,
@@ -18,7 +22,14 @@ import {
   operations,
 } from './collection.js';
 import { type EventPublisher, type Executable, generated } from './crud.js';
-import type { Family, FamilyContext } from './family.js';
+import {
+  declaredErrors,
+  type LatticeCode,
+  latticeCodes,
+  refusal,
+  toClientError,
+} from './errors.js';
+import { type Family, type FamilyContext, loggedByFamily } from './family.js';
 import type { CollectionStore } from './store.js';
 
 const actions = [
@@ -129,22 +140,34 @@ type EventCheck<Col extends AnyCollection, P extends EventPublisher> = [
       readonly '~error': `the events publisher does not take "${Refused<Col, P> & string}"`;
     };
 
+// A rejected map adds a key it lacks, so the error names the code.
+type DeclaredCheck<D> = [keyof D & LatticeCode] extends [never]
+  ? unknown
+  : {
+      readonly '~error': `"${keyof D & LatticeCode & string}" is a Lattice error code`;
+    };
+
+/** The errors every procedure declares: Lattice's, then the app's. */
+type Declared<D extends ErrorMap> = typeof declaredErrors & D;
+
 /** One collection's contract slice: the generated operations plus its methods. */
-type Slice<E extends Entry> = {
+type Slice<E extends Entry, D extends ErrorMap> = {
   [K in Action | (keyof E['methods'] & string)]: K extends Action
     ? ContractProcedure<
         InferSchemaOutput<Ops<E['collection']>[K]['input']>,
-        InferSchemaOutput<Ops<E['collection']>[K]['output']>
+        InferSchemaOutput<Ops<E['collection']>[K]['output']>,
+        Declared<D>
       >
     : ContractProcedure<
         InferSchemaOutput<E['methods'][K]['input']>,
-        InferSchemaOutput<E['methods'][K]['output']>
+        InferSchemaOutput<E['methods'][K]['output']>,
+        Declared<D>
       >;
 };
 
 /** The generated ts-pf contract: one slice per collection. */
-export type Contract<E extends Entries> = {
-  [S in keyof E]: Slice<E[S]>;
+export type Contract<E extends Entries, D extends ErrorMap> = {
+  [S in keyof E]: Slice<E[S], D>;
 } & ContractRouterBrand;
 
 type Instance<C> = C extends Ctor<infer I> ? I : never;
@@ -172,25 +195,37 @@ type BuildArgs<E extends Entries, Ctx> = [
   : [options: BuildOptions<E, Ctx>];
 
 /** What `build()` returns. */
-type Built<E extends Entries, Ctx> = {
-  readonly contract: Contract<E>;
-  readonly app: ImplementedRouter<Contract<E>, Ctx>;
+type Built<E extends Entries, D extends ErrorMap, Ctx> = {
+  readonly contract: Contract<E, D>;
+  readonly app: ImplementedRouter<Contract<E, D>, Ctx>;
 };
 
-type RuntimeContract = Record<
-  string,
-  Record<string, ContractProcedure<unknown, unknown>>
->;
+type RuntimeProcedure = ContractProcedure<unknown, unknown, ErrorMap>;
+
+type RuntimeContract = Record<string, Record<string, RuntimeProcedure>>;
+
+/** The app's client errors: its declared map, and the mapper that builds them. */
+type AppErrors<D extends ErrorMap> = {
+  readonly declared: D;
+  /** Returns the error a client receives. ts-pf sends one it returns unchanged as INTERNAL. */
+  readonly map: (error: unknown) => unknown;
+};
 
 type RuntimeInstances<Ctx> = Readonly<
   Record<string, Readonly<Record<string, Executable<Ctx>>> | undefined>
 >;
 
-export class Framework<Actor, P extends EventPublisher, E extends Entries> {
+export class Framework<
+  Actor,
+  P extends EventPublisher,
+  D extends ErrorMap,
+  E extends Entries,
+> {
   constructor(
     private readonly family: Family<Actor>,
     private readonly store: CollectionStore,
     private readonly events: P,
+    private readonly errors: AppErrors<ErrorMap>,
     private readonly entries: readonly Entry[],
   ) {}
 
@@ -212,6 +247,7 @@ export class Framework<Actor, P extends EventPublisher, E extends Entries> {
   ): Framework<
     Actor,
     P,
+    D,
     E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
   > {
     const { slug } = collection;
@@ -238,8 +274,9 @@ export class Framework<Actor, P extends EventPublisher, E extends Entries> {
     return new Framework<
       Actor,
       P,
+      D,
       E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
-    >(this.family, this.store, this.events, [
+    >(this.family, this.store, this.events, this.errors, [
       ...this.entries,
       { collection, methods, overrides },
     ]);
@@ -252,7 +289,7 @@ export class Framework<Actor, P extends EventPublisher, E extends Entries> {
    */
   build(
     ...args: BuildArgs<E, FamilyContext<Actor>>
-  ): Built<E, FamilyContext<Actor>>;
+  ): Built<E, D, FamilyContext<Actor>>;
   build(options?: {
     readonly methods?: RuntimeInstances<FamilyContext<Actor>>;
     readonly overrides?: RuntimeInstances<FamilyContext<Actor>>;
@@ -260,6 +297,10 @@ export class Framework<Actor, P extends EventPublisher, E extends Entries> {
     readonly contract: RuntimeContract;
     readonly app: ImplementedRouter<RuntimeContract, FamilyContext<Actor>>;
   } {
+    const call = procedure.errors({
+      ...declaredErrors,
+      ...this.errors.declared,
+    });
     const slices: RuntimeContract = {};
     const useCases: Record<
       string,
@@ -267,7 +308,7 @@ export class Framework<Actor, P extends EventPublisher, E extends Entries> {
     > = {};
     for (const { collection, methods, overrides } of this.entries) {
       const { slug } = collection;
-      const slice: Record<string, ContractProcedure<unknown, unknown>> = {};
+      const slice: Record<string, RuntimeProcedure> = {};
       const sliceUseCases: Record<
         string,
         Executable<FamilyContext<Actor>>
@@ -275,7 +316,7 @@ export class Framework<Actor, P extends EventPublisher, E extends Entries> {
       const ops = operations(collection.schema);
       for (const action of actions) {
         const { input, output } = ops[action];
-        slice[action] = procedure.input(input).output(output);
+        slice[action] = call.input(input).output(output);
         const declared = overrides[action];
         sliceUseCases[action] =
           declared === undefined
@@ -296,7 +337,7 @@ export class Framework<Actor, P extends EventPublisher, E extends Entries> {
               );
       }
       for (const [name, method] of Object.entries(methods)) {
-        slice[name] = procedure.input(method.input).output(method.output);
+        slice[name] = call.input(method.input).output(method.output);
         sliceUseCases[name] = instanceOf(
           'method',
           slug,
@@ -315,10 +356,7 @@ export class Framework<Actor, P extends EventPublisher, E extends Entries> {
       string,
       Record<
         string,
-        ImplementedProcedure<
-          ContractProcedure<unknown, unknown>,
-          FamilyContext<Actor>
-        >
+        ImplementedProcedure<RuntimeProcedure, FamilyContext<Actor>>
       >
     > = {};
     for (const [slug, sliceUseCases] of Object.entries(useCases)) {
@@ -335,7 +373,8 @@ export class Framework<Actor, P extends EventPublisher, E extends Entries> {
       }
       tree[slug] = sliceTree;
     }
-    return { contract, app: impl.router(tree) };
+    const errors = clientErrors(this.family, this.errors.map);
+    return { contract, app: impl.use(errors).router(tree) };
   }
 }
 
@@ -363,8 +402,49 @@ function instanceOf<Ctx>(
   return instance;
 }
 
+/**
+ * The middleware on every procedure. It replaces a thrown error with the one
+ * the client receives (`toClientError`). It logs each refusal no family
+ * logged, once, at info: a guard's, and ts-pf's own input check, which runs
+ * after `.use()` middleware. An error sent as INTERNAL is the edge's
+ * `onError` to log.
+ */
+function clientErrors<Actor>(
+  family: Family<Actor>,
+  map: (error: unknown) => unknown,
+): MiddlewareFn<FamilyContext<Actor>> {
+  return async ({ context, next, path }) => {
+    try {
+      return await next();
+    } catch (error) {
+      const sent = toClientError(error, map);
+      if (
+        isPFError(sent) &&
+        sent.code !== 'INTERNAL' &&
+        !loggedByFamily(error)
+      ) {
+        const [collection, action] = path;
+        // The guards may not have checked the actor yet.
+        const actor = validate(family.actor, context.actor);
+        context.logger.info(path.join('.'), {
+          collection,
+          action,
+          ...(actor.ok ? { actorId: family.actorId(actor.value) } : {}),
+          outcome: 'refused',
+          ...(refusal(error) ?? { code: sent.code }),
+        });
+      }
+      throw sent;
+    }
+  };
+}
+
 /** Starts an app: the family every generated and hand-written use case extends. */
-export function framework<Actor, P extends EventPublisher>(options: {
+export function framework<
+  Actor,
+  P extends EventPublisher,
+  D extends ErrorMap = Record<never, never>,
+>(options: {
   family: Family<Actor>;
   /** Where every collection's documents live. */
   store: CollectionStore;
@@ -374,11 +454,27 @@ export function framework<Actor, P extends EventPublisher>(options: {
    * that does nothing.
    */
   events: P;
-}): Framework<Actor, P, Record<never, never>> {
-  return new Framework<Actor, P, Record<never, never>>(
+  /**
+   * The app's client errors, such as app-template's `clientErrors` and
+   * `toRpcError`. Every procedure declares them next to Lattice's codes. An
+   * app with no domain errors leaves this out.
+   */
+  errors?: {
+    readonly declared: D & DeclaredCheck<D>;
+    readonly map: (error: unknown) => unknown;
+  };
+}): Framework<Actor, P, D, Record<never, never>> {
+  const errors = options.errors ?? { declared: {}, map: (error) => error };
+  for (const code of Object.keys(errors.declared)) {
+    if (latticeCodes.includes(code)) {
+      throw new Error(`Lattice: "${code}" is a Lattice error code`);
+    }
+  }
+  return new Framework<Actor, P, D, Record<never, never>>(
     options.family,
     options.store,
     options.events,
+    errors,
     [],
   );
 }

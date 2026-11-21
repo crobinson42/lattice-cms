@@ -88,12 +88,12 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 
 ### 7. Contract, router and errors
 
-- [ ] `build()` returns `contract`, a ts-pf `router` with one slice per collection, and `app`, the implemented router. Each procedure calls one use case.
-- [ ] Every procedure declares the same errors: `UNAUTHORIZED`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `VALIDATION`, plus the app's `framework({ errors: { declared, map } })`. `errors.ts` maps `LatticeError` to them once, the way hexok's `app-template` does in `servers/rpc/errors.ts`, then applies the app's `map`.
-- [ ] One function decides whether a thrown value is an expected refusal. `family()`'s `onCatch` logging and the ts-pf mapping both use it, so a code that maps to a declared error is never logged as a failure. Decide whether hexok `CodedError` (e.g. `validationError`, `Entity.parse`) counts; app-template's input guard throws one.
-- [ ] The edge logs what the family cannot: guard rejections (`UNAUTHORIZED`, `VALIDATION`) and ts-pf's own input rejections, without logging a refusal twice.
-- [ ] A `VALIDATION` from ts-pf's own input check and one from `LatticeError` reach the client with the same `{ path, message }[]` issue shape.
-- [ ] The ts-pf context is `{ actor, logger }`. The app builds it at the edge.
+- [x] `build()` returns `contract`, a ts-pf `router` with one slice per collection, and `app`, the implemented router. Each procedure calls one use case.
+- [x] Every procedure declares the same errors: `UNAUTHORIZED`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `VALIDATION`, plus the app's `framework({ errors: { declared, map } })`. `errors.ts` maps `LatticeError` to them once, the way hexok's `app-template` does in `servers/rpc/errors.ts`, then applies the app's `map`.
+- [x] One function decides whether a thrown value is an expected refusal. `family()`'s `onCatch` logging and the ts-pf mapping both use it, so a code that maps to a declared error is never logged as a failure. Decide whether hexok `CodedError` (e.g. `validationError`, `Entity.parse`) counts; app-template's input guard throws one.
+- [x] The edge logs what the family cannot: guard rejections (`UNAUTHORIZED`, `VALIDATION`) and ts-pf's own input rejections, without logging a refusal twice.
+- [x] A `VALIDATION` from ts-pf's own input check and one from `LatticeError` reach the client with the same `{ path, message }[]` issue shape.
+- [x] The ts-pf context is `{ actor, logger }`. The app builds it at the edge.
 
 ### 8. Overrides and custom methods
 
@@ -129,6 +129,8 @@ Add a line here when the work teaches something the plan did not know: a type li
 - Step 1: type-check of the spike is 0.70 s and 189k instantiations for two collections. Re-measure at step 9.
 - Step 1: TS2883 (a type that cannot be named) only fires for a consumer outside `packages/core`; inside, TypeScript names types by relative path. The public types are `Collection`, `Framework`, `Contract`, `Family` and `FamilyContext` because a consumer's declarations need them. Went to step 9.
 - Step 1: hexok's `#brand` is a structural key in declarations, so `build()` tells instances of two use cases with the same `execute` types apart only by private members. `build()` also checks `instanceof` the declared class at runtime. Nowhere else yet.
+- Step 7: ts-pf reserves `VALIDATION`, `INTERNAL`, `BAD_REQUEST`, `METHOD_NOT_ALLOWED` and `PAYLOAD_TOO_LARGE`; Lattice declares four codes and sends `VALIDATION` as the protocol code. In-process callers get unknown errors raw; only the wire makes `INTERNAL`. Went to `architecture.md`.
+- Step 7: refusal logging is once per refusal: the family's `onCatch` records what it logged in a `WeakSet`, and Lattice's router middleware logs the rest (guard and ts-pf input rejections). A guard rejection reached by calling `execute` directly is logged by nobody. Went to step 8.
 - Step 7: overrides and methods throw the app's domain errors, which Lattice's five codes cannot carry. `framework({ errors: { declared, map } })` takes the app's existing error map and mapper. Maintainer's choice. Went to `architecture.md` and step 7.
 - Step 6: hexok `Event` classes are invariant in their payload, so `AnyCollection` holds them as `EventCatalog`'s erased constructor, and `crud.ts` checks each payload with `satisfies`. Nowhere else.
 - Step 6: `Family` carries `actorId`; `AppUseCase.guard(...)` after `family()` returns a plain hexok factory without it, which `framework()` rejects. Went to `architecture.md`.

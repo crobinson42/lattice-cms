@@ -1,8 +1,8 @@
 import type { Logger } from '@hexok/logger';
-import { catalogBrand, type StandardSchemaV1, UseCase, validate } from 'hexok';
+import { type StandardSchemaV1, UseCase, validate } from 'hexok';
 import type { z } from 'zod';
 import type { AnyCollection } from './collection.js';
-import { LatticeError, parse } from './errors.js';
+import { LatticeError, parse, refusal } from './errors.js';
 
 /** The statics every use case in a Lattice family declares. */
 export type FamilySpec = {
@@ -21,26 +21,27 @@ export type FamilyContext<Actor> = {
 };
 
 /**
- * A Lattice family: a hexok `UseCase.context` factory, and the id of an actor
- * as its log lines and the generated events carry it.
+ * A Lattice family: a hexok `UseCase.context` factory, its actor schema, and
+ * the id of an actor as log lines and the generated events carry it.
  */
 export type Family<Actor> = UseCase.ContextFactory<
   FamilyContext<Actor>,
   FamilySpec
-> & { readonly actorId: (actor: Actor) => string };
+> & {
+  readonly actor: StandardSchemaV1<unknown, Actor>;
+  readonly actorId: (actor: Actor) => string;
+};
 
 /**
- * An expected refusal: a member of any hexok `Errors` catalog, LatticeError
- * included. The caller can act on it, so it is not logged as an error.
+ * The errors a family's `onCatch` has logged. The procedure middleware logs
+ * the refusals no family saw, such as a guard's, and skips these. A WeakSet
+ * keeps the error object as it is and holds it no longer than the caller.
  */
-function refusal(
-  error: unknown,
-): { catalog: unknown; code: unknown } | undefined {
-  if (!(error instanceof Error) || !(catalogBrand in error)) return undefined;
-  return {
-    catalog: error[catalogBrand],
-    code: 'code' in error ? error.code : undefined,
-  };
+const logged = new WeakSet<object>();
+
+/** Whether a family's `onCatch` has logged `error`. */
+export function loggedByFamily(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && logged.has(error);
 }
 
 /**
@@ -104,10 +105,15 @@ export function family<A extends StandardSchemaV1>(options: {
         } else {
           log.error(token, { outcome: 'failed', thrown: error, durationMs });
         }
+        if (typeof error === 'object' && error !== null) logged.add(error);
       },
     });
-  // The generated use cases read actorId here, so the app states it once.
-  return Object.assign(factory, { actorId: options.actorId });
+  // The generated use cases and the procedure middleware read these, so the
+  // app states them once.
+  return Object.assign(factory, {
+    actor: options.actor,
+    actorId: options.actorId,
+  });
 }
 
 function since(started: number): number {

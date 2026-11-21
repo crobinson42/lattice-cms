@@ -363,10 +363,11 @@ await local.posts.find({ where: { status: { eq: 'published' } }, limit: 20 })
 | TypeScript clients | `@ts-pf/client` + `client-http`, `@ts-pf/swr`, `@ts-pf/mvc-kit` | Import `contract` only, never server code |
 | Split repos | `@ts-pf/codegen` | `.d.ts` from the catalog, plus a breaking-change check in CI |
 
-Errors are a hexok `Errors` catalog mapped once to ts-pf declared errors (`UNAUTHORIZED`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `VALIDATION`), as `app-template`'s `rpc/errors.ts` does.
+Errors are a hexok `Errors` catalog mapped once to ts-pf errors, as `app-template`'s `rpc/errors.ts` does. Procedures declare `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404) and `CONFLICT` (409). `VALIDATION` is not declared: it is a ts-pf protocol code, and a `LatticeError` or hexok `CodedError` `VALIDATION` is sent as it, with `{ path, message }[]` issues.
 
 - `framework({ errors: { declared, map } })` takes the app's own client error map and mapper, the ones app-template keeps in `servers/rpc/errors.ts`, unchanged. Every procedure, generated or not, declares Lattice's codes plus the app's, so an override or method can throw an app domain error and a client narrows on it.
-- An error that is neither Lattice's nor mapped by the app reaches the client as `INTERNAL`.
+- An error that is neither Lattice's nor mapped by the app reaches an HTTP client as `INTERNAL`. An in-process `createLocalClient` caller gets the original error, as ts-pf does for any raw throw.
+- With ts-pf input validation on, its check runs first, so unknown keys in a strict input arrive as one grouped issue at the object's path; Lattice's own check would name each key.
 - One function in `errors.ts` decides whether a thrown value is an expected refusal: a member of any hexok `Errors` catalog, or a hexok `CodedError` `VALIDATION`. The family's logging uses it. Whether a refusal is shown to clients is the transport mapping's decision; one it sends as `INTERNAL` is logged by the edge's `onError`.
 
 REST with path parameters is not offered. If an outside partner needs it, it is a projection plus an executor beside `FetchHandler`, the way ts-pf already plans one.

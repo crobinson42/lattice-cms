@@ -1,4 +1,5 @@
 import { MemoryLogger } from '@hexok/logger';
+import { isPFError } from '@ts-pf/protocol';
 import { createLocalClient } from '@ts-pf/server';
 import { Errors, type UseCase } from 'hexok';
 import { describe, expect, it } from 'vitest';
@@ -46,11 +47,12 @@ class AppError extends Errors('app', {
   Locked: { message: 'Post is locked' },
 }) {}
 
-/** The LatticeError code a call fails with, or 'ok'. */
+/** The code a call fails with, or 'ok'. A client receives a PFError; `execute` throws the LatticeError. */
 function codeOf(call: Promise<unknown>): Promise<unknown> {
   return call.then(
     () => 'ok',
-    (error) => (LatticeError.is(error) ? error.code : error),
+    (error) =>
+      isPFError(error) || LatticeError.is(error) ? error.code : error,
   );
 }
 

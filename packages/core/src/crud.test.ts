@@ -1,3 +1,4 @@
+import { isPFError } from '@ts-pf/protocol';
 import { createLocalClient } from '@ts-pf/server';
 import {
   afterEach,
@@ -9,7 +10,6 @@ import {
   vi,
 } from 'vitest';
 import { z } from 'zod';
-import { LatticeError } from './errors.js';
 import { AppUseCase, callContext } from './fixtures/context.js';
 import { noSubscribers } from './fixtures/events.js';
 import { collection, framework, MemoryStore } from './index.js';
@@ -87,13 +87,13 @@ const note = {
   views: 5,
 } as const;
 
-/** The LatticeError a call fails with. */
+/** The error a client call fails with, as the client receives it. */
 async function failure(call: Promise<unknown>) {
   const error = await call.then(
     () => undefined,
     (e: unknown) => e,
   );
-  if (!LatticeError.is(error)) throw new Error('expected a LatticeError');
+  if (!isPFError(error)) throw new Error('expected a PFError');
   return { code: error.code, data: error.data };
 }
 
