@@ -41,6 +41,8 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 
 These are not decided yet. Treat them as context, not rules.
 
-None.
+| ID | Decision | Strength | Revisit when |
+| --- | --- | --- | --- |
+| [0030](0030-the-edge-checks-membership-per-request.md) | The edge picks the active organization from a header and checks membership on every request | default | The pilot's identity provider supplies organizations or roles as claims, or the per-request membership lookup shows up in latency. |
 
 1 superseded record is history and not listed. Do not follow them.

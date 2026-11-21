@@ -37,11 +37,12 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 2. Authentication **Checkpoint**
 
-- [ ] The `@hexok/auth` recipe, as hexok's `app-template` does it: a credential at the edge becomes the actor, and the crm drops its dev headers outside tests.
-- [ ] The active organization: how the edge picks it from the session or a header, and checks membership, before `tenantOf` reads it.
-- [ ] Revisit `CallContext`'s "valid actor" typing (`architecture.md`, Authentication).
+Approved design: [0030](../decisions/0030-the-edge-checks-membership-per-request.md) (proposed).
 
-Read `@hexok/auth`, `auth-jose` and `auth-redis` first. Propose before building.
+- [ ] The `@hexok/auth` recipe: `Sessions` with a `JoseSessionToken`, Redis in dev and production and memory in tests. The crm's dev headers are deleted.
+- [ ] The active organization: `x-organization-id`, checked against a `memberships` collection on every request before `tenantOf` reads it. Support comes from the `CRM_SUPPORT_USER_IDS` config list.
+- [x] Revisit `CallContext`'s "valid actor" typing: kept. The edge refuses, and anonymous procedures live on their own router.
+- [ ] Password login, on its own ts-pf router at `/auth`. The hashes never reach the Lattice router, MCP or OpenAPI. Its design is approved before it is built.
 
 ### 3. Authorization **Checkpoint**
 
