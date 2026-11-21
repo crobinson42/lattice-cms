@@ -96,7 +96,7 @@ Decided at the Checkpoint:
 
 ### 7. Migrations runner
 
-- [ ] Numbered TypeScript files, a `_migrations` collection recording what ran, and a Redis lock from `@hexok/schedule-coordinator-redis`, so two processes never run them at once. The CLI that calls it is Phase 3.
+- [ ] `migrate(store, migrations, { logger, lock? })` in store-mongo, per [0027](../decisions/0027-migrations-lock-in-the-database-they-migrate.md). Migrations are forward only, from an explicit list checked by id and name. `_migrations` records what ran. A transaction is opt-in per migration. The lock is a lease in `_migrations_lock`, not Redis, and a second process waits for it. The CLI that calls it is Phase 3.
 
 ### 8. Relations
 

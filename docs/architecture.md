@@ -288,7 +288,7 @@ Pagination is cursor-based ([0008](decisions/0008-cursor-pagination.md)): `limit
 ### Indexes and migrations
 
 - Indexes are declared on the collection. `ensure()` creates missing ones at startup and never drops one.
-- Data migrations are numbered TypeScript files run by the CLI. A `_migrations` collection records what ran. A Redis lock from `@hexok/schedule-coordinator-redis` stops two processes running them at once.
+- Data migrations are `{ id, name, up({ db, session?, signal, logger }) }` objects in an explicit list. `migrate(store, migrations, { logger })` from store-mongo runs the pending ones in order, forward only, and the Phase 3 CLI calls it. A `_migrations` collection records what ran. A lease lock in `_migrations_lock` stops two processes running them at once; the second waits ([0027](decisions/0027-migrations-lock-in-the-database-they-migrate.md)).
 - There is no schema migration step for Mongo. A breaking field change is a data migration.
 
 ## Relations

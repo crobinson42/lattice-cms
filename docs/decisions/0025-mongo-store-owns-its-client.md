@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: Apps routinely need to share one MongoClient pool with other libraries in the same process, or mongodb-memory-server stops shipping a mongod for a platform the team develops on.

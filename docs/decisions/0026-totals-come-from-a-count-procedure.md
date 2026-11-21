@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: ts-pf can make an output field required only when an input flag is set, or a client cannot afford a second call per page.
