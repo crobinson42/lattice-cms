@@ -74,6 +74,12 @@ Done. The spike is `packages/core/src/spike-relations.test.ts` and `src/fixtures
 
 Stop and show the maintainer the subpath's exports and how an adapter runs the suite.
 
+Decided at the Checkpoint:
+- **The suite is data.** `@latticecms/core/store/conformance` exports `storeCases`, `{ name, run(store) }` objects that assert with `node:assert/strict`, so core takes no runner dependency. The adapter's own hooks give a fresh store, and it runs `it.each(storeCases)`. Rejected: a vitest `testing` subpath, which ties adapters to vitest's version; and a separate package, which is a whole package for about 300 lines.
+- **`/store` exports** `CollectionStore`, the types `StoredDoc`, `Patch`, `FindQuery`, `Page`, `Index`, `AnyWhere` and `FieldOps`, and `orderOf`, `after`, `encodeCursor` and `Order`. It does not export the input schemas, `kindOf`, `matches` or `compareDocs`.
+- **The new port methods** are `count(collection, where?)` and `ensure(collection, indexes: readonly Index[])`, where `Index = { fields, unique? }`.
+- **`MemoryStore` enforces unique indexes** with Mongo's rule that a missing field counts as null.
+
 ### 5. `@latticecms/store-mongo`
 
 - [ ] A new package, set up as `AGENTS.md` "Adding a package" says. Pick the test database, a real Mongo process (such as `mongodb-memory-server`) or a container, and say why before adding it.
@@ -98,7 +104,7 @@ Stop and show the maintainer the subpath's exports and how an adapter runs the s
 
 ### 9. Population
 
-Blocked on ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)). Requested from the ts-pf session `lattice-populated-types` on 2026-11-21. The shape is agreed, and it is planned for ts-pf 0.6.0:
+Uses ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)), released in `@ts-pf/*` 0.6.0 on 2026-11-21. Bump all `@ts-pf/*` packages together, then run `npx skills experimental_sync -y`:
 - `.output(Wide).expand({ key: 'populate', at: ['docs'], fields })`, where the output schema is the wide type the server sends.
 - The plain type is derived by removing `fields`.
 - A `populate` variable typed `K[]` gets the wide type.

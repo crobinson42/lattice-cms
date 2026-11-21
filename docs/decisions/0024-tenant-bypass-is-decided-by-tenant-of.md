@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: Support staff need to write across tenants, or an app needs a bypass decided by something the actor cannot carry.
