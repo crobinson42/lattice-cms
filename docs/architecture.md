@@ -168,7 +168,7 @@ export class PublishPost extends AppUseCase('posts.publish', {
   output: Posts.output,
 }) {
   constructor(private readonly deps: { posts: Repo<typeof Posts>; email: EmailSender }) { super() }
-  async execute(ctx: UseCase.Ctx<typeof AppUseCase>, input: { id: string }) {
+  async execute(ctx: UseCase.Ctx<typeof AppUseCase>, input: { id: string }): Promise<Doc<typeof Posts>> {
     /* load, change, save, publish an event */
   }
 }
@@ -176,10 +176,10 @@ export class PublishPost extends AppUseCase('posts.publish', {
 
 - The family guard runs access for the action `publish`, tenancy scoping and input validation before `execute`.
 - The class's `collection` static and its token (`posts.publish`) must match where it is attached. `execute` must take the class's `input` schema output and return its `output` schema output.
-- The app constructs the instance and passes it to `build()`, as hexok requires. `build()` is a type error when a declared method or override has no instance, the same completeness check as ts-pf `impl.router()`.
+- The app constructs the instance in `build()`'s `methods` or `overrides` factory, as hexok requires, with the typed `repos` it receives. `build()` is a type error when a declared method or override has no instance or an instance of another class, the same completeness check as ts-pf `impl.router()`, and it checks `instanceof` at runtime.
 - `overrides: { delete: ArchivePost }` swaps one generated operation. The class must accept and return the generated operation's types, so clients see no change.
 - Slugs and method names cannot be ts-pf implementer keys (`$context`, `use`, `useAfter`, `middleware`, `router`), and a method cannot reuse a generated operation's name.
-- A method publishes its own events from a catalog the app owns. Generated catalogs cover CRUD only.
+- A method publishes its own events from the app's catalog. Generated event classes cover CRUD only.
 
 ### Hooks
 
@@ -191,14 +191,14 @@ Every collection talks to one hexok port, `CollectionStore`. MongoDB is the defa
 
 ```ts
 abstract class CollectionStore extends Port('CollectionStore') {
-  abstract ensure(collection: CollectionDef): Promise<void>           // indexes
-  abstract find(q: FindQuery): Promise<Page<Doc>>                     // where, sort, limit, cursor
-  abstract get(collection: string, id: string, where?: Where): Promise<Doc | null>
-  abstract getMany(collection: string, ids: readonly string[], where?: Where): Promise<Doc[]>
-  abstract insert(collection: string, doc: Doc): Promise<void>
-  abstract update(collection: string, id: string, patch: Partial<Doc>, where?: Where): Promise<Doc | null>
-  abstract remove(collection: string, id: string, where?: Where): Promise<Doc | null>
-  abstract count(collection: string, where?: Where): Promise<number>
+  abstract ensure(collection: CollectionDef): Promise<void>           // indexes (Phase 1)
+  abstract find(q: FindQuery): Promise<Page>                           // { docs, next }; where, sort, limit, after
+  abstract get(collection: string, id: string, where?: Where): Promise<StoredDoc | null>
+  abstract getMany(collection: string, ids: readonly string[], where?: Where): Promise<StoredDoc[]>
+  abstract insert(collection: string, doc: StoredDoc): Promise<void>  // CONFLICT on an existing id
+  abstract update(collection: string, id: string, patch: Patch, where?: Where): Promise<StoredDoc | null>
+  abstract remove(collection: string, id: string, where?: Where): Promise<StoredDoc | null>
+  abstract count(collection: string, where?: Where): Promise<number> // Phase 1
 }
 ```
 
