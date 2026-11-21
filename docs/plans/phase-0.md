@@ -13,7 +13,7 @@ This plan is a working document. It is deleted when the exit holds, after anythi
 
 ## In scope
 
-`collection()`, `framework()`, `family()`, `build()`, the `Where<T>` type with an in-memory matcher, the `CollectionStore` port, `MemoryStore`, generated CRUD use cases, collection hooks, generated event catalogs, the generated contract and implemented router, errors mapped to ts-pf declared errors, overrides, custom methods, and logging through `@hexok/logger`.
+`collection()`, `framework()`, `family()`, `build()`, the `Where<T>` type with an in-memory matcher, the `CollectionStore` port, `MemoryStore`, generated CRUD use cases, collection hooks, generated event classes, the generated contract and implemented router, errors mapped to ts-pf declared errors, overrides, custom methods, and logging through `@hexok/logger`.
 
 ## Out of scope
 
@@ -30,7 +30,7 @@ This plan is a working document. It is deleted when the exit holds, after anythi
 | `store.ts` | the `CollectionStore` port and `MemoryStore` |
 | `family.ts` | `family()` on hexok `UseCase.context`: actor guard, input guard, logging hooks |
 | `errors.ts` | the `LatticeError` hexok `Errors` catalog and its mapping to ts-pf declared errors |
-| `build.ts` | `framework()`, `.collection(C, { methods, overrides })`, `build()`: use cases, event catalogs, contract, router |
+| `build.ts` | `framework()`, `.collection(C, { methods, overrides })`, `build()`: use cases, contract, router |
 | `index.ts` | the public exports |
 
 Add a file only when one of these grows a second concern. Tests sit next to the file they cover.
@@ -79,10 +79,11 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 - [x] `get`, `update` and `delete` on a missing id throw `NOT_FOUND`.
 - [x] Hooks run in this order: input validation, `beforeChange`, store write, `afterRead` on every returned document. There is no `beforeValidate` ([0019](../decisions/0019-hooks-are-before-change-and-after-read.md)).
 
-### 6. Event catalogs
+### 6. Events
 
-- [ ] One hexok `EventCatalog` per collection with `<slug>.created`, `<slug>.updated` and `<slug>.deleted`. Payloads are `{ doc, previous?, actorId }`, typed from the schema. (`tenantId` is added in Phase 1.)
-- [ ] `framework({ events })` takes a publisher with a `publish(event)` method. The app's existing `DomainEventPublisher` port must fit without an adapter. Tests use an in-memory publisher.
+- [ ] `collection()` derives `Posts.events.created`, `.updated` and `.deleted`: hexok `Event` classes with tokens `<slug>.created` and so on. Payloads are `{ doc, previous?, actorId }`, typed from the schema. (`tenantId` is added in Phase 1.)
+- [ ] A test app lists them in its own `EventCatalog` next to a hand-written event, as `architecture.md` shows.
+- [ ] `framework({ events })` takes a publisher with a `publish(event)` method. An app-template-style `DomainEventPublisher` over that catalog fits unchanged, and `build()` is a compile error when the publisher cannot take a collection's events. Tests use an in-memory publisher that checks events against the app catalog, as app-template's queue adapter does.
 - [ ] Events publish after the store write succeeds, never before.
 
 ### 7. Contract, router and errors
@@ -99,7 +100,7 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 - [ ] `.collection(C, { overrides: { action: Class } })` replaces one generated use case. `build({ overrides: { slug: { action } } })` takes the instance.
 - [ ] `.collection(C, { methods: { name: Class } })` adds a procedure to the collection's slice. `build({ methods: { slug: { name } } })` takes the instance.
 - [ ] Missing instances and type mismatches are compile errors (proved in step 1; now with runtime tests).
-- [ ] `build()` also returns `useCases`, `repos` and `events`, as the architecture doc lists.
+- [ ] `build()` also returns `useCases` and `repos`, as the architecture doc lists.
 
 ### 9. `examples/crm`
 
@@ -127,6 +128,7 @@ Add a line here when the work teaches something the plan did not know: a type li
 - Step 1: type-check of the spike is 0.70 s and 189k instantiations for two collections. Re-measure at step 9.
 - Step 1: TS2883 (a type that cannot be named) only fires for a consumer outside `packages/core`; inside, TypeScript names types by relative path. The public types are `Collection`, `Framework`, `Contract`, `Family` and `FamilyContext` because a consumer's declarations need them. Went to step 9.
 - Step 1: hexok's `#brand` is a structural key in declarations, so `build()` tells instances of two use cases with the same `execute` types apart only by private members. `build()` also checks `instanceof` the declared class at runtime. Nowhere else yet.
+- Step 6: app-template's publisher accepts, and at runtime allows, only its own catalog's events, so per-collection catalogs could not fit it. Event classes moved onto the collection, for the app to list in its one catalog. Maintainer's choice. Went to [0020](../decisions/0020-collection-events-join-the-app-catalog.md), `architecture.md` and steps 6 and 8.
 - Step 5: Zod 4 `.partial()` and `.exactPartial()` fill `default`/`prefault` even under `.optional()`, and `.partial()` throws on refined objects. The patch schema is rebuilt per field without defaults, using `z.core.util.clone` to rebuild any wrapper. Went to `architecture.md`.
 - Step 5: update validates the merged document with the whole schema, so object refinements hold, and dropped keys are removed. Old documents that break the current schema fail update until migrated. Went to `architecture.md`; Phase 1 migrations.
 - Step 5: hook types are method signatures so a collection stays assignable to `AnyCollection`. Nowhere else.

@@ -40,7 +40,7 @@ Lattice owns only the rows marked **Lattice** ([0001](decisions/0001-build-on-he
 | Tenancy | **Lattice** collection option, fed by the app's actor | Scopes reads and stamps writes with the tenant field |
 | Authentication | `@hexok/auth`, `-redis`, `-jose` | The app builds the actor at the edge. Lattice never imports auth |
 | Authorization | **Lattice** `Access` port now; `@hexok/authz` adapter when that package ships | Default: per-collection access functions returning `boolean` or a filter |
-| Events | `hexok` `Event` / `EventCatalog` / `EventHandler` + `@hexok/queue` (durable) + `@hexok/broadcast` (at most once) | Each collection gets a generated `EventCatalog` |
+| Events | `hexok` `Event` / `EventCatalog` / `EventHandler` + `@hexok/queue` (durable) + `@hexok/broadcast` (at most once) | Each collection carries generated `Event` classes; the app lists them in its own catalog |
 | Cross-product events | `@hexok/integration-events` | The app maps a collection event to a versioned contract at the edge |
 | Outbound webhooks | `@hexok/webhooks` | An event handler publishes a webhook; no Lattice code |
 | Jobs, schedules | `@hexok/queue` + `@hexok/schedule-coordinator` | Scheduled use cases, as in hexok's `app-template` |
@@ -121,7 +121,7 @@ const lattice = framework({
   .collection(Posts, { methods: { publish: PublishPost }, overrides: { delete: ArchivePost } })
   .collection(Categories)
 
-const { contract, app, useCases, repos, events } = lattice.build({
+const { contract, app, useCases, repos } = lattice.build({
   methods: { posts: { publish: new PublishPost({ posts: lattice.repo(Posts), email }) } },
   overrides: { posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) } },
 })
@@ -136,7 +136,6 @@ const { contract, app, useCases, repos, events } = lattice.build({
 | `app` | The implemented ts-pf router | `FetchHandler`, `createLocalClient`, `@ts-pf/mcp` |
 | `useCases` | hexok `UseCase` instances, such as `useCases.posts.create` | Workers, scripts, tests |
 | `repos` | Typed `CollectionStore` views per collection, no access checks | Hand-written use cases and event handlers |
-| `events` | A hexok `EventCatalog` per collection | Event handlers in the worker |
 
 ### What each collection generates
 
@@ -305,7 +304,17 @@ Schema-per-tenant and database-per-tenant are possible by routing a collection's
 
 Events are hexok's event model plus the queue and broadcast ports ([0010](decisions/0010-collection-events-stay-in-the-product.md), [0011](decisions/0011-no-read-events.md)). Use cases publish events after a successful write; event handlers do the side-effects in the worker.
 
-- Each collection gets a generated hexok `EventCatalog` with `<slug>.created`, `<slug>.updated` and `<slug>.deleted`. Payloads are `{ doc, previous?, tenantId, actorId }`, typed from the schema.
+- `collection()` derives three hexok `Event` classes from the schema: `Posts.events.created`, `.updated` and `.deleted`, with tokens `posts.created`, `posts.updated` and `posts.deleted`. Payloads are `{ doc, previous?, tenantId, actorId }`, typed from the schema. They hold no use case references, so the collection stays a pure declaration ([0020](decisions/0020-collection-events-join-the-app-catalog.md), proposed).
+- The app lists them in its own one catalog, next to its hand-written events. Its existing `DomainEventPublisher` and queue adapter then publish them unchanged. `build()` is a compile error when the publisher passed to `framework({ events })` cannot take every collection's events.
+
+```ts
+export class DomainEvents extends EventCatalog('domain-events', {
+  postsCreated: Posts.events.created,
+  postsUpdated: Posts.events.updated,
+  postsDeleted: Posts.events.deleted,
+  postPublished: PostPublishedEvent,
+}) {}
+```
 - Generated use cases publish through the app's `DomainEventPublisher` port, the same one `app-template` uses over `@hexok/queue`.
 - Handlers are hexok `EventHandler` classes, subscribed in the worker with one consumer group per handler. Delivery is at least once, so handlers use the event id to stay idempotent.
 - Collection events are domain events. They stay inside one product and may change with it.
