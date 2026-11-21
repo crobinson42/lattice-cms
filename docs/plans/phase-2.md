@@ -6,7 +6,7 @@ This plan is a working document. It is deleted when the exit holds, after anythi
 
 ## Exit
 
-- [ ] One internal tool, named by the maintainer at step 1, runs in production on published `@latticecms/*` packages.
+- [ ] One internal tool, named by the maintainer before step 8, runs in production on published `@latticecms/*` packages.
 - [ ] `examples/crm` authenticates through `@hexok/auth`, with no dev headers outside tests.
 - [ ] Authorization runs through the `Access` port, with an `@hexok/authz` adapter if hexok ships it in this phase, and list checks stay query filters (0005).
 - [ ] Every procedure, use case and store call emits an OpenTelemetry span. A test reads them from an in-memory exporter.
@@ -27,12 +27,13 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 1. The pilot and the release path **Checkpoint**
 
-- [ ] The maintainer names the internal tool that exits this phase, and what it needs from Lattice that this plan lacks.
-- [ ] Settle the dependency ranges for the first publish:
-  - store-mongo's peer range on core, which is `*` today;
-  - whether `hexok` and `@ts-pf/*` become peers of core and store-mongo.
+- [ ] The maintainer names the internal tool that exits this phase, and what it needs from Lattice that this plan lacks. Deferred by the maintainer: name it before step 8 starts. Steps 2–7 go ahead without it.
+- [ ] Settle the dependency ranges for the first publish ([0029](../decisions/0029-hexok-and-ts-pf-are-peers.md)):
+  - `hexok` and the `@ts-pf/*` packages core imports become peers (and devDependencies) of core, and `hexok` of store-mongo;
+  - store-mongo's peer range on core becomes `^0.1.0`, from `*`;
+  - every package publishes with `access: public`.
 
-  Propose, and ask before anything is published.
+  Nothing is published until the maintainer says so.
 
 ### 2. Authentication **Checkpoint**
 
@@ -70,7 +71,8 @@ Read `@hexok/auth`, `auth-jose` and `auth-redis` first. Propose before building.
 
 ### 8. The pilot
 
-- [ ] The tool named at step 1 runs in production on the published packages. Record what it needed that Lattice lacked, in Discoveries.
+- [ ] Before this step starts, the maintainer names the tool (deferred from step 1), and what it needs that steps 2–7 did not build.
+- [ ] The tool runs in production on the published packages. Record what it needed that Lattice lacked, in Discoveries.
 
 ### 9. Docs
 

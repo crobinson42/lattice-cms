@@ -40,6 +40,8 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 
 These are not decided yet. Treat them as context, not rules.
 
-None.
+| ID | Decision | Strength | Revisit when |
+| --- | --- | --- | --- |
+| [0029](0029-hexok-and-ts-pf-are-peers.md) | hexok and ts-pf are peers of every `@latticecms/*` package | default | npm or Node gains a reliable way to share one copy of a regular dependency with the app, or hexok and ts-pf stop exposing classes and branded types that must be the app's own. |
 
 1 superseded record is history and not listed. Do not follow them.
