@@ -122,7 +122,7 @@ Uses ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-p
 - `useSWR` narrows when its fetcher calls the procedure: `useSWR(swr.posts.get.key({ input }), () => swr.posts.get(input))`. `InferExpandedOutput<typeof contract.posts.get, ['authorId']>` names the type elsewhere.
 - Drop the spike's `GetClient`, `FindClient` and `LatticeClient`, and delete both spike files once population covers them.
 
-- [ ] `populate` on reads (`get`, `find`, and a relation's `list`), one level deep. Ids are collected per target collection, and `getMany` is called once each.
+- [ ] `populate` on reads, one level deep. `get` populates refs and `many()` relations, while `find` and a relation's `list` populate refs only; `many()` on `find` is a type error and VALIDATION. Ids are collected per target collection, and `getMany` is called once each.
 - [ ] Access and tenancy apply to populated documents. A populated document the caller may not read, or one that no longer exists, comes back as `{ id }` only.
 - [ ] Remove `rootRouter()` in `build.ts` if ts-pf 0.6.0 offers a typed `router()` for an erased tree that mixes procedures and nested routers. Read ts-pf's router typing first; the ts-pf session is closed. If there is no typed path, write the exact ts-pf change for the maintainer, and keep `rootRouter()` with a comment saying why.
 - [ ] A link field named like a ref field, a reserved name or the tenant is a compile error, not only a throw.

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: A collection lives in a different store from a relation's other side, an app needs per-relation access rules, or a relation outgrows a 1000-link set.

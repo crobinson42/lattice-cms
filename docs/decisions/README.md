@@ -33,14 +33,13 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 | [0024](0024-tenant-bypass-is-decided-by-tenant-of.md) | The family's `tenantOf` decides a tenant bypass, and server code scopes by tenant explicitly | default | Support staff need to write across tenants, or an app needs a bypass decided by something the actor cannot carry. |
 | [0025](0025-mongo-store-owns-its-client.md) | `MongoStore` owns its client, and its tests run on mongodb-memory-server | default | Apps routinely need to share one MongoClient pool with other libraries in the same process, or mongodb-memory-server stops shipping a mongod for a platform the team develops on. |
 | [0026](0026-totals-come-from-a-count-procedure.md) | Totals come from a generated `count` procedure, not `find({ withTotal })` | default | ts-pf can make an output field required only when an input flag is set, or a client cannot afford a second call per page. |
+| [0027](0027-migrations-lock-in-the-database-they-migrate.md) | Migrations run forward only, from an explicit list, under a lease lock in their own database | default | hexok ships a general Lock port, or migrations must coordinate across more than one database. |
+| [0028](0028-relations-delete-in-a-store-transaction-as-system-work.md) | Relations: derived join collections, and `onDelete` as system work inside the parent's tenant and a store transaction | default | A collection lives in a different store from a relation's other side, an app needs per-relation access rules, or a relation outgrows a 1000-link set. |
 
 ## Proposed
 
 These are not decided yet. Treat them as context, not rules.
 
-| ID | Decision | Strength | Revisit when |
-| --- | --- | --- | --- |
-| [0027](0027-migrations-lock-in-the-database-they-migrate.md) | Migrations run forward only, from an explicit list, under a lease lock in their own database | default | hexok ships a general Lock port, or migrations must coordinate across more than one database. |
-| [0028](0028-relations-delete-in-a-store-transaction-as-system-work.md) | Relations: derived join collections, and `onDelete` as system work inside the parent's tenant and a store transaction | default | A collection lives in a different store from a relation's other side, an app needs per-relation access rules, or a relation outgrows a 1000-link set. |
+None.
 
 1 superseded record is history and not listed. Do not follow them.

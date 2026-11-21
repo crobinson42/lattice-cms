@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: hexok ships a general Lock port, or migrations must coordinate across more than one database.

@@ -311,7 +311,7 @@ Join collections are derived from `many(target, { through, fields?, onDelete? })
 
 ### Population
 
-- A read takes `populate: ['authorId', 'categories']`, one level deep in v1.
+- A read takes `populate: ['authorId', 'categories']`, one level deep in v1. `get` populates refs and `many()` relations. `find` and a relation's `list` populate refs only, so a call that type-checks is bounded no matter the data: `many()` on `get` is capped by `set`'s 1000 links, and `posts.categories.list({ id, populate: ['categoriesId'] })` pages through a post's categories with their documents.
 - Lattice collects IDs per target collection and calls `getMany` once each. Access and tenancy filters apply to the populated documents too.
 - A populated document the caller may not read comes back as `{ id }` only.
 - Output types follow `populate`: `authorId` is a `string`, or `User | Withheld` when populated, where `Withheld` is `{ id }`. A caller narrows with `'email' in post.authorId`. ts-pf types this through expandable outputs, so every client gets it without a wrapper ([0022](decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)).
