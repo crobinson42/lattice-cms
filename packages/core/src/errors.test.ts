@@ -97,6 +97,7 @@ describe('declared errors', () => {
       'FORBIDDEN',
       'NOT_FOUND',
       'CONFLICT',
+      'REFERENCED',
       'PostLocked',
       'QuotaReached',
     ];
@@ -114,6 +115,7 @@ describe('declared errors', () => {
       | 'FORBIDDEN'
       | 'NOT_FOUND'
       | 'CONFLICT'
+      | 'REFERENCED'
       | 'PostLocked'
       | 'QuotaReached'
       | 'BAD_REQUEST'
@@ -161,6 +163,7 @@ describe('declared errors', () => {
       'FORBIDDEN',
       'NOT_FOUND',
       'CONFLICT',
+      'REFERENCED',
     ]);
     const local = createLocalClient(app, { context: callContext() });
     const error = await refused(local.posts.get({ id: 'nope' }));

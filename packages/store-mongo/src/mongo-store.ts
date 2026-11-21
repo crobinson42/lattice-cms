@@ -1,26 +1,17 @@
 import {
   type AnyWhere,
-  after,
   CollectionStore,
-  encodeCursor,
   type FindQuery,
   type Index,
-  orderOf,
   type Page,
   type Patch,
   type StoredDoc,
 } from '@latticecms/core/store';
 import { Adapter } from 'hexok';
-import {
-  type Collection,
-  type Db,
-  type Document,
-  MongoClient,
-  type MongoClientOptions,
-} from 'mongodb';
-import { MongoStoreError, writing } from './errors.js';
-import { and, mongoField, toFilter, toSort } from './filter.js';
-import { MongoDoc, type MongoDocument } from './mapper.js';
+import { type Db, MongoClient, type MongoClientOptions } from 'mongodb';
+import { MongoStoreError } from './errors.js';
+import { MongoDoc } from './mapper.js';
+import { MongoOperations } from './operations.js';
 
 export type MongoStoreOptions = {
   /** A `mongodb://` or `mongodb+srv://` connection string. */
@@ -59,9 +50,15 @@ type State =
   | {
       readonly kind: 'starting';
       readonly client: MongoClient;
-      readonly ready: Promise<Db>;
+      readonly ready: Promise<{ db: Db; transactions: boolean }>;
     }
-  | { readonly kind: 'ready'; readonly client: MongoClient; readonly db: Db }
+  | {
+      readonly kind: 'ready';
+      readonly client: MongoClient;
+      readonly db: Db;
+      /** A replica set or a mongos, which run transactions. */
+      readonly transactions: boolean;
+    }
   | { readonly kind: 'stopped' };
 
 /**
@@ -96,15 +93,17 @@ export class MongoStore extends Adapter(CollectionStore) {
     const ready = (async () => {
       await client.connect();
       const db = client.db(this.options.database);
-      await db.command({ ping: 1 });
-      return db;
+      const hello = await db.admin().command({ hello: 1 });
+      const transactions =
+        typeof hello.setName === 'string' || hello.msg === 'isdbgrid';
+      return { db, transactions };
     })();
     const starting: State = { kind: 'starting', client, ready };
     this.#state = starting;
     try {
-      const db = await ready;
+      const { db, transactions } = await ready;
       if (this.#state !== starting) throw MongoStoreError.Stopped();
-      this.#state = { kind: 'ready', client, db };
+      this.#state = { kind: 'ready', client, db, transactions };
     } catch (error) {
       // stop() closed the client under the pending connect: the driver's
       // error says only that, so the caller gets Stopped.
@@ -124,7 +123,7 @@ export class MongoStore extends Adapter(CollectionStore) {
     }
   }
 
-  async #joined(ready: Promise<Db>): Promise<void> {
+  async #joined(ready: Promise<unknown>): Promise<void> {
     try {
       await ready;
     } catch (error) {
@@ -135,7 +134,11 @@ export class MongoStore extends Adapter(CollectionStore) {
   }
 
   /** The client and database, or the lifecycle error for a call made now. */
-  #connection(): { readonly client: MongoClient; readonly db: Db } {
+  #connection(): {
+    readonly client: MongoClient;
+    readonly db: Db;
+    readonly transactions: boolean;
+  } {
     const state = this.#state;
     switch (state.kind) {
       case 'ready':
@@ -149,67 +152,23 @@ export class MongoStore extends Adapter(CollectionStore) {
     }
   }
 
-  /** The Mongo collection, or the lifecycle error for a call made now. */
-  #collection(name: string): Collection<MongoDocument> {
-    return this.#connection().db.collection<MongoDocument>(name);
-  }
-
-  #toDoc(doc: MongoDocument): StoredDoc {
-    return this.#docs.fromModel(doc);
+  #operations(): MongoOperations {
+    return new MongoOperations(this.#connection().db, this.#docs);
   }
 
   override async ensure(
     collection: string,
     indexes: readonly Index[],
   ): Promise<void> {
-    const target = this.#collection(collection);
-    // createIndex is a no-op for an index that exists, and rejects one with
-    // the same keys and other options (IndexOptionsConflict or
-    // IndexKeySpecsConflict), or a unique one over duplicates (11000).
-    // Each passes through: changing an index is a migration.
-    for (const index of indexes) {
-      const keys = Object.fromEntries(
-        Object.entries(index.fields).map(([field, direction]) => [
-          mongoField(field),
-          direction,
-        ]),
-      );
-      await target.createIndex(
-        keys,
-        index.unique === true ? { unique: true } : {},
-      );
-    }
+    return this.#operations().ensure(collection, indexes);
   }
 
   override async find(query: FindQuery): Promise<Page> {
-    const target = this.#collection(query.collection);
-    const order = orderOf(query.sort);
-    // The keyset is a Where, so it is filtered like any other.
-    const filter = and(
-      toFilter(query.where),
-      query.after === undefined
-        ? undefined
-        : toFilter(after(order, query.after)),
-    );
-    // One more than the page tells whether another page follows.
-    const window = await target
-      .find(filter)
-      .sort(toSort(order))
-      .limit(query.limit + 1)
-      .toArray();
-    const docs = window.slice(0, query.limit).map((doc) => this.#toDoc(doc));
-    const last = docs.at(-1);
-    return {
-      docs,
-      next:
-        window.length > query.limit && last !== undefined
-          ? encodeCursor(order, last)
-          : null,
-    };
+    return this.#operations().find(query);
   }
 
   override async count(collection: string, where?: AnyWhere): Promise<number> {
-    return this.#collection(collection).countDocuments(toFilter(where));
+    return this.#operations().count(collection, where);
   }
 
   override async get(
@@ -217,8 +176,7 @@ export class MongoStore extends Adapter(CollectionStore) {
     id: string,
     where?: AnyWhere,
   ): Promise<StoredDoc | null> {
-    const doc = await this.#collection(collection).findOne(byId(id, where));
-    return doc === null ? null : this.#toDoc(doc);
+    return this.#operations().get(collection, id, where);
   }
 
   override async getMany(
@@ -226,21 +184,11 @@ export class MongoStore extends Adapter(CollectionStore) {
     ids: readonly string[],
     where?: AnyWhere,
   ): Promise<StoredDoc[]> {
-    const found = await this.#collection(collection)
-      .find(and({ _id: { $in: [...ids] } }, toFilter(where)))
-      .toArray();
-    const byKey = new Map(found.map((doc) => [doc._id, doc]));
-    return ids.flatMap((id) => {
-      const doc = byKey.get(id);
-      return doc === undefined ? [] : [this.#toDoc(doc)];
-    });
+    return this.#operations().getMany(collection, ids, where);
   }
 
   override async insert(collection: string, doc: StoredDoc): Promise<void> {
-    const target = this.#collection(collection);
-    await writing(collection, doc.id, () =>
-      target.insertOne(this.#docs.toModel(doc)),
-    );
+    return this.#operations().insert(collection, doc);
   }
 
   override async update(
@@ -249,17 +197,7 @@ export class MongoStore extends Adapter(CollectionStore) {
     patch: Patch,
     where?: AnyWhere,
   ): Promise<StoredDoc | null> {
-    const target = this.#collection(collection);
-    const filter = byId(id, where);
-    const changes = updateOf(patch);
-    if (changes === undefined) {
-      const doc = await target.findOne(filter);
-      return doc === null ? null : this.#toDoc(doc);
-    }
-    const doc = await writing(collection, id, () =>
-      target.findOneAndUpdate(filter, changes, { returnDocument: 'after' }),
-    );
-    return doc === null ? null : this.#toDoc(doc);
+    return this.#operations().update(collection, id, patch, where);
   }
 
   override async remove(
@@ -267,33 +205,93 @@ export class MongoStore extends Adapter(CollectionStore) {
     id: string,
     where?: AnyWhere,
   ): Promise<StoredDoc | null> {
-    const doc = await this.#collection(collection).findOneAndDelete(
-      byId(id, where),
-    );
-    return doc === null ? null : this.#toDoc(doc);
+    return this.#operations().remove(collection, id, where);
   }
-}
 
-/** The document `id`, if it is inside `where`. */
-function byId(id: string, where: AnyWhere | undefined): Document {
-  return and({ _id: id }, toFilter(where));
+  /**
+   * Runs `work` in one transaction on a replica set or a mongos, with a view
+   * of this store whose every call joins it. A standalone server has no
+   * transactions, so there `work` runs on this store, in order.
+   */
+  override async transaction<T>(
+    work: (store: CollectionStore) => Promise<T>,
+  ): Promise<T> {
+    const { client, db, transactions } = this.#connection();
+    if (!transactions) return work(this);
+    return client.withSession((session) =>
+      session.withTransaction(() =>
+        work(
+          new TransactionStore(new MongoOperations(db, this.#docs, session)),
+        ),
+      ),
+    );
+  }
 }
 
 /**
- * A patch as a Mongo update: `$set` for each value, `$unset` for each key
- * set to undefined. `id` is never written, even when a JavaScript caller
- * passes one. Undefined when the patch changes nothing.
+ * A store inside a transaction: every call carries the session, and a
+ * nested `transaction` joins it.
  */
-function updateOf(patch: Patch): Document | undefined {
-  const set: Record<string, unknown> = {};
-  const unset: Record<string, ''> = {};
-  for (const [field, value] of Object.entries(patch)) {
-    if (field === 'id') continue;
-    if (value === undefined) unset[field] = '';
-    else set[field] = value;
+class TransactionStore extends Adapter(CollectionStore) {
+  constructor(private readonly operations: MongoOperations) {
+    super();
   }
-  const update: Document = {};
-  if (Object.keys(set).length > 0) update.$set = set;
-  if (Object.keys(unset).length > 0) update.$unset = unset;
-  return Object.keys(update).length === 0 ? undefined : update;
+
+  override ensure(
+    collection: string,
+    indexes: readonly Index[],
+  ): Promise<void> {
+    return this.operations.ensure(collection, indexes);
+  }
+
+  override find(query: FindQuery): Promise<Page> {
+    return this.operations.find(query);
+  }
+
+  override count(collection: string, where?: AnyWhere): Promise<number> {
+    return this.operations.count(collection, where);
+  }
+
+  override get(
+    collection: string,
+    id: string,
+    where?: AnyWhere,
+  ): Promise<StoredDoc | null> {
+    return this.operations.get(collection, id, where);
+  }
+
+  override getMany(
+    collection: string,
+    ids: readonly string[],
+    where?: AnyWhere,
+  ): Promise<StoredDoc[]> {
+    return this.operations.getMany(collection, ids, where);
+  }
+
+  override insert(collection: string, doc: StoredDoc): Promise<void> {
+    return this.operations.insert(collection, doc);
+  }
+
+  override update(
+    collection: string,
+    id: string,
+    patch: Patch,
+    where?: AnyWhere,
+  ): Promise<StoredDoc | null> {
+    return this.operations.update(collection, id, patch, where);
+  }
+
+  override remove(
+    collection: string,
+    id: string,
+    where?: AnyWhere,
+  ): Promise<StoredDoc | null> {
+    return this.operations.remove(collection, id, where);
+  }
+
+  override transaction<T>(
+    work: (store: CollectionStore) => Promise<T>,
+  ): Promise<T> {
+    return work(this);
+  }
 }

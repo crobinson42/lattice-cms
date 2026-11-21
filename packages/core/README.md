@@ -194,6 +194,39 @@ Returns a `Collection` with `slug`, `schema`, `tenant`, `indexes`, `output`, `ev
 - A field name may not contain `.`, start with `$`, or be `_id`: MongoDB would read it as a path, an operator or the id.
 - `indexes` lists the indexes the store creates at startup, through `build().ensure()`: `[{ fields: { stage: 1, createdAt: -1 } }, { fields: { email: 1 }, unique: true }]`. Fields are named from the stored document, so the system fields and the tenant field count; any other name is a compile error and a throw. Key order is the index's order. `id` needs no index. A tenanted collection's indexes usually lead with the tenant field, because every call filters by it; Lattice does not add it for you.
 
+### Refs and `onDelete`
+
+`ref(slug, { onDelete? })` marks a string field as the id of a document in another collection. It names the collection by its slug, so two collections can refer to each other. `z.array(ref(slug))` is a list of ids.
+
+```ts
+const Projects = collection('projects', {
+  schema: z.object({
+    name: z.string(),
+    companyId: ref('companies', { onDelete: 'cascade' }),
+    reviewerId: ref('users', { onDelete: 'nullify' }).optional(),
+  }),
+  tenant: 'organizationId',
+});
+```
+
+- A ref is a string: Zod's methods work on it, and `ref('users').min(1).optional()` is still a ref.
+- A slug that is not a collection of the framework is a compile error and a throw at `build()`, and on `.contract`. Collections may be added in any order.
+- A write does not check that the referenced document exists. Deleting it is where refs are kept whole.
+- Each ref gets an index in `ensure()`, led by the tenant field, unless the collection declares one with the same keys.
+
+`onDelete` says what the generated delete of the referenced document does to the documents that refer to it:
+
+| `onDelete` | When a referenced document is deleted |
+| --- | --- |
+| `restrict` (default) | The delete is refused with `REFERENCED` (409), `{ collection, id, by: { collection, field } }`, while any document refers to it |
+| `cascade` | The referring documents are deleted too, and their own refs are followed in turn. A cycle stops at a document already deleted. A list of ids cannot cascade |
+| `nullify` | The ref is cleared: an optional field is removed, a nullable one set to null, and the id pulled from a list. A required ref cannot nullify |
+
+- These are system steps: they skip access functions, because the caller was allowed to delete the parent. They stay inside the parent's tenant, so another tenant's row that stores this id is neither counted nor touched. A global parent's children are found across tenants.
+- Everything runs in one `store.transaction()`, with the parent deleted last. Restrict is checked before anything is written. Each cascaded document emits its `deleted` event and each nullified one its `updated` event, after the commit, never inside it. A failure rolls the whole delete back, and nothing is published.
+- A collection that overrides `delete` cannot have a cascading ref: the cascade would hard-delete rows its override keeps, such as soft-deleted deals. It is a compile error and a throw at `.collection()`; use `restrict` or `nullify`.
+- `onDelete` runs in the generated delete only. An override of `delete`, such as a soft delete, keeps the row, so its children stay valid; an override that removes rows handles their refs itself. `Repo.remove` is trusted and does not run it.
+
 ### Hooks
 
 `.hooks({ beforeChange?, afterRead? })` returns the same collection with those hooks. A later call replaces a hook it names.
@@ -326,10 +359,12 @@ await repos.notes.update(id, patch, tenancy.scope(Notes, event.payload.tenantId)
 | string | `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `contains`, `exists` |
 | number | `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `exists` |
 | boolean, enum | `eq`, `ne`, `in`, `nin`, `exists` |
-| array, object, anything else | `exists` |
+| array of strings, numbers or enum values | `has`, `exists` |
+| array of anything else, object, anything else | `exists` |
 
 - Several fields or operators must all match. `and` and `or` nest. Null and missing follow MongoDB's semantics.
 - `contains` is a case-insensitive substring, never a regex.
+- `has` matches an array with an element equal to its value. A missing or null array has none.
 - `sort` is an array such as `['-createdAt', 'title']`. Only required, non-null string, number and enum fields sort. The default is `['-createdAt']`, and `id` is always the last tiebreak.
 - `limit` is 1 to 100, default 20. `next` is an opaque cursor for `after`, or null on the last page.
 - A field or operator the schema does not allow is a type error and `VALIDATION`.
@@ -338,7 +373,7 @@ await repos.notes.update(id, patch, tenancy.scope(Notes, event.payload.tenantId)
 
 ### Errors
 
-Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404 with `{ collection, id }`) and `CONFLICT` (409 with `{ collection, id }`), plus the app's declared errors. `VALIDATION` is ts-pf's protocol code, with `{ path, message }[]` issues.
+Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404 with `{ collection, id }`), `CONFLICT` (409 with `{ collection, id }`) and `REFERENCED` (409 with `{ collection, id, by }`), plus the app's declared errors. `VALIDATION` is ts-pf's protocol code, with `{ path, message }[]` issues.
 
 - `LatticeError` is the hexok `Errors` catalog behind those codes. Overrides and methods throw it, so they answer as the generated operations do: `LatticeError.NOT_FOUND({ collection: 'deals', id })`.
 - The app's errors are a hexok `Errors` catalog, its client map and its mapper, as in hexok's app-template: `framework({ errors: { declared, map } })`. An app code that collides with Lattice's is a compile error.
@@ -407,10 +442,11 @@ export class ArchiveDeal extends AppUseCase('deals.delete', {
 
 ### `CollectionStore` and `MemoryStore`
 
-`CollectionStore` is the hexok port every collection uses: `ensure`, `find`, `count`, `get`, `getMany`, `insert`, `update` and `remove`. A `where` on a single-row call limits the rows it can touch; a row outside it acts as missing. `MemoryStore` is the in-memory adapter, for tests and examples. It stores copies and enforces unique indexes.
+`CollectionStore` is the hexok port every collection uses: `ensure`, `find`, `count`, `get`, `getMany`, `insert`, `update`, `remove` and `transaction`. A `where` on a single-row call limits the rows it can touch; a row outside it acts as missing. `MemoryStore` is the in-memory adapter, for tests and examples. It stores copies and enforces unique indexes.
 
 - `ensure(collection, indexes)` creates the indexes a collection lacks and never drops one. An `Index` is `{ fields: { status: 1, createdAt: -1 }, unique? }`. A unique index treats a missing field as null, as MongoDB does, and a write that breaks one is `CONFLICT`.
 - `count(collection, where?)` counts the documents that match.
+- `transaction(work)` runs `work` with a store whose calls join one unit: a commit, or on a throw, nothing. Each store makes it as atomic as it can, and a store without transactions runs `work` on itself, in order. A nested `transaction` joins the outer one. `MemoryStore` snapshots its collections and restores them on a throw; it does not isolate calls made outside `work` while it runs.
 
 ### Writing a store adapter
 
@@ -432,6 +468,12 @@ describe('MongoStore conformance', () => {
 });
 ```
 
+A case that needs a capability some stores lack says so in `needs`. A store without transactions runs the rest:
+
+```ts
+it.each(storeCases.filter((c) => !c.needs?.includes('transactions')))('$name', ({ run }) => run(store));
+```
+
 ## Guarantees
 
 The tests prove each of these.
@@ -448,4 +490,4 @@ The tests prove each of these.
 
 ## Not yet
 
-MongoDB, relations and auth arrive in later phases. See the [phase table](../../docs/architecture.md#phased-build-plan).
+`many()` relations, population and auth arrive in later steps. See the [phase table](../../docs/architecture.md#phased-build-plan).

@@ -84,7 +84,7 @@ describe('Where type', () => {
       | undefined
     >();
     expectTypeOf<Where<Thing>['tags']>().toEqualTypeOf<
-      { readonly exists?: boolean } | undefined
+      { readonly has?: string; readonly exists?: boolean } | undefined
     >();
   });
 
@@ -116,7 +116,7 @@ describe('Where type', () => {
       });
       local.things.find({
         where: {
-          // @ts-expect-error arrays take exists only
+          // @ts-expect-error arrays take has and exists only
           tags: { eq: ['x'] },
         },
       });
@@ -218,6 +218,28 @@ describe('matches', () => {
     expect(match(doc, { count: { eq: 5 } })).toBe(true);
     expect(match(doc, { done: { eq: false } })).toBe(false);
     expect(match(doc, { kind: { eq: 'a' } })).toBe(true);
+  });
+
+  it('has: an array with an equal element; a missing or null array has none', () => {
+    expect(match(doc, { tags: { has: 'x' } })).toBe(true);
+    expect(match(doc, { tags: { has: 'y' } })).toBe(false);
+    expect(match({ ...doc, tags: [] }, { tags: { has: 'x' } })).toBe(false);
+    expect(match({ ...doc, tags: null }, { tags: { has: 'x' } })).toBe(false);
+    const { tags: _tags, ...noTags } = doc;
+    expect(match(noTags, { tags: { has: 'x' } })).toBe(false);
+    expect(match({ ...doc, tags: 'x' }, { tags: { has: 'x' } })).toBe(false);
+  });
+
+  it('has is validated as one element', () => {
+    expect(parseWhere(Things.output, { tags: { has: 'x' } })).toEqual({
+      tags: { has: 'x' },
+    });
+    expect(() => parseWhere(Things.output, { tags: { has: ['x'] } })).toThrow(
+      LatticeError,
+    );
+    expect(() => parseWhere(Things.output, { count: { has: 1 } })).toThrow(
+      LatticeError,
+    );
   });
 
   it('eq: null matches null or missing', () => {

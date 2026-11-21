@@ -49,7 +49,12 @@ export const forms = {
     false,
   ),
   null: row(z.null(), 'other', false),
-  array: row(z.array(z.string()), 'other', false),
+  array: row(z.array(z.string()), 'array', false),
+  numberArray: row(z.array(z.number()), 'array', false),
+  enumArray: row(z.array(z.enum(['a', 'b'])), 'array', false),
+  optionalArray: row(z.array(z.string()).optional(), 'array', false),
+  objectArray: row(z.array(z.object({ x: z.number() })), 'other', false),
+  booleanArray: row(z.array(z.boolean()), 'other', false),
   object: row(z.object({ x: z.number() }), 'other', false),
 };
 

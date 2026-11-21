@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { invalid } from './errors.js';
 
-export type Kind = 'string' | 'number' | 'boolean' | 'enum' | 'other';
+export type Kind = 'string' | 'number' | 'boolean' | 'enum' | 'array' | 'other';
 
 const equality = ['string', 'number', 'boolean', 'enum'] as const;
 const ordered = ['string', 'number'] as const;
@@ -17,7 +17,9 @@ const operators = {
   lt: ordered,
   lte: ordered,
   contains: ['string'],
-  exists: ['string', 'number', 'boolean', 'enum', 'other'],
+  // An array of strings, numbers or enum values: has one equal element.
+  has: ['array'],
+  exists: ['string', 'number', 'boolean', 'enum', 'array', 'other'],
 } as const satisfies Record<string, readonly Kind[]>;
 
 type Operator = keyof typeof operators;
@@ -51,7 +53,11 @@ export type KindOf<V> = [Unbrand<Exclude<V, null | undefined>>] extends [
           ? number extends B
             ? 'number'
             : 'enum'
-          : 'other'
+          : [B] extends [readonly (infer E)[]]
+            ? KindOf<E> extends 'string' | 'number' | 'enum'
+              ? 'array'
+              : 'other'
+            : 'other'
   : never;
 
 type Operand<Op extends Operator, B> = Op extends 'eq' | 'ne'
@@ -62,7 +68,11 @@ type Operand<Op extends Operator, B> = Op extends 'eq' | 'ne'
       ? string
       : Op extends 'exists'
         ? boolean
-        : B;
+        : Op extends 'has'
+          ? B extends readonly (infer E)[]
+            ? Exclude<E, null | undefined>
+            : never
+          : B;
 
 /** The operators one field allows, typed from its value. */
 export type FieldWhere<V> = {
@@ -200,8 +210,24 @@ export function nullish(schema: z.core.$ZodType): boolean {
   return atoms(schema).some((atom) => atom === 'null' || atom === 'undefined');
 }
 
+/** The element schema of an array field, through its wrappers. */
+function elementOf(schema: z.core.$ZodType): z.core.$ZodType | undefined {
+  const inner = innerOf(schema);
+  if (inner !== undefined) return elementOf(inner);
+  return schema instanceof z.core.$ZodArray
+    ? schema._zod.def.element
+    : undefined;
+}
+
 /** A field's kind, from its schema. Mirrors `KindOf` above. */
 export function kindOf(schema: z.core.$ZodType): Kind {
+  const element = elementOf(schema);
+  if (element !== undefined) {
+    const kind = kindOf(element);
+    return kind === 'string' || kind === 'number' || kind === 'enum'
+      ? 'array'
+      : 'other';
+  }
   const found = atoms(schema).filter(
     (atom) => atom !== 'null' && atom !== 'undefined',
   );
@@ -255,8 +281,12 @@ function operandSchema(op: string, value: z.core.$ZodType): z.core.$ZodType {
 function fieldSchema(field: z.core.$ZodType): z.core.$ZodType {
   const kind = kindOf(field);
   // An enum's values are checked by its own schema, without wrappers such as
-  // catch, which would accept anything.
-  const value = valueSchema(kind, unwrap(field));
+  // catch, which would accept anything. An array's operand is one element.
+  const element = elementOf(field);
+  const value =
+    element === undefined
+      ? valueSchema(kind, unwrap(field))
+      : valueSchema(kindOf(element), unwrap(element));
   return z.strictObject(
     Object.fromEntries(
       Object.entries(operators)
@@ -312,6 +342,7 @@ export type FieldOps = {
   readonly lt?: unknown;
   readonly lte?: unknown;
   readonly contains?: string;
+  readonly has?: unknown;
   readonly exists?: boolean;
 };
 
@@ -383,6 +414,13 @@ function matchesField(value: unknown, ops: FieldOps): boolean {
     if (typeof value !== 'string' || !value.toLowerCase().includes(needle)) {
       return false;
     }
+  }
+  // An element equal to the operand. A missing or null array has none.
+  if (
+    ops.has !== undefined &&
+    !(Array.isArray(value) && value.some((element) => equals(element, ops.has)))
+  ) {
+    return false;
   }
   if (ops.exists !== undefined && present(value) !== ops.exists) return false;
   return true;

@@ -47,6 +47,7 @@ import {
   type FamilyContext,
   loggedByFamily,
 } from './family.js';
+import { type CascadeFields, type RefSlugs, referrersOf } from './relations.js';
 import { type Repo, repo } from './repo.js';
 import type { CollectionStore } from './store.js';
 import type { TenantField } from './tenancy.js';
@@ -155,6 +156,18 @@ type TenantCheck<C extends AnyCollection, Tenanted extends boolean> = [
       }
     : unknown;
 
+// A cascade deletes children on Lattice's own path, so a collection that
+// overrides delete, such as with a soft delete, would lose rows it keeps.
+// A rejected collection adds a key its options lack, so the error names the
+// field.
+type CascadeOverrideCheck<C extends AnyCollection, O> = 'delete' extends keyof O
+  ? [CascadeFields<C['schema']['shape']>] extends [never]
+    ? unknown
+    : {
+        readonly '~error': `${C['slug']} overrides delete, so ${C['slug']}.${CascadeFields<C['schema']['shape']> & string} cannot cascade; use restrict or nullify`;
+      }
+  : unknown;
+
 // Each event of `Col` that `P.publish` does not take, by token.
 type Refused<Col extends AnyCollection, P extends EventPublisher> = {
   [K in keyof Col['events']]: [Instance<Col['events'][K]>] extends [
@@ -217,10 +230,34 @@ type Slice<E extends Entry, D extends ErrorMap> = {
     : Procedure<E['methods'][K]['input'], E['methods'][K]['output'], D>;
 };
 
+/** Each ref whose slug is not a collection of `E`, as `slug.field → target`. */
+type Unresolved<E extends Entries> = {
+  [S in keyof E]: {
+    [K in keyof RefSlugs<E[S]['collection']['schema']['shape']>]: RefSlugs<
+      E[S]['collection']['schema']['shape']
+    >[K] extends keyof E
+      ? never
+      : `${S & string}.${K & string} refers to "${RefSlugs<E[S]['collection']['schema']['shape']>[K] & string}"`;
+  }[keyof RefSlugs<E[S]['collection']['schema']['shape']>];
+}[keyof E];
+
+// Collections may be added in any order, so refs can point both ways: they
+// are checked where the definition is used, on `contract` and `build()`. A
+// rejected definition gains a key, so the error names each ref.
+type SlugsCheck<E extends Entries> = [Unresolved<E>] extends [never]
+  ? unknown
+  : {
+      readonly '~error': `${Unresolved<E>}, which is not a collection of this framework`;
+    };
+
 /** The generated ts-pf contract: one slice per collection. */
 export type Contract<E extends Entries, D extends ErrorMap> = {
   [S in keyof E]: Slice<E[S], D>;
 } & ContractRouterBrand;
+
+/** The contract as `.contract` gives it: with an `'~error'` key while a ref is unresolved. */
+type CheckedContract<E extends Entries, D extends ErrorMap> = Contract<E, D> &
+  SlugsCheck<E>;
 
 type Instance<C> = C extends Ctor<infer I> ? I : never;
 
@@ -251,8 +288,11 @@ type Factory<E extends Entries, Kind extends 'methods' | 'overrides', Ctx> = [
 
 /** What `build()` takes: the ports, and the method and override instances. */
 type BuildOptions<E extends Entries, P extends EventPublisher, Actor, Ctx> = {
-  /** Where every collection's documents live. */
-  readonly store: CollectionStore;
+  /**
+   * Where every collection's documents live. A ref to a slug the definition
+   * lacks is reported here, because the store is what every ref needs.
+   */
+  readonly store: CollectionStore & SlugsCheck<E>;
   /**
    * Decides access instead of the functions given at `.collection()`, such
    * as an adapter of another decision engine.
@@ -323,6 +363,15 @@ type RuntimeInstances<Ctx> = Readonly<
   Record<string, Readonly<Record<string, Executable<Ctx>>> | undefined>
 >;
 
+/**
+ * A factory as the implementation of `build()` reads it. A method
+ * signature, so its parameter compares bivariantly with the precise
+ * factory the overload states.
+ */
+type FactoryFn<Actor> = {
+  factory(wiring: RuntimeWiring): RuntimeInstances<FamilyContext<Actor>>;
+}['factory'];
+
 type RuntimeWiring = {
   readonly repos: Readonly<Record<string, Repo<AnyCollection>>>;
 };
@@ -338,7 +387,7 @@ export class Framework<
   E extends Entries,
   Tenanted extends boolean = boolean,
 > {
-  #contract: Contract<E, D> | undefined;
+  #contract: CheckedContract<E, D> | undefined;
 
   constructor(
     private readonly family: Family<Actor, Tenanted>,
@@ -369,7 +418,8 @@ export class Framework<
       readonly access: AccessFns<Actor, R, C>;
       readonly methods?: M;
       readonly overrides?: O;
-    } & AccessCheck<R, M, C>,
+    } & AccessCheck<R, M, C> &
+      CascadeOverrideCheck<C, O>,
   ): Framework<
     Actor,
     D,
@@ -395,6 +445,12 @@ export class Framework<
       }
     }
     const overrides: Entry['overrides'] = options.overrides ?? {};
+    const cascading = collection.refs.find((ref) => ref.onDelete === 'cascade');
+    if (overrides.delete !== undefined && cascading !== undefined) {
+      throw new Error(
+        `Lattice: ${slug} overrides delete, so ${slug}.${cascading.field} cannot cascade; use restrict or nullify`,
+      );
+    }
     const access: AccessMap = options.access;
     for (const action of Object.keys(overrides)) {
       if (!actions.some((key) => key === action)) {
@@ -418,7 +474,8 @@ export class Framework<
    * The ts-pf contract: one slice per collection. Built on first read and
    * the same object after, so clients and codegen import it with no ports.
    */
-  get contract(): Contract<E, D> {
+  get contract(): CheckedContract<E, D> {
+    checkSlugs(this.entries);
     this.#contract ??= contractOf<E, D>(this.entries, this.errors.declared);
     return this.#contract;
   }
@@ -437,12 +494,8 @@ export class Framework<
     readonly store: CollectionStore;
     readonly events: EventPublisher;
     readonly access?: Access<Actor>;
-    readonly methods?: (
-      wiring: RuntimeWiring,
-    ) => RuntimeInstances<FamilyContext<Actor>>;
-    readonly overrides?: (
-      wiring: RuntimeWiring,
-    ) => RuntimeInstances<FamilyContext<Actor>>;
+    readonly methods?: FactoryFn<Actor>;
+    readonly overrides?: FactoryFn<Actor>;
   }): {
     readonly app: ImplementedRouter<RuntimeContract, CallContext<Actor>>;
     readonly useCases: Readonly<
@@ -453,7 +506,11 @@ export class Framework<
     readonly ensure: () => Promise<void>;
     readonly context: (base: CallContext<Actor>) => FamilyContext<Actor>;
   } {
+    checkSlugs(this.entries);
     const { store, events } = options;
+    const referrers = referrersOf(
+      this.entries.map((entry) => entry.collection),
+    );
     const access =
       options.access ??
       new CollectionAccess(
@@ -488,7 +545,15 @@ export class Framework<
         const declared = overrides[action];
         sliceUseCases[action] =
           declared === undefined
-            ? generated(this.family, store, events, collection, ops, action)
+            ? generated(
+                this.family,
+                store,
+                events,
+                collection,
+                ops,
+                action,
+                referrers,
+              )
             : instanceOf('override', slug, action, declared, overrideInstances);
       }
       for (const [name, method] of Object.entries(methods)) {
@@ -542,6 +607,20 @@ export class Framework<
   }
 }
 
+/** Throws on a ref whose slug is not a collection of `entries`. */
+function checkSlugs(entries: readonly Entry[]): void {
+  const slugs = new Set(entries.map((entry) => entry.collection.slug));
+  for (const { collection } of entries) {
+    for (const { field, slug } of collection.refs) {
+      if (!slugs.has(slug)) {
+        throw new Error(
+          `Lattice: ${collection.slug}.${field} refers to "${slug}", which is not a collection of this framework`,
+        );
+      }
+    }
+  }
+}
+
 /**
  * The contract of `entries`: Lattice's declared errors and the app's on
  * every procedure. The overload states its type; the implementation builds
@@ -550,7 +629,7 @@ export class Framework<
 function contractOf<E extends Entries, D extends ErrorMap>(
   entries: readonly Entry[],
   declared: ErrorMap,
-): Contract<E, D>;
+): CheckedContract<E, D>;
 function contractOf(
   entries: readonly Entry[],
   declared: ErrorMap,

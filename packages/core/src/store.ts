@@ -72,6 +72,15 @@ export abstract class CollectionStore extends Port('CollectionStore') {
     patch: Patch,
     where?: AnyWhere,
   ): Promise<StoredDoc | null>;
+  /**
+   * Runs `work` as one unit with a store whose calls join it: a commit, or
+   * on a throw, nothing. Each store makes it as atomic as it can. A store
+   * without transactions runs `work` on itself, in order. A `transaction`
+   * inside `work` joins the outer one.
+   */
+  abstract transaction<T>(
+    work: (store: CollectionStore) => Promise<T>,
+  ): Promise<T>;
   /** The removed doc, or null when no row matched. */
   abstract remove(
     collection: string,
@@ -85,8 +94,10 @@ export abstract class CollectionStore extends Port('CollectionStore') {
  * a caller that mutates an argument or a returned doc does not change it.
  */
 export class MemoryStore extends Adapter(CollectionStore) {
-  private readonly collections = new Map<string, Map<string, StoredDoc>>();
-  private readonly indexes = new Map<string, Index[]>();
+  private collections = new Map<string, Map<string, StoredDoc>>();
+  private indexes = new Map<string, Index[]>();
+  /** Whether a transaction is running, so a nested one joins it. */
+  private transacting = false;
 
   private rows(collection: string): Map<string, StoredDoc> {
     const existing = this.collections.get(collection);
@@ -154,6 +165,34 @@ export class MemoryStore extends Adapter(CollectionStore) {
     return keys.some((key, i) =>
       keys.slice(i + 1).some((other) => isDeepStrictEqual(key, other)),
     );
+  }
+
+  /**
+   * Snapshots every collection, runs `work`, and restores the snapshot when
+   * it throws. It does not isolate: a call made outside `work` while it
+   * runs sees its writes, and is lost too when it rolls back.
+   */
+  async transaction<T>(
+    work: (store: CollectionStore) => Promise<T>,
+  ): Promise<T> {
+    if (this.transacting) return work(this);
+    // Stored docs are never mutated in place, so copying the maps is enough.
+    const collections = new Map(
+      [...this.collections].map(([name, rows]) => [name, new Map(rows)]),
+    );
+    const indexes = new Map(
+      [...this.indexes].map(([name, list]) => [name, [...list]]),
+    );
+    this.transacting = true;
+    try {
+      return await work(this);
+    } catch (error) {
+      this.collections = collections;
+      this.indexes = indexes;
+      throw error;
+    } finally {
+      this.transacting = false;
+    }
   }
 
   async count(collection: string, where?: AnyWhere): Promise<number> {

@@ -44,6 +44,8 @@ Start the store before the app serves traffic, and stop it after the server clos
 - A duplicate key on `insert` or `update`, from the id or a unique index, is Lattice's `CONFLICT` with `{ collection, id }` of the document being written.
 - `ensure(collection, indexes)` creates each index with `createIndex` and never drops one. `build().ensure()` calls it for every collection that declares indexes. An index with the same keys and other options rejects, and so does a unique index over existing duplicates: changing an index is a migration.
 - `count` is `countDocuments`.
+- `has` is equality on the array field, which Mongo matches against any element.
+- `transaction(work)` runs `work` in one Mongo transaction on a replica set or a mongos, with a view of the store whose every call carries the session. A standalone server has no transactions, so there `work` runs in order; Lattice's deletes put the parent last. An index is never built inside a transaction.
 
 ## Migrations
 

@@ -19,6 +19,12 @@ const definitions = {
   FORBIDDEN: { message: 'The actor may not do this' },
   NOT_FOUND: { message: 'No document with this id', data: target },
   CONFLICT: { message: 'A document with this id already exists', data: target },
+  REFERENCED: {
+    message: 'Other documents refer to this one',
+    data: target.extend({
+      by: z.object({ collection: z.string(), field: z.string() }),
+    }),
+  },
 };
 
 /** Lattice's refusals. Each reaches a ts-pf client under the same code. */
@@ -39,6 +45,7 @@ export const declaredErrors = {
   FORBIDDEN: { ...definitions.FORBIDDEN, status: 403 },
   NOT_FOUND: { ...definitions.NOT_FOUND, status: 404 },
   CONFLICT: { ...definitions.CONFLICT, status: 409 },
+  REFERENCED: { ...definitions.REFERENCED, status: 409 },
 } satisfies ErrorMap;
 
 export type Issue = z.output<typeof issue>;

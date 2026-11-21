@@ -77,6 +77,13 @@ describe('toFilter', () => {
     });
   });
 
+  it('maps has to equality, which Mongo matches against any element', () => {
+    expect(toFilter({ tags: { has: 'x' } })).toEqual({ tags: { $eq: 'x' } });
+    expect(toFilter({ tags: { has: 'x', exists: true } })).toEqual({
+      tags: { $eq: 'x', $ne: null },
+    });
+  });
+
   it('maps and and or, nested, beside fields', () => {
     expect(
       toFilter({

@@ -7,6 +7,9 @@
  * it.each(storeCases)('$name', ({ run }) => run(store));
  * ```
  *
+ * A store without transactions runs the cases that do not need them:
+ * `storeCases.filter((c) => !c.needs?.includes('transactions'))`.
+ *
  * Each case uses its own collection names. A store's semantics follow
  * MongoDB's query rules; `MemoryStore` passes every case.
  */
@@ -16,9 +19,17 @@ import { LatticeError } from '../errors.js';
 import type { CollectionStore, Index, Patch, StoredDoc } from '../store.js';
 import type { AnyWhere } from '../where.js';
 
+/** A capability some stores lack. A case that needs one says so. */
+export type StoreCapability = 'transactions';
+
 /** One conformance case: its name, and the check it runs on a fresh store. */
 export type StoreCase = {
   readonly name: string;
+  /**
+   * What the store must support for this case. An adapter that lacks a
+   * capability filters these cases out.
+   */
+  readonly needs?: readonly StoreCapability[];
   run(store: CollectionStore): Promise<void>;
 };
 
@@ -470,6 +481,39 @@ export const storeCases: readonly StoreCase[] = [
     [{ note: { lt: 'z' } }, ['t1', 't4']],
     [{ at: { lt: '2027-01-01T00:00:00.000Z' } }, ['t1', 't2', 't3']],
   ]),
+  {
+    name: 'where: has matches an array with an equal element; a missing or null array has none',
+    async run(store) {
+      await seed(store, 'where_has', [
+        { id: 'h1', tags: ['a', 'b'], nums: [1, 2] },
+        { id: 'h2', tags: ['b'], nums: [] },
+        { id: 'h3', tags: [], nums: null },
+        { id: 'h4', tags: null },
+        { id: 'h5' },
+      ]);
+      const expectations: readonly (readonly [AnyWhere, readonly string[]])[] =
+        [
+          [{ tags: { has: 'a' } }, ['h1']],
+          [{ tags: { has: 'b' } }, ['h1', 'h2']],
+          [{ tags: { has: 'z' } }, []],
+          [{ nums: { has: 2 } }, ['h1']],
+          [{ nums: { has: 3 } }, []],
+          [{ or: [{ tags: { has: 'a' } }, { nums: { has: 9 } }] }, ['h1']],
+        ];
+      for (const [where, ids] of expectations) {
+        same(
+          await found(store, 'where_has', where),
+          ids,
+          `find with ${show(where)}`,
+        );
+      }
+      same(
+        await store.count('where_has', { tags: { has: 'b' } }),
+        2,
+        'count with has',
+      );
+    },
+  },
   whereCase('exists: null does not exist; arrays and objects', [
     [{ note: { exists: true } }, ['t1', 't4']],
     [{ note: { exists: false } }, ['t2', 't3']],
@@ -690,6 +734,101 @@ export const storeCases: readonly StoreCase[] = [
         2,
         'the good cursor still pages',
       );
+    },
+  },
+
+  // ---------------------------------------------------------------- transaction
+  {
+    name: 'transaction commits its writes, returns its value, and reads them inside',
+    async run(store) {
+      await seed(store, 'x_commit', [post('p1'), post('p2')]);
+      const result = await store.transaction(async (tx) => {
+        await tx.insert('x_commit', post('p3'));
+        await tx.update('x_commit', 'p1', { title: 'changed' });
+        await tx.remove('x_commit', 'p2');
+        same(
+          await tx.get('x_commit', 'p3'),
+          post('p3'),
+          'p3 read inside the work',
+        );
+        same(await tx.count('x_commit'), 2, 'count inside the work');
+        return 'done';
+      });
+      same(result, 'done', 'the value of the work');
+      same(
+        idsOf(
+          (
+            await store.find({
+              collection: 'x_commit',
+              sort: ['id'],
+              limit: 10,
+            })
+          ).docs,
+        ),
+        ['p1', 'p3'],
+        'ids after the commit',
+      );
+      same(
+        await store.get('x_commit', 'p1'),
+        post('p1', { title: 'changed' }),
+        'p1 after the commit',
+      );
+    },
+  },
+  {
+    name: 'transaction rolls back every write when the work throws, and the error passes through',
+    needs: ['transactions'],
+    async run(store) {
+      await seed(store, 'x_rollback', [post('p1'), post('p2')]);
+      const failure = new Error('rolled back');
+      const error = await rejection(
+        store.transaction(async (tx) => {
+          await tx.insert('x_rollback', post('p3'));
+          await tx.update('x_rollback', 'p1', { title: 'changed' });
+          await tx.remove('x_rollback', 'p2');
+          same(
+            await tx.get('x_rollback', 'p3'),
+            post('p3'),
+            'p3 read inside the work',
+          );
+          throw failure;
+        }),
+        'a throwing transaction',
+      );
+      same(error === failure, true, 'the work’s own error');
+      same(
+        (
+          await store.find({
+            collection: 'x_rollback',
+            sort: ['id'],
+            limit: 10,
+          })
+        ).docs,
+        [post('p1'), post('p2')],
+        'the documents after the rollback',
+      );
+    },
+  },
+  {
+    name: 'a nested transaction joins the outer one, and a throw rolls back both',
+    needs: ['transactions'],
+    async run(store) {
+      await seed(store, 'x_nested', [post('p1')]);
+      await rejection(
+        store.transaction(async (tx) => {
+          await tx.transaction(async (inner) => {
+            await inner.insert('x_nested', post('p2'));
+          });
+          same(
+            await tx.get('x_nested', 'p2'),
+            post('p2'),
+            'the inner write, inside',
+          );
+          throw new Error('outer failed');
+        }),
+        'an outer throw after an inner transaction',
+      );
+      same(await store.get('x_nested', 'p2'), null, 'p2 after the rollback');
     },
   },
 

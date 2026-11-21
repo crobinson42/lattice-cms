@@ -49,6 +49,10 @@ function conditions(ops: FieldOps): [string, unknown][] {
         // strings only, as `contains` does.
         out.push(['$regex', escapeRegex(String(value))], ['$options', 'i']);
         break;
+      case 'has':
+        // On an array field, Mongo's equality matches any element.
+        out.push(['$eq', value]);
+        break;
       case 'exists':
         // Lattice's exists asks whether a field has a value, so null does
         // not exist. Mongo's $exists would count null as present.

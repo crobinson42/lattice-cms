@@ -13,6 +13,7 @@ export {
   type FamilyContext,
   family,
 } from './family.js';
+export { type OnDelete, ref } from './relations.js';
 export type { Doc, Repo } from './repo.js';
 export type { Sort } from './sort.js';
 export { CollectionStore, MemoryStore } from './store.js';

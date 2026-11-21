@@ -1,5 +1,6 @@
 import { Event, type EventCatalog } from 'hexok';
 import { z } from 'zod';
+import { type RefCheck, type RefField, refsOf } from './relations.js';
 import { defaultLimit, maxLimit, sortSchema } from './sort.js';
 import type { Index } from './store.js';
 import { tenantShapes } from './tenancy.js';
@@ -210,8 +211,13 @@ export interface Collection<
   readonly tenant: [Tenant] extends [never] ? undefined : Tenant;
   /** The document a read returns: the schema plus `id`, `createdAt`, `updatedAt` and the tenant field. */
   readonly output: Operations<Shape, Tenant>['get']['output'];
-  /** The indexes `build().ensure()` creates, in declaration order. */
+  /**
+   * The indexes `build().ensure()` creates: the declared ones, then one per
+   * ref field, led by the tenant field.
+   */
   readonly indexes: readonly Index[];
+  /** The ref fields, with their targets and onDelete. */
+  readonly refs: readonly RefField[];
   /**
    * The hexok `Event` classes its generated writes publish, with tokens
    * `<slug>.created`, `.updated` and `.deleted`. The app lists them in its
@@ -360,6 +366,7 @@ export function collection<
       z.output<Output<Shape, Tenant>>
     >[];
   } & FieldCheck<Shape> &
+    RefCheck<Shape> &
     TenantCheck<Shape, Tenant>,
 ): Collection<Slug, Shape, Tenant> {
   for (const [name, field] of Object.entries(options.schema.shape)) {
@@ -383,7 +390,7 @@ export function collection<
   const output = outputOf<Shape, Tenant>(options.schema, tenant);
   // A stored index names each field with its direction; an optional key
   // left undefined names nothing.
-  const indexes: readonly Index[] = (options.indexes ?? []).map(
+  const declaredIndexes: readonly Index[] = (options.indexes ?? []).map(
     ({ fields, unique }) => ({
       fields: Object.fromEntries(
         Object.entries(fields).flatMap(
@@ -395,7 +402,7 @@ export function collection<
     }),
   );
   const fields = Object.keys(output.shape);
-  for (const index of indexes) {
+  for (const index of declaredIndexes) {
     const keys = Object.keys(index.fields);
     if (keys.length === 0) {
       throw new Error(`Lattice: an index on "${slug}" names no fields`);
@@ -407,11 +414,26 @@ export function collection<
       );
     }
   }
+  const refs = refsOf(slug, options.schema.shape);
+  // restrict, cascade and nullify look children up by their ref field,
+  // within the tenant: each ref gets an index unless one is declared.
+  const refIndexes = refs
+    .map(
+      ({ field }): Index => ({
+        fields:
+          tenant === undefined ? { [field]: 1 } : { [tenant]: 1, [field]: 1 },
+      }),
+    )
+    .filter(
+      (index) => !declaredIndexes.some((other) => sameKeys(other, index)),
+    );
+  const indexes = [...declaredIndexes, ...refIndexes];
   return declared<Slug, Shape, Tenant>(
     slug,
     options.schema,
     tenantShapes(tenant).tenant,
     indexes,
+    refs,
     output,
     events(slug, output, tenant),
     {},
@@ -429,6 +451,7 @@ function declared<
   schema: Schema<Shape>,
   tenant: Collection<Slug, Shape, Tenant>['tenant'],
   indexes: readonly Index[],
+  refs: readonly RefField[],
   output: Operations<Shape, Tenant>['get']['output'],
   events: Events<Slug, Shape, Tenant>,
   hooks: Hooks<Shape, Tenant>,
@@ -438,6 +461,7 @@ function declared<
     schema,
     tenant,
     indexes,
+    refs,
     output,
     events,
     ...hooks,
@@ -447,6 +471,7 @@ function declared<
         schema,
         tenant,
         indexes,
+        refs,
         output,
         events,
         {
@@ -455,4 +480,19 @@ function declared<
         },
       ),
   };
+}
+
+/** Whether two indexes have the same keys, in the same order and directions. */
+function sameKeys(a: Index, b: Index): boolean {
+  const left = Object.entries(a.fields);
+  const right = Object.entries(b.fields);
+  return (
+    left.length === right.length &&
+    left.every(([field, direction], i) => {
+      const other = right[i];
+      return (
+        other !== undefined && other[0] === field && other[1] === direction
+      );
+    })
+  );
 }
