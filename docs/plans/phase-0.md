@@ -89,10 +89,10 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 ### 7. Contract, router and errors
 
 - [ ] `build()` returns `contract`, a ts-pf `router` with one slice per collection, and `app`, the implemented router. Each procedure calls one use case.
-- [ ] Every procedure declares the same errors: `UNAUTHORIZED`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `VALIDATION`. `errors.ts` maps `LatticeError` to them once, the way hexok's `app-template` does in `servers/rpc/errors.ts`.
+- [ ] Every procedure declares the same errors: `UNAUTHORIZED`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `VALIDATION`, plus the app's `framework({ errors: { declared, map } })`. `errors.ts` maps `LatticeError` to them once, the way hexok's `app-template` does in `servers/rpc/errors.ts`, then applies the app's `map`.
 - [ ] One function decides whether a thrown value is an expected refusal. `family()`'s `onCatch` logging and the ts-pf mapping both use it, so a code that maps to a declared error is never logged as a failure. Decide whether hexok `CodedError` (e.g. `validationError`, `Entity.parse`) counts; app-template's input guard throws one.
 - [ ] The edge logs what the family cannot: guard rejections (`UNAUTHORIZED`, `VALIDATION`) and ts-pf's own input rejections, without logging a refusal twice.
-- [ ] A `VALIDATION` from ts-pf's own input check and one from `LatticeError` reach the client with the same issue shape, one issue per path.
+- [ ] A `VALIDATION` from ts-pf's own input check and one from `LatticeError` reach the client with the same `{ path, message }[]` issue shape.
 - [ ] The ts-pf context is `{ actor, logger }`. The app builds it at the edge.
 
 ### 8. Overrides and custom methods
@@ -129,6 +129,7 @@ Add a line here when the work teaches something the plan did not know: a type li
 - Step 1: type-check of the spike is 0.70 s and 189k instantiations for two collections. Re-measure at step 9.
 - Step 1: TS2883 (a type that cannot be named) only fires for a consumer outside `packages/core`; inside, TypeScript names types by relative path. The public types are `Collection`, `Framework`, `Contract`, `Family` and `FamilyContext` because a consumer's declarations need them. Went to step 9.
 - Step 1: hexok's `#brand` is a structural key in declarations, so `build()` tells instances of two use cases with the same `execute` types apart only by private members. `build()` also checks `instanceof` the declared class at runtime. Nowhere else yet.
+- Step 7: overrides and methods throw the app's domain errors, which Lattice's five codes cannot carry. `framework({ errors: { declared, map } })` takes the app's existing error map and mapper. Maintainer's choice. Went to `architecture.md` and step 7.
 - Step 6: hexok `Event` classes are invariant in their payload, so `AnyCollection` holds them as `EventCatalog`'s erased constructor, and `crud.ts` checks each payload with `satisfies`. Nowhere else.
 - Step 6: `Family` carries `actorId`; `AppUseCase.guard(...)` after `family()` returns a plain hexok factory without it, which `framework()` rejects. Went to `architecture.md`.
 - Step 6: app-template's publisher accepts, and at runtime allows, only its own catalog's events, so per-collection catalogs could not fit it. Event classes moved onto the collection, for the app to list in its one catalog. Maintainer's choice. Went to [0020](../decisions/0020-collection-events-join-the-app-catalog.md), `architecture.md` and steps 6 and 8.

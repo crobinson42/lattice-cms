@@ -116,6 +116,7 @@ const lattice = framework({
   family: AppUseCase,
   store: new MongoStore({ db }), // CollectionStore adapter
   events: domainEvents,          // hexok Port over @hexok/queue
+  errors: { declared: clientErrors, map: toRpcError }, // the app's servers/rpc/errors.ts
 })
   .collection(Users)
   .collection(Posts, { methods: { publish: PublishPost }, overrides: { delete: ArchivePost } })
@@ -362,7 +363,11 @@ await local.posts.find({ where: { status: { eq: 'published' } }, limit: 20 })
 | TypeScript clients | `@ts-pf/client` + `client-http`, `@ts-pf/swr`, `@ts-pf/mvc-kit` | Import `contract` only, never server code |
 | Split repos | `@ts-pf/codegen` | `.d.ts` from the catalog, plus a breaking-change check in CI |
 
-Errors are a hexok `Errors` catalog mapped once to ts-pf declared errors (`UNAUTHORIZED`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `VALIDATION`), as `app-template`'s `rpc/errors.ts` does. Every generated procedure declares the same set.
+Errors are a hexok `Errors` catalog mapped once to ts-pf declared errors (`UNAUTHORIZED`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `VALIDATION`), as `app-template`'s `rpc/errors.ts` does.
+
+- `framework({ errors: { declared, map } })` takes the app's own client error map and mapper, the ones app-template keeps in `servers/rpc/errors.ts`, unchanged. Every procedure, generated or not, declares Lattice's codes plus the app's, so an override or method can throw an app domain error and a client narrows on it.
+- An error that is neither Lattice's nor mapped by the app reaches the client as `INTERNAL`.
+- One function in `errors.ts` decides whether a thrown value is an expected refusal: a member of any hexok `Errors` catalog, or a hexok `CodedError` `VALIDATION`. The family's logging uses it. Whether a refusal is shown to clients is the transport mapping's decision; one it sends as `INTERNAL` is logged by the edge's `onError`.
 
 REST with path parameters is not offered. If an outside partner needs it, it is a projection plus an executor beside `FetchHandler`, the way ts-pf already plans one.
 
