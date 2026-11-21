@@ -1,10 +1,20 @@
 import { Event, type EventCatalog } from 'hexok';
 import { z } from 'zod';
-import { type RefCheck, type RefField, refsOf } from './relations.js';
+import {
+  type AnyMany,
+  type JoinShape,
+  joinSchemas,
+  type LinkShape,
+  type Many,
+  type ManyOnDelete,
+  type RefCheck,
+  type RefField,
+  refsOf,
+} from './relations.js';
 import { defaultLimit, maxLimit, sortSchema } from './sort.js';
 import type { Index } from './store.js';
 import { tenantShapes } from './tenancy.js';
-import { innerOf, whereSchema, wrapperOf } from './where.js';
+import { type AnyWhere, innerOf, whereSchema, wrapperOf } from './where.js';
 
 /** The operations Lattice generates for every collection. */
 export type Action = 'find' | 'count' | 'get' | 'create' | 'update' | 'delete';
@@ -201,6 +211,7 @@ export interface Collection<
   Slug extends string,
   Shape extends z.core.$ZodShape,
   Tenant extends string = never,
+  Relations extends AnyRelations = Record<never, never>,
 > {
   readonly slug: Slug;
   readonly schema: Schema<Shape>;
@@ -218,6 +229,8 @@ export interface Collection<
   readonly indexes: readonly Index[];
   /** The ref fields, with their targets and onDelete. */
   readonly refs: readonly RefField[];
+  /** Each `many()` relation, with its derived join collection. */
+  readonly relations: Relations;
   /**
    * The hexok `Event` classes its generated writes publish, with tokens
    * `<slug>.created`, `.updated` and `.deleted`. The app lists them in its
@@ -227,8 +240,102 @@ export interface Collection<
   readonly beforeChange?: Hooks<Shape, Tenant>['beforeChange'];
   readonly afterRead?: Hooks<Shape, Tenant>['afterRead'];
   /** The same collection with these hooks. A later call replaces a hook it names. */
-  hooks(hooks: Hooks<Shape, Tenant>): Collection<Slug, Shape, Tenant>;
+  hooks(
+    hooks: Hooks<Shape, Tenant>,
+  ): Collection<Slug, Shape, Tenant, Relations>;
 }
+
+/** A relation as the framework reads it, whatever its collections. */
+export type AnyRelation = {
+  readonly target: string;
+  readonly onDelete: ManyOnDelete;
+  readonly through: AnyCollection;
+  readonly parentField: string;
+  readonly targetField: string;
+  readonly list: {
+    readonly input: z.ZodType<{
+      readonly id: string;
+      readonly where?: AnyWhere | undefined;
+      readonly sort: readonly string[];
+      readonly limit: number;
+      readonly after?: string | undefined;
+    }>;
+    readonly output: z.ZodType;
+  };
+  readonly set: {
+    readonly input: z.ZodType<{
+      readonly id: string;
+      readonly links: readonly Readonly<Record<string, unknown>>[];
+    }>;
+    readonly output: z.ZodType;
+  };
+};
+
+export type AnyRelations = Readonly<Record<string, AnyRelation>>;
+
+/** The most links one `set` takes. A bigger relation is a method's work. */
+export const maxLinks = 1000;
+
+type JoinOps<
+  P extends string,
+  Tenant extends string,
+  T extends string,
+  D extends ManyOnDelete,
+  F extends z.core.$ZodShape,
+> = Operations<JoinShape<P, T, D, F>, Tenant>;
+
+/**
+ * One `many()` relation of collection `P`: the derived join collection, its
+ * two ref fields, and the schemas of `<slug>.<relation>.list` and `.set`.
+ */
+export type Relation<
+  P extends string,
+  Tenant extends string,
+  M extends AnyMany,
+> =
+  M extends Many<
+    infer T extends string,
+    infer Th extends string,
+    infer F extends z.core.$ZodShape,
+    infer D extends ManyOnDelete
+  >
+    ? {
+        readonly target: T;
+        readonly onDelete: D;
+        readonly through: Collection<Th, JoinShape<P, T, D, F>, Tenant>;
+        readonly parentField: `${P}Id`;
+        readonly targetField: `${T}Id`;
+        readonly list: {
+          readonly input: z.ZodObject<
+            z.core.util.Extend<
+              JoinOps<P, Tenant, T, D, F>['find']['input']['shape'],
+              { id: z.ZodString }
+            >,
+            z.core.$strip
+          >;
+          readonly output: JoinOps<P, Tenant, T, D, F>['find']['output'];
+        };
+        readonly set: {
+          readonly input: z.ZodObject<
+            {
+              id: z.ZodString;
+              links: z.ZodArray<z.ZodObject<LinkShape<T, D, F>, z.core.$strip>>;
+            },
+            z.core.$strip
+          >;
+          readonly output: z.ZodObject<
+            { docs: z.ZodArray<JoinOps<P, Tenant, T, D, F>['get']['output']> },
+            z.core.$strip
+          >;
+        };
+      }
+    : never;
+
+export type RelationsOf<
+  P extends string,
+  Tenant extends string,
+  R extends Readonly<Record<string, AnyMany>>,
+> = { readonly [K in keyof R]: Relation<P, Tenant, R[K]> };
 
 /** An event class as hexok's `EventCatalog` takes it, whatever its payload. */
 type AnyEventClass = Parameters<typeof EventCatalog>[1][string];
@@ -241,9 +348,10 @@ type AnyEventClass = Parameters<typeof EventCatalog>[1][string];
  */
 export type AnyCollection = Omit<
   Collection<string, z.core.$ZodShape>,
-  'events' | 'hooks' | 'tenant'
+  'events' | 'hooks' | 'tenant' | 'relations'
 > & {
   readonly tenant: string | undefined;
+  readonly relations: AnyRelations;
   readonly events: Readonly<
     Record<keyof Events<string, z.core.$ZodShape>, AnyEventClass>
   >;
@@ -344,10 +452,28 @@ function checkField(path: string, schema: z.core.$ZodType): void {
   }
 }
 
+// A rejected relation adds a key the options lack, so the error names it.
+type RelationCheck<Slug extends string, Shape extends z.core.$ZodShape, R> = [
+  keyof R & (keyof Shape | Action | 'read'),
+] extends [never]
+  ? {
+      [K in keyof R]: R[K] extends { readonly target: Slug }
+        ? `${K & string} relates ${Slug} to itself, which many() does not support`
+        : never;
+    }[keyof R] extends infer E
+    ? [E] extends [never]
+      ? unknown
+      : { readonly '~error': E }
+    : never
+  : {
+      readonly '~error': `relation "${keyof R & (keyof Shape | Action | 'read') & string}" has the name of a field, an action or an access key`;
+    };
+
 export function collection<
   const Slug extends string,
   Shape extends z.core.$ZodShape,
   const Tenant extends string = never,
+  const R extends Readonly<Record<string, AnyMany>> = Record<never, never>,
 >(
   slug: Slug,
   options: {
@@ -365,10 +491,16 @@ export function collection<
     readonly indexes?: readonly CollectionIndex<
       z.output<Output<Shape, Tenant>>
     >[];
+    /**
+     * `many()` relations, by name. Each derives a join collection and gets
+     * `<slug>.<name>.list` and `.set`.
+     */
+    readonly relations?: R;
   } & FieldCheck<Shape> &
     RefCheck<Shape> &
-    TenantCheck<Shape, Tenant>,
-): Collection<Slug, Shape, Tenant> {
+    TenantCheck<Shape, Tenant> &
+    RelationCheck<Slug, Shape, R>,
+): Collection<Slug, Shape, Tenant, RelationsOf<Slug, Tenant, R>> {
   for (const [name, field] of Object.entries(options.schema.shape)) {
     if (reservedFields.some((reserved) => reserved === name)) {
       throw new Error(`Lattice: "${name}" is a reserved field name`);
@@ -387,7 +519,19 @@ export function collection<
       `Lattice: tenant "${tenant}" is stamped by Lattice; it cannot be a schema field, a reserved name or an invalid field name`,
     );
   }
-  const output = outputOf<Shape, Tenant>(options.schema, tenant);
+  const relations: Readonly<Record<string, AnyMany>> = options.relations ?? {};
+  for (const [name, relation] of Object.entries(relations)) {
+    if ([...names, ...actions, 'read'].some((other) => other === name)) {
+      throw new Error(
+        `Lattice: relation "${name}" has the name of a field, an action or an access key`,
+      );
+    }
+    if (relation.target === slug) {
+      throw new Error(
+        `Lattice: ${name} relates ${slug} to itself, which many() does not support`,
+      );
+    }
+  }
   // A stored index names each field with its direction; an optional key
   // left undefined names nothing.
   const declaredIndexes: readonly Index[] = (options.indexes ?? []).map(
@@ -401,6 +545,36 @@ export function collection<
       ...(unique === undefined ? {} : { unique }),
     }),
   );
+  return define<Slug, Shape, Tenant, RelationsOf<Slug, Tenant, R>>(
+    slug,
+    options.schema,
+    tenant,
+    declaredIndexes,
+    relationsOf(slug, tenant, options.relations),
+  );
+}
+
+/** The generated operations, for the relation-name check. */
+const actions = ['find', 'count', 'get', 'create', 'update', 'delete'];
+
+/**
+ * A collection from a checked schema: its output, refs, indexes and events.
+ * `collection()` checks a user's options and calls it; a join collection is
+ * defined here directly.
+ */
+function define<
+  Slug extends string,
+  Shape extends z.core.$ZodShape,
+  Tenant extends string,
+  Relations extends AnyRelations,
+>(
+  slug: Slug,
+  schema: Schema<Shape>,
+  tenant: Tenant | undefined,
+  declaredIndexes: readonly Index[],
+  relations: Relations,
+): Collection<Slug, Shape, Tenant, Relations> {
+  const output = outputOf<Shape, Tenant>(schema, tenant);
   const fields = Object.keys(output.shape);
   for (const index of declaredIndexes) {
     const keys = Object.keys(index.fields);
@@ -414,9 +588,10 @@ export function collection<
       );
     }
   }
-  const refs = refsOf(slug, options.schema.shape);
+  const refs = refsOf(slug, schema.shape);
   // restrict, cascade and nullify look children up by their ref field,
-  // within the tenant: each ref gets an index unless one is declared.
+  // within the tenant: each ref gets an index, unless a declared one starts
+  // with the same keys, which serves the lookup as well.
   const refIndexes = refs
     .map(
       ({ field }): Index => ({
@@ -425,19 +600,126 @@ export function collection<
       }),
     )
     .filter(
-      (index) => !declaredIndexes.some((other) => sameKeys(other, index)),
+      (index) => !declaredIndexes.some((other) => startsWith(other, index)),
     );
-  const indexes = [...declaredIndexes, ...refIndexes];
-  return declared<Slug, Shape, Tenant>(
+  return declared<Slug, Shape, Tenant, Relations>(
     slug,
-    options.schema,
+    schema,
     tenantShapes(tenant).tenant,
-    indexes,
+    [...declaredIndexes, ...refIndexes],
     refs,
+    relations,
     output,
     events(slug, output, tenant),
     {},
   );
+}
+
+/**
+ * The relations of collection `parent`, each with its derived join
+ * collection. The overload states each relation's types, including the
+ * join's computed field names; the implementation builds them in a loop,
+ * which a mapped type cannot express.
+ */
+function relationsOf<
+  P extends string,
+  Tenant extends string,
+  R extends Readonly<Record<string, AnyMany>>,
+>(
+  parent: P,
+  tenant: Tenant | undefined,
+  relations: R | undefined,
+): RelationsOf<P, Tenant, R>;
+function relationsOf(
+  parent: string,
+  tenant: string | undefined,
+  relations: Readonly<Record<string, AnyMany>> | undefined,
+): AnyRelations {
+  return Object.fromEntries(
+    Object.entries(relations ?? {}).map(([name, relation]) => [
+      name,
+      relationOf(parent, tenant, relation),
+    ]),
+  );
+}
+
+function relationOf(
+  parent: string,
+  tenant: string | undefined,
+  relation: AnyMany,
+): AnyRelation {
+  const { join, link, parentField, targetField } = joinSchemas(
+    parent,
+    relation,
+  );
+  const fieldNames = Object.keys(relation.fields?.shape ?? {});
+  const clash = fieldNames.find(
+    (name) =>
+      name === parentField ||
+      name === targetField ||
+      reservedFields.some((reserved) => reserved === name) ||
+      name === tenant ||
+      isStoreName(name),
+  );
+  if (clash !== undefined) {
+    throw new Error(
+      `Lattice: "${relation.through}" link field "${clash}" is a ref, a reserved, the tenant or an invalid field name`,
+    );
+  }
+  const keys = (...fields: string[]): Index['fields'] =>
+    Object.fromEntries(
+      [...(tenant === undefined ? [] : [tenant]), ...fields].map((field) => [
+        field,
+        1,
+      ]),
+    );
+  // One link per pair, and a lookup from each side: list and a parent's
+  // cascade read the pair index's prefix, a target's onDelete the other.
+  const through = define(
+    relation.through,
+    join,
+    tenant,
+    [
+      { fields: keys(parentField, targetField), unique: true },
+      { fields: keys(targetField) },
+    ],
+    {},
+  );
+  const ops = operations(through.schema, through.output);
+  return {
+    target: relation.target,
+    onDelete: relation.onDelete ?? 'restrict',
+    through,
+    parentField,
+    targetField,
+    list: {
+      input: ops.find.input.extend({ id: z.string() }),
+      output: ops.find.output,
+    },
+    set: {
+      input: z.object({
+        id: z.string(),
+        links: z
+          .array(link)
+          .max(maxLinks)
+          .superRefine((links, ctx) => {
+            const seen = new Set<unknown>();
+            links.forEach((value, index) => {
+              const target = value[targetField];
+              if (seen.has(target)) {
+                ctx.addIssue({
+                  code: 'custom',
+                  path: [index, targetField],
+                  message: `${targetField} repeats an earlier link`,
+                });
+              }
+              seen.add(target);
+            });
+          }),
+      }),
+      output: z.object({ docs: z.array(through.output) }),
+    },
+  };
 }
 
 // A collection with other hooks keeps the same event classes: a catalog
@@ -446,53 +728,48 @@ function declared<
   Slug extends string,
   Shape extends z.core.$ZodShape,
   Tenant extends string,
+  Relations extends AnyRelations,
 >(
   slug: Slug,
   schema: Schema<Shape>,
   tenant: Collection<Slug, Shape, Tenant>['tenant'],
   indexes: readonly Index[],
   refs: readonly RefField[],
+  relations: Relations,
   output: Operations<Shape, Tenant>['get']['output'],
   events: Events<Slug, Shape, Tenant>,
   hooks: Hooks<Shape, Tenant>,
-): Collection<Slug, Shape, Tenant> {
+): Collection<Slug, Shape, Tenant, Relations> {
   return {
     slug,
     schema,
     tenant,
     indexes,
     refs,
+    relations,
     output,
     events,
     ...hooks,
     hooks: (next) =>
-      declared<Slug, Shape, Tenant>(
+      declared<Slug, Shape, Tenant, Relations>(
         slug,
         schema,
         tenant,
         indexes,
         refs,
+        relations,
         output,
         events,
-        {
-          ...hooks,
-          ...next,
-        },
+        { ...hooks, ...next },
       ),
   };
 }
 
-/** Whether two indexes have the same keys, in the same order and directions. */
-function sameKeys(a: Index, b: Index): boolean {
+/** Whether index `a` starts with the keys of `b`, in the same order and directions. */
+function startsWith(a: Index, b: Index): boolean {
   const left = Object.entries(a.fields);
-  const right = Object.entries(b.fields);
-  return (
-    left.length === right.length &&
-    left.every(([field, direction], i) => {
-      const other = right[i];
-      return (
-        other !== undefined && other[0] === field && other[1] === direction
-      );
-    })
-  );
+  return Object.entries(b.fields).every(([field, direction], i) => {
+    const other = left[i];
+    return other !== undefined && other[0] === field && other[1] === direction;
+  });
 }

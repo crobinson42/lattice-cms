@@ -227,6 +227,30 @@ const Projects = collection('projects', {
 - A collection that overrides `delete` cannot have a cascading ref: the cascade would hard-delete rows its override keeps, such as soft-deleted deals. It is a compile error and a throw at `.collection()`; use `restrict` or `nullify`.
 - `onDelete` runs in the generated delete only. An override of `delete`, such as a soft delete, keeps the row, so its children stay valid; an override that removes rows handles their refs itself. `Repo.remove` is trusted and does not run it.
 
+### `many()` relations
+
+`many(target, { through, fields?, onDelete? })` relates each document to many of another collection, through a join collection Lattice derives:
+
+```ts
+const Posts = collection('posts', {
+  schema: z.object({ title: z.string() }),
+  tenant: 'organizationId',
+  relations: {
+    categories: many('categories', {
+      through: 'post_categories',
+      fields: z.object({ sortOrder: z.number().int().default(0) }),
+    }),
+  },
+});
+```
+
+- The join collection is `Posts.relations.categories.through`, with slug `through`. Its documents are `{ postsId, categoriesId, ...fields }` plus the system fields and the parent's tenant field. `postsId` cascades from the post; `categoriesId` takes `onDelete` (`restrict` by default, or `cascade`). It has its own events, which the app lists in its catalog like any collection's, and it is in `repos` (`repos.post_categories`), but it has no slice: links change only through `set`.
+- It gets a unique index on the pair, and one on `categoriesId`, both led by the tenant field.
+- `posts.categories.list({ id, where?, sort?, limit?, after? })` pages the post's links, with find's `where`, `sort` and cursor over the link documents. It runs the post's `read` access: a post outside it is `NOT_FOUND`.
+- `posts.categories.set({ id, links })` replaces the post's links: each link is `{ categoriesId, ...fields }`, at most 1000, and a target repeated is `VALIDATION`. It runs the post's `update` access. It diffs, in one `store.transaction()`: links no longer listed are deleted, new ones inserted, and changed fields updated; an unchanged link keeps its id and `createdAt`. Each change emits its own join event, after the commit. It returns the links in the order given. A tenant bypass cannot set.
+- Both are use cases in the family (`useCases.posts.categories.set`), and can be overridden: `overrides: { categories: { set: ReorderCategories } }`.
+- A relation name may not be a schema field, an operation, `read`, a method or a ts-pf implementer key, and `through` may not be another collection's slug. A collection cannot relate to itself with `many()`. Method names may not contain a dot. Each is a compile error and a throw.
+
 ### Hooks
 
 `.hooks({ beforeChange?, afterRead? })` returns the same collection with those hooks. A later call replaces a hook it names.
@@ -490,4 +514,4 @@ The tests prove each of these.
 
 ## Not yet
 
-`many()` relations, population and auth arrive in later steps. See the [phase table](../../docs/architecture.md#phased-build-plan).
+Population and auth arrive in later steps. See the [phase table](../../docs/architecture.md#phased-build-plan).

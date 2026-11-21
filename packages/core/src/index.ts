@@ -5,7 +5,11 @@ export {
   unscoped,
 } from './access.js';
 export { type Contract, type Framework, framework } from './build.js';
-export { type Collection, collection } from './collection.js';
+export {
+  type Collection,
+  collection,
+  type RelationsOf,
+} from './collection.js';
 export { LatticeError } from './errors.js';
 export {
   type CallContext,
@@ -13,7 +17,13 @@ export {
   type FamilyContext,
   family,
 } from './family.js';
-export { type OnDelete, ref } from './relations.js';
+export {
+  type Many,
+  type ManyOnDelete,
+  many,
+  type OnDelete,
+  ref,
+} from './relations.js';
 export type { Doc, Repo } from './repo.js';
 export type { Sort } from './sort.js';
 export { CollectionStore, MemoryStore } from './store.js';

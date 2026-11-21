@@ -191,7 +191,11 @@ export class CallAccess {
   ): Promise<Scope<C['slug']>> {
     const { slug } = collection;
     const tenant = this.#tenantOf(collection);
-    if (tenant === tenancy.bypass && writes.includes(action)) {
+    // A relation's set writes too: `<relation>.set`. Method names have no dot.
+    if (
+      tenant === tenancy.bypass &&
+      (writes.includes(action) || action.endsWith('.set'))
+    ) {
       throw LatticeError.FORBIDDEN();
     }
     const answer = await this.answer(slug, action, data);

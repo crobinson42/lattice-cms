@@ -4,6 +4,7 @@ import { CallAccess } from './access.js';
 import type {
   Action,
   AnyCollection,
+  AnyRelation,
   ChangeArgs,
   Data,
   Document,
@@ -447,4 +448,161 @@ export function generated<Actor>(
     }
   }
   return new Generated({ store, events });
+}
+
+/**
+ * A generated relation operation of `collection`: `<slug>.<name>.list` or
+ * `.set`, in the app's family. `list` runs the parent's read and `set` its
+ * update (0028): each first gets the parent under that scope, so a parent
+ * outside it is NOT_FOUND.
+ */
+export function generatedRelation<Actor>(
+  family: Family<Actor>,
+  store: CollectionStore,
+  events: EventPublisher,
+  collection: AnyCollection,
+  name: string,
+  relation: AnyRelation,
+  op: 'list' | 'set',
+): Executable<FamilyContext<Actor>> {
+  const { input, output } = relation[op];
+  const join = relation.through;
+  const { parentField, targetField } = relation;
+  // The fields of a link, as `set` compares them.
+  const linkFields = Object.keys(join.schema.shape).filter(
+    (field) => field !== parentField,
+  );
+
+  /** The parent under the scope of `action`, or NOT_FOUND. */
+  async function parentOf(ctx: FamilyContext<Actor>, id: string) {
+    const scope = await ctx.access.scope(collection, `${name}.${op}`);
+    const parent = await store.get(collection.slug, id, scope.where);
+    if (parent === null) {
+      throw LatticeError.NOT_FOUND({ collection: collection.slug, id });
+    }
+    return parent;
+  }
+
+  /** The links of `id`, inside the parent's tenant. */
+  function linksOf(id: string, tenantId: string | undefined): AnyWhere {
+    return (
+      both({ [parentField]: { eq: id } }, tenantClause(join, tenantId)) ?? {}
+    );
+  }
+
+  async function list(ctx: FamilyContext<Actor>, raw: unknown) {
+    const { id, where, sort, limit, after } = parse(relation.list.input, raw);
+    const parent = await parentOf(ctx, id);
+    const page = await store.find(
+      findQuery(join.slug, {
+        where: both(where, linksOf(id, tenantOfDoc(collection, parent))),
+        sort,
+        limit,
+        after,
+      }),
+    );
+    return {
+      docs: page.docs.map((doc) => documentOf({ collection: join }, doc)),
+      next: page.next,
+    };
+  }
+
+  async function set(ctx: FamilyContext<Actor>, raw: unknown) {
+    const { id, links } = parse(relation.set.input, raw);
+    const parent = await parentOf(ctx, id);
+    const tenantId = tenantOfDoc(collection, parent);
+    const actorId = family.actorId(ctx.actor);
+    const tenant = tenantId === undefined ? {} : { tenantId };
+    // The set replaces the links by diffing: an unchanged link keeps its id
+    // and createdAt, and each change owes its own event, after the commit.
+    const { docs, owed } = await store.transaction(async (tx) => {
+      const existing: StoredDoc[] = [];
+      for await (const doc of every(tx, join.slug, linksOf(id, tenantId))) {
+        existing.push(doc);
+      }
+      const byTarget = new Map(existing.map((doc) => [doc[targetField], doc]));
+      const wanted = new Set(links.map((link) => link[targetField]));
+      const owed: object[] = [];
+      for (const doc of existing) {
+        if (wanted.has(doc[targetField])) continue;
+        const removed = await tx.remove(join.slug, doc.id);
+        if (removed === null) continue;
+        owed.push(
+          new join.events.deleted({
+            doc: documentOf({ collection: join }, removed),
+            actorId,
+            ...tenant,
+          } satisfies Payload<'deleted'>),
+        );
+      }
+      const docs: StoredDoc[] = [];
+      for (const link of links) {
+        const previous = byTarget.get(link[targetField]);
+        if (previous === undefined) {
+          const doc = stamped({
+            ...link,
+            [parentField]: id,
+            ...(join.tenant === undefined || tenantId === undefined
+              ? {}
+              : { [join.tenant]: tenantId }),
+          });
+          await tx.insert(join.slug, doc);
+          owed.push(
+            new join.events.created({
+              doc: documentOf({ collection: join }, doc),
+              actorId,
+              ...tenant,
+            } satisfies Payload<'created'>),
+          );
+          docs.push(doc);
+          continue;
+        }
+        // A field the new link leaves out is written as undefined, which
+        // the store removes.
+        const changes = Object.fromEntries(
+          linkFields
+            .filter((field) => !isDeepStrictEqual(previous[field], link[field]))
+            .map((field) => [field, link[field]]),
+        );
+        if (Object.keys(changes).length === 0) {
+          docs.push(previous);
+          continue;
+        }
+        const updated = await tx.update(
+          join.slug,
+          previous.id,
+          touched(changes),
+        );
+        if (updated === null) throw notFoundIn(join, previous.id);
+        owed.push(
+          new join.events.updated({
+            doc: documentOf({ collection: join }, updated),
+            previous: documentOf({ collection: join }, previous),
+            actorId,
+            ...tenant,
+          } satisfies Payload<'updated'>),
+        );
+        docs.push(updated);
+      }
+      return { docs, owed };
+    });
+    for (const event of owed) await events.publish(event);
+    return { docs: docs.map((doc) => documentOf({ collection: join }, doc)) };
+  }
+
+  const run = op === 'list' ? list : set;
+  class GeneratedRelation extends family(`${collection.slug}.${name}.${op}`, {
+    collection,
+    input,
+    output,
+  }) {
+    async execute(ctx: FamilyContext<Actor>, raw: unknown): Promise<unknown> {
+      return run(ctx, raw);
+    }
+  }
+  return new GeneratedRelation();
+}
+
+function notFoundIn(collection: AnyCollection, id: string) {
+  return LatticeError.NOT_FOUND({ collection: collection.slug, id });
 }

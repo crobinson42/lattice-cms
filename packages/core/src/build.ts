@@ -5,6 +5,7 @@ import {
   type ErrorMap,
   type InferSchemaInput,
   type InferSchemaOutput,
+  isContractProcedure,
   procedure,
   router,
 } from '@ts-pf/contract';
@@ -13,6 +14,7 @@ import {
   createImplementer,
   type ImplementedProcedure,
   type ImplementedRouter,
+  isImplementedProcedure,
   type MiddlewareFn,
 } from '@ts-pf/server';
 import { validate } from 'hexok';
@@ -32,7 +34,12 @@ import {
   type Operations,
   operations,
 } from './collection.js';
-import { type EventPublisher, type Executable, generated } from './crud.js';
+import {
+  type EventPublisher,
+  type Executable,
+  generated,
+  generatedRelation,
+} from './crud.js';
 import {
   declaredErrors,
   type LatticeCode,
@@ -76,12 +83,39 @@ type Ctor<I> = abstract new (...args: never[]) => I;
 
 type Schemas = { readonly input: z.ZodType; readonly output: z.ZodType };
 
-/** A collection, its access functions, and the classes attached to it. */
+/** An override as declared: a class, or one per operation of a relation. */
+type AnyOverride = Ctor<unknown> | Readonly<Record<string, Ctor<unknown>>>;
+
+/**
+ * A collection, its access functions, and the classes attached to it. A
+ * join collection a relation derived is an entry too, so its events, refs
+ * and indexes count, but it has no slice and no use cases.
+ */
 type Entry = {
   readonly collection: AnyCollection;
   readonly access: AccessMap;
   readonly methods: Readonly<Record<string, Ctor<unknown> & Schemas>>;
-  readonly overrides: Readonly<Record<string, Ctor<unknown>>>;
+  readonly overrides: Readonly<Record<string, AnyOverride>>;
+  readonly join: boolean;
+};
+
+/** The relation operations Lattice generates. */
+const relationOps = ['list', 'set'] as const;
+type RelationOp = (typeof relationOps)[number];
+
+/** The entries a collection's relations add: their join collections. */
+type JoinEntries<C extends AnyCollection> = {
+  [K in keyof C['relations'] as C['relations'][K]['through']['slug']]: {
+    collection: C['relations'][K]['through'];
+    methods: Record<never, never>;
+    overrides: Record<never, never>;
+    join: true;
+  };
+};
+
+/** The entries with a contract slice: all but join collections. */
+type Sliced<E extends Entries> = {
+  [S in keyof E as E[S]['join'] extends true ? never : S]: E[S];
 };
 
 type Entries = Record<string, Entry>;
@@ -102,9 +136,11 @@ type MethodCheck<C, Col extends AnyCollection, N, Ctx> = N extends
   | Action
   | 'read'
   | Reserved
+  | keyof Col['relations']
+  | `${string}.${string}`
   ? Ctor<unknown> &
       Schemas & {
-        readonly '~error': `"${N & string}" is a generated operation, an access key or a ts-pf implementer key`;
+        readonly '~error': `"${N & string}" is a generated operation, an access key, a relation, a ts-pf implementer key, or has a dot`;
       }
   : C extends {
         readonly input: infer I extends z.ZodType;
@@ -120,7 +156,26 @@ type MethodCheck<C, Col extends AnyCollection, N, Ctx> = N extends
       }
     : Ctor<unknown> & Schemas;
 
-/** What a class that replaces operation `A` of `Col` must be. */
+/** What a class that replaces relation operation `Op` of `Col.R` must be. */
+type RelationOverrideCheck<
+  Col extends AnyCollection,
+  R extends keyof Col['relations'],
+  Op extends RelationOp,
+  Ctx,
+> = Ctor<{
+  execute: (
+    ctx: Ctx,
+    input: z.output<Col['relations'][R][Op]['input']>,
+  ) => Promise<z.output<Col['relations'][R][Op]['output']>>;
+}> & {
+  readonly token: `${Col['slug']}.${R & string}.${Op}`;
+  readonly collection: Col;
+};
+
+/**
+ * What a class that replaces operation `A` of `Col` must be. A relation's
+ * operations are replaced by name: `{ categories: { set: Class } }`.
+ */
 type OverrideCheck<Col extends AnyCollection, A, Ctx> = A extends Action
   ? Ctor<{
       execute: (
@@ -131,9 +186,13 @@ type OverrideCheck<Col extends AnyCollection, A, Ctx> = A extends Action
       readonly token: `${Col['slug']}.${A}`;
       readonly collection: Col;
     }
-  : Ctor<unknown> & {
-      readonly '~error': `"${A & string}" is not a generated operation`;
-    };
+  : A extends keyof Col['relations']
+    ? {
+        readonly [Op in RelationOp]?: RelationOverrideCheck<Col, A, Op, Ctx>;
+      }
+    : Ctor<unknown> & {
+        readonly '~error': `"${A & string}" is not a generated operation or a relation`;
+      };
 
 // A rejected slug adds a key the collection lacks, so the error names it.
 type SlugCheck<C extends AnyCollection, E extends Entries> = C extends {
@@ -142,7 +201,11 @@ type SlugCheck<C extends AnyCollection, E extends Entries> = C extends {
   ? { readonly '~error': `"${C['slug']}" is a ts-pf implementer key` }
   : C['slug'] extends keyof E
     ? { readonly '~error': `"${C['slug']}" is already a collection` }
-    : unknown;
+    : [keyof JoinEntries<C> & (keyof E | C['slug'])] extends [never]
+      ? unknown
+      : {
+          readonly '~error': `the join collection "${keyof JoinEntries<C> & (keyof E | C['slug']) & string}" is already a collection`;
+        };
 
 // A tenanted collection needs a family with tenantOf. A rejected collection
 // adds a key it lacks, so the error names it.
@@ -228,6 +291,14 @@ type Slice<E extends Entry, D extends ErrorMap> = {
         D
       >
     : Procedure<E['methods'][K]['input'], E['methods'][K]['output'], D>;
+} & {
+  [R in keyof E['collection']['relations']]: {
+    [Op in RelationOp]: Procedure<
+      E['collection']['relations'][R][Op]['input'],
+      E['collection']['relations'][R][Op]['output'],
+      D
+    >;
+  };
 };
 
 /** Each ref whose slug is not a collection of `E`, as `slug.field → target`. */
@@ -252,7 +323,7 @@ type SlugsCheck<E extends Entries> = [Unresolved<E>] extends [never]
 
 /** The generated ts-pf contract: one slice per collection. */
 export type Contract<E extends Entries, D extends ErrorMap> = {
-  [S in keyof E]: Slice<E[S], D>;
+  [S in keyof Sliced<E>]: Slice<E[S], D>;
 } & ContractRouterBrand;
 
 /** The contract as `.contract` gives it: with an `'~error'` key while a ref is unresolved. */
@@ -261,9 +332,15 @@ type CheckedContract<E extends Entries, D extends ErrorMap> = Contract<E, D> &
 
 type Instance<C> = C extends Ctor<infer I> ? I : never;
 
+/** The instance of a declared class, or of each relation operation's. */
+type InstanceOf<V, Ctx> =
+  V extends Ctor<infer I>
+    ? I & Executable<Ctx>
+    : { [Op in keyof V]: Instance<V[Op]> & Executable<Ctx> };
+
 type Instances<E extends Entries, Kind extends 'methods' | 'overrides', Ctx> = {
   [S in keyof E as [keyof E[S][Kind]] extends [never] ? never : S]: {
-    [N in keyof E[S][Kind]]: Instance<E[S][Kind][N]> & Executable<Ctx>;
+    [N in keyof E[S][Kind]]: InstanceOf<E[S][Kind][N], Ctx>;
   };
 };
 
@@ -319,13 +396,34 @@ type GeneratedUseCase<Col extends AnyCollection, A extends Action, Ctx> = {
   ): Promise<z.output<Ops<Col>[A]['output']>>;
 };
 
+/** A generated relation operation as a direct caller sees it. */
+type GeneratedRelationUseCase<Schemas_ extends Schemas, Ctx> = {
+  execute(
+    ctx: Ctx,
+    input: z.input<Schemas_['input']>,
+  ): Promise<z.output<Schemas_['output']>>;
+};
+
+/** The instances of one collection's relation operations. */
+type RelationUseCases<S extends Entry, Ctx> = {
+  [R in keyof S['collection']['relations']]: {
+    [Op in RelationOp]: R extends keyof S['overrides']
+      ? Op extends keyof S['overrides'][R]
+        ? Instance<S['overrides'][R][Op]>
+        : GeneratedRelationUseCase<S['collection']['relations'][R][Op], Ctx>
+      : GeneratedRelationUseCase<S['collection']['relations'][R][Op], Ctx>;
+  };
+};
+
 /** The instance that serves each procedure: generated, override or method. */
 type UseCases<E extends Entries, Ctx> = {
-  [S in keyof E]: {
+  [S in keyof Sliced<E>]: {
     [A in Action]: A extends keyof E[S]['overrides']
       ? Instance<E[S]['overrides'][A]>
       : GeneratedUseCase<E[S]['collection'], A, Ctx>;
-  } & { [N in keyof E[S]['methods']]: Instance<E[S]['methods'][N]> };
+  } & {
+    [N in keyof E[S]['methods']]: Instance<E[S]['methods'][N]>;
+  } & RelationUseCases<E[S], Ctx>;
 };
 
 /** What `build()` returns. */
@@ -350,7 +448,20 @@ type Built<E extends Entries, D extends ErrorMap, Actor> = {
 
 type RuntimeProcedure = ContractProcedure<unknown, unknown, ErrorMap>;
 
-type RuntimeContract = Record<string, Record<string, RuntimeProcedure>>;
+/** A relation's node in a slice: its `list` and `set` procedures. */
+type RuntimeRelation = Record<string, RuntimeProcedure>;
+
+type RuntimeContract = Record<
+  string,
+  Record<string, RuntimeProcedure | RuntimeRelation>
+>;
+
+/** Whether a slice's node is a procedure, not a relation's node. */
+function isProcedure(
+  node: RuntimeProcedure | RuntimeRelation,
+): node is RuntimeProcedure {
+  return isContractProcedure(node);
+}
 
 /** The app's client errors: its declared map, and the mapper that builds them. */
 type AppErrors<D extends ErrorMap> = {
@@ -359,8 +470,18 @@ type AppErrors<D extends ErrorMap> = {
   readonly map: (error: unknown) => unknown;
 };
 
+/** Instances by slug and name; a relation's by slug, relation and operation. */
 type RuntimeInstances<Ctx> = Readonly<
-  Record<string, Readonly<Record<string, Executable<Ctx>>> | undefined>
+  Record<
+    string,
+    | Readonly<
+        Record<
+          string,
+          Executable<Ctx> | Readonly<Record<string, Executable<Ctx>>>
+        >
+      >
+    | undefined
+  >
 >;
 
 /**
@@ -423,7 +544,12 @@ export class Framework<
   ): Framework<
     Actor,
     D,
-    E & Record<C['slug'], { collection: C; methods: M; overrides: O }>,
+    E &
+      Record<
+        C['slug'],
+        { collection: C; methods: M; overrides: O; join: false }
+      > &
+      JoinEntries<C>,
     Tenanted
   > {
     const { slug } = collection;
@@ -438,9 +564,33 @@ export class Framework<
     if (this.entries.some((entry) => entry.collection.slug === slug)) {
       throw new Error(`Lattice: "${slug}" is already a collection`);
     }
+    const relations = Object.entries(collection.relations);
+    const joins = relations.map(([, relation]) => relation.through);
+    for (const join of joins) {
+      if (
+        join.slug === slug ||
+        this.entries.some((entry) => entry.collection.slug === join.slug) ||
+        joins.filter((other) => other.slug === join.slug).length > 1
+      ) {
+        throw new Error(
+          `Lattice: the join collection "${join.slug}" is already a collection`,
+        );
+      }
+    }
+    for (const [name] of relations) {
+      if (reserved.some((key) => key === name)) {
+        throw new Error(
+          `Lattice: relation "${slug}.${name}" is a ts-pf implementer key`,
+        );
+      }
+    }
     const methods: Entry['methods'] = options.methods ?? {};
     for (const name of Object.keys(methods)) {
-      if ([...reserved, ...actions, 'read'].some((key) => key === name)) {
+      if (
+        [...reserved, ...actions, 'read'].some((key) => key === name) ||
+        relations.some(([relation]) => relation === name) ||
+        name.includes('.')
+      ) {
         throw new Error(`Lattice: "${slug}.${name}" cannot be a method name`);
       }
     }
@@ -451,22 +601,60 @@ export class Framework<
         `Lattice: ${slug} overrides delete, so ${slug}.${cascading.field} cannot cascade; use restrict or nullify`,
       );
     }
-    const access: AccessMap = options.access;
+    // A relation's list runs the parent's read, and its set the parent's
+    // update (0028).
+    const declared: AccessMap = options.access;
+    const access: AccessMap = Object.fromEntries([
+      ...Object.entries(declared),
+      ...relations.flatMap(([name]): [string, AccessMap[string]][] => [
+        ...(declared.read === undefined
+          ? []
+          : [
+              [`${name}.list`, declared.read] satisfies [
+                string,
+                AccessMap[string],
+              ],
+            ]),
+        ...(declared.update === undefined
+          ? []
+          : [
+              [`${name}.set`, declared.update] satisfies [
+                string,
+                AccessMap[string],
+              ],
+            ]),
+      ]),
+    ]);
     for (const action of Object.keys(overrides)) {
-      if (!actions.some((key) => key === action)) {
+      if (
+        !actions.some((key) => key === action) &&
+        !relations.some(([relation]) => relation === action)
+      ) {
         throw new Error(
-          `Lattice: "${slug}.${action}" is not a generated operation`,
+          `Lattice: "${slug}.${action}" is not a generated operation or a relation`,
         );
       }
     }
     return new Framework<
       Actor,
       D,
-      E & Record<C['slug'], { collection: C; methods: M; overrides: O }>,
+      E &
+        Record<
+          C['slug'],
+          { collection: C; methods: M; overrides: O; join: false }
+        > &
+        JoinEntries<C>,
       Tenanted
     >(this.family, this.errors, [
       ...this.entries,
-      { collection, access, methods, overrides },
+      { collection, access, methods, overrides, join: false },
+      ...joins.map((join) => ({
+        collection: join,
+        access: {},
+        methods: {},
+        overrides: {},
+        join: true,
+      })),
     ]);
   }
 
@@ -497,7 +685,7 @@ export class Framework<
     readonly methods?: FactoryFn<Actor>;
     readonly overrides?: FactoryFn<Actor>;
   }): {
-    readonly app: ImplementedRouter<RuntimeContract, CallContext<Actor>>;
+    readonly app: ImplementedRouter<unknown, CallContext<Actor>>;
     readonly useCases: Readonly<
       Record<string, Readonly<Record<string, unknown>>>
     >;
@@ -530,22 +718,33 @@ export class Framework<
     );
     const methodInstances = options.methods?.({ repos });
     const overrideInstances = options.overrides?.({ repos });
-    const useCases: Record<
+    type Ctx = FamilyContext<Actor>;
+    // Each operation and method's use case, and each relation operation's,
+    // by slug: the procedures of a slice and its nested relation nodes.
+    const operationUseCases: Record<
       string,
-      Record<string, Executable<FamilyContext<Actor>>>
+      Record<string, Executable<Ctx>>
     > = {};
-    for (const { collection, methods, overrides } of this.entries) {
+    const relationUseCases: Record<
+      string,
+      Record<string, Record<string, Executable<Ctx>>>
+    > = {};
+    for (const { collection, methods, overrides, join } of this.entries) {
+      if (join) continue;
       const { slug } = collection;
-      const sliceUseCases: Record<
-        string,
-        Executable<FamilyContext<Actor>>
-      > = {};
+      const sliceUseCases: Record<string, Executable<Ctx>> = {};
       const ops = operations(collection.schema, collection.output);
       for (const action of actions) {
         const declared = overrides[action];
         sliceUseCases[action] =
-          declared === undefined
-            ? generated(
+          typeof declared === 'function'
+            ? instanceOf(
+                'override',
+                [slug, action],
+                declared,
+                overrideInstances,
+              )
+            : generated(
                 this.family,
                 store,
                 events,
@@ -553,46 +752,120 @@ export class Framework<
                 ops,
                 action,
                 referrers,
-              )
-            : instanceOf('override', slug, action, declared, overrideInstances);
+              );
       }
       for (const [name, method] of Object.entries(methods)) {
         sliceUseCases[name] = instanceOf(
           'method',
-          slug,
-          name,
+          [slug, name],
           method,
           methodInstances,
         );
       }
-      useCases[slug] = sliceUseCases;
+      operationUseCases[slug] = sliceUseCases;
+      const sliceRelations: Record<
+        string,
+        Record<string, Executable<Ctx>>
+      > = {};
+      for (const [name, relation] of Object.entries(collection.relations)) {
+        const declared = overrides[name];
+        const opUseCases: Record<string, Executable<Ctx>> = {};
+        for (const op of relationOps) {
+          const override =
+            declared === undefined || typeof declared === 'function'
+              ? undefined
+              : declared[op];
+          opUseCases[op] =
+            override === undefined
+              ? generatedRelation(
+                  this.family,
+                  store,
+                  events,
+                  collection,
+                  name,
+                  relation,
+                  op,
+                )
+              : instanceOf(
+                  'override',
+                  [slug, name, op],
+                  override,
+                  overrideInstances,
+                );
+        }
+        sliceRelations[name] = opUseCases;
+      }
+      relationUseCases[slug] = sliceRelations;
     }
 
+    // One implementer per slice and per relation node, each typed by its own
+    // procedures: ts-pf's types read a node that may be a procedure or a
+    // router as a procedure. The root router places each procedure at its
+    // path and checks the tree against the whole contract.
     const contract: RuntimeContract = this.contract;
-    const impl = createImplementer(contract).$context<CallContext<Actor>>();
+    type Implemented = ImplementedProcedure<
+      RuntimeProcedure,
+      CallContext<Actor>
+    >;
     const tree: Record<
       string,
-      Record<string, ImplementedProcedure<RuntimeProcedure, CallContext<Actor>>>
+      Record<string, Implemented | Record<string, Implemented>>
     > = {};
-    for (const [slug, sliceUseCases] of Object.entries(useCases)) {
-      const sliceImpl = impl[slug];
-      const sliceTree: (typeof tree)[string] = {};
-      for (const [name, useCase] of Object.entries(sliceUseCases)) {
-        const builder = sliceImpl?.[name];
-        if (builder === undefined) {
-          throw new Error(`Lattice: no procedure "${slug}.${name}"`);
+    const implement = (
+      path: readonly string[],
+      procedures: Readonly<Record<string, RuntimeProcedure>>,
+      useCasesOf: Readonly<Record<string, Executable<Ctx>>> | undefined,
+    ): Record<string, Implemented> => {
+      const impl = createImplementer(procedures).$context<CallContext<Actor>>();
+      const node: Record<string, Implemented> = {};
+      for (const name of Object.keys(procedures)) {
+        const builder = impl[name];
+        const useCase = useCasesOf?.[name];
+        if (builder === undefined || useCase === undefined) {
+          throw new Error(
+            `Lattice: no procedure "${[...path, name].join('.')}"`,
+          );
         }
         // A fresh context per call: a createLocalClient context object is
         // shared by every call, and access answers are kept on the context.
-        sliceTree[name] = builder.handler(({ input, context: base }) =>
+        node[name] = builder.handler(({ input, context: base }) =>
           useCase.execute(context(base), input),
+        );
+      }
+      return node;
+    };
+    for (const [slug, slice] of Object.entries(contract)) {
+      const procedures: Record<string, RuntimeProcedure> = {};
+      const nodes: Record<string, Record<string, RuntimeProcedure>> = {};
+      for (const [name, node] of Object.entries(slice)) {
+        if (isProcedure(node)) procedures[name] = node;
+        else nodes[name] = node;
+      }
+      const sliceTree: Record<
+        string,
+        Implemented | Record<string, Implemented>
+      > = implement([slug], procedures, operationUseCases[slug]);
+      for (const [name, node] of Object.entries(nodes)) {
+        sliceTree[name] = implement(
+          [slug, name],
+          node,
+          relationUseCases[slug]?.[name],
         );
       }
       tree[slug] = sliceTree;
     }
+    const useCases = Object.fromEntries(
+      Object.entries(operationUseCases).map(([slug, sliceUseCases]) => [
+        slug,
+        { ...sliceUseCases, ...relationUseCases[slug] },
+      ]),
+    );
     const errors = clientErrors(this.family, this.errors.map);
     return {
-      app: impl.use(errors).router(tree),
+      app: rootRouter<CallContext<Actor>>(
+        createImplementer(contract).$context<CallContext<Actor>>().use(errors),
+        tree,
+      ),
       useCases,
       repos,
       onError: unexpectedErrors,
@@ -636,8 +909,9 @@ function contractOf(
 ): RuntimeContract {
   const call = procedure.errors({ ...declaredErrors, ...declared });
   const slices: RuntimeContract = {};
-  for (const { collection, methods } of entries) {
-    const slice: Record<string, RuntimeProcedure> = {};
+  for (const { collection, methods, join } of entries) {
+    if (join) continue;
+    const slice: Record<string, RuntimeProcedure | RuntimeRelation> = {};
     const ops = operations(collection.schema, collection.output);
     for (const action of actions) {
       const { input, output } = ops[action];
@@ -645,6 +919,12 @@ function contractOf(
     }
     for (const [name, method] of Object.entries(methods)) {
       slice[name] = call.input(method.input).output(method.output);
+    }
+    for (const [name, relation] of Object.entries(collection.relations)) {
+      slice[name] = {
+        list: call.input(relation.list.input).output(relation.list.output),
+        set: call.input(relation.set.input).output(relation.set.output),
+      };
     }
     slices[collection.slug] = slice;
   }
@@ -678,21 +958,70 @@ function unexpectedErrors(logger: Logger): (error: unknown) => void {
  */
 function instanceOf<Ctx>(
   kind: 'method' | 'override',
-  slug: string,
-  name: string,
+  path: readonly [string, string] | readonly [string, string, string],
   declared: Ctor<unknown>,
   instances: RuntimeInstances<Ctx> | undefined,
 ): Executable<Ctx> {
-  const instance = instances?.[slug]?.[name];
-  if (instance === undefined) {
-    throw new Error(`Lattice: no instance for ${kind} "${slug}.${name}"`);
+  const [slug, name, op] = path;
+  const found = instances?.[slug]?.[name];
+  // A relation's instances are one more level down, by operation.
+  const instance =
+    op === undefined || found === undefined || isExecutable(found)
+      ? found
+      : found[op];
+  const at = path.join('.');
+  if (instance === undefined || !isExecutable(instance)) {
+    throw new Error(`Lattice: no instance for ${kind} "${at}"`);
   }
   if (!(instance instanceof declared)) {
     throw new Error(
-      `Lattice: "${slug}.${name}" instance is not an instance of ${declared.name}`,
+      `Lattice: "${at}" instance is not an instance of ${declared.name}`,
     );
   }
   return instance;
+}
+
+/** Whether a value is an implementer node, which has `router()`. */
+function hasRouter(value: object): value is { router(tree: object): object } {
+  return 'router' in value && typeof value.router === 'function';
+}
+
+/** Whether `value` is a finished router: procedures and routers, all the way down. */
+function isRouter<Ctx>(
+  value: unknown,
+): value is ImplementedRouter<unknown, Ctx> {
+  if (typeof value !== 'object' || value === null) return false;
+  return Object.values(value).every(
+    (node) => isImplementedProcedure(node) || isRouter(node),
+  );
+}
+
+/**
+ * The finished root router. ts-pf types a slice node as a procedure when it
+ * may be one, so a slice of procedures and relation routers cannot be typed
+ * against the runtime contract; the root implementer's `router()` is called
+ * through its runtime shape. At runtime it checks the tree against the
+ * whole contract, sets each procedure's path and adds the root middleware.
+ */
+function rootRouter<Ctx>(
+  implementer: object,
+  tree: object,
+): ImplementedRouter<unknown, Ctx> {
+  if (!hasRouter(implementer)) {
+    throw new Error('Lattice: the ts-pf implementer has no router()');
+  }
+  const app = implementer.router(tree);
+  if (!isRouter<Ctx>(app)) {
+    throw new Error('Lattice: ts-pf router() returned no router');
+  }
+  return app;
+}
+
+/** Whether an instance entry is a use case, not a relation's map of them. */
+function isExecutable<Ctx>(
+  value: Executable<Ctx> | Readonly<Record<string, Executable<Ctx>>>,
+): value is Executable<Ctx> {
+  return 'execute' in value && typeof value.execute === 'function';
 }
 
 /**

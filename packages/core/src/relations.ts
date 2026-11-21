@@ -48,6 +48,113 @@ export function ref<
   return z.string().check(marker);
 }
 
+// ---------------------------------------------------------------- many
+
+/** What deleting a target does to its links: refuse, or delete them. */
+export type ManyOnDelete = 'restrict' | 'cascade';
+
+/** A many-to-many relation, through a join collection Lattice derives. */
+export type Many<
+  Target extends string,
+  Through extends string,
+  Fields extends z.core.$ZodShape,
+  D extends ManyOnDelete,
+> = {
+  readonly kind: 'many';
+  readonly target: Target;
+  /** The join collection's slug. */
+  readonly through: Through;
+  /** Fields each link carries, such as `sortOrder`. */
+  readonly fields: z.ZodObject<Fields, z.core.$strip> | undefined;
+  /** What deleting a target does to its links. Undefined is restrict. */
+  readonly onDelete: D | undefined;
+};
+
+export type AnyMany = Many<string, string, z.core.$ZodShape, ManyOnDelete>;
+
+/**
+ * Relates each document to many of `target`, through a join collection
+ * `through` with `<parent>Id`, `<target>Id` and `fields`. Lattice derives
+ * that collection; its slug is `through`.
+ */
+export function many<
+  const Target extends string,
+  const Through extends string,
+  Fields extends z.core.$ZodShape = Record<never, never>,
+  const D extends ManyOnDelete = 'restrict',
+>(
+  target: Target,
+  options: {
+    readonly through: Through;
+    readonly fields?: z.ZodObject<Fields, z.core.$strip>;
+    readonly onDelete?: D;
+  },
+): Many<Target, Through, Fields, D> {
+  return {
+    kind: 'many',
+    target,
+    through: options.through,
+    fields: options.fields,
+    onDelete: options.onDelete,
+  };
+}
+
+/** The join collection's shape: the two refs, then the link fields. */
+export type JoinShape<
+  P extends string,
+  T extends string,
+  D extends ManyOnDelete,
+  F extends z.core.$ZodShape,
+> = {
+  [K in `${P}Id` | `${T}Id` | keyof F]: K extends `${P}Id`
+    ? Ref<P, 'cascade'>
+    : K extends `${T}Id`
+      ? Ref<T, D>
+      : F[K];
+};
+
+/** What `set` takes per link: the target's id and the link fields. */
+export type LinkShape<
+  T extends string,
+  D extends ManyOnDelete,
+  F extends z.core.$ZodShape,
+> = {
+  [K in `${T}Id` | keyof F]: K extends `${T}Id` ? Ref<T, D> : F[K];
+};
+
+/**
+ * The join collection's schema, and the link schema `set` takes. Untyped:
+ * `relationsOf` in collection.ts states their types.
+ */
+export function joinSchemas(
+  parent: string,
+  relation: AnyMany,
+): {
+  readonly join: z.ZodObject<z.core.$ZodShape, z.core.$strip>;
+  readonly link: z.ZodObject<z.core.$ZodShape, z.core.$strip>;
+  readonly parentField: string;
+  readonly targetField: string;
+} {
+  const parentField = `${parent}Id`;
+  const targetField = `${relation.target}Id`;
+  const fields = relation.fields?.shape ?? {};
+  const target = {
+    [targetField]: ref(relation.target, {
+      onDelete: relation.onDelete ?? 'restrict',
+    }),
+  };
+  return {
+    join: z.object({
+      [parentField]: ref(parent, { onDelete: 'cascade' }),
+      ...target,
+      ...fields,
+    }),
+    link: z.object({ ...target, ...fields }),
+    parentField,
+    targetField,
+  };
+}
+
 // ---------------------------------------------------------------- types
 
 /** The reference a field schema holds, through optional, nullable, default and array. */
