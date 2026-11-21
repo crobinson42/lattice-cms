@@ -15,7 +15,7 @@ Lattice does not edit ts-pf ([0001](0001-build-on-hexok-and-ts-pf.md)). The feat
 
 ## Why
 
-ts-pf types each procedure as one non-generic call from input to output, so the output cannot follow `populate`. The Phase 1 type spike tried unions and intersections of procedures, and found no way around this inside Lattice. Only a ts-pf change gives exact types on every client: local, HTTP, swr, mvc-kit and codegen in other languages. It must be data-driven, because codegen prints types from the runtime catalog and cannot print a type function.
+ts-pf types each procedure as one non-generic call from input to output, so the output cannot follow `populate`. The Phase 1 type spike tried unions and intersections of procedures, and found no way around this inside Lattice. Only a ts-pf change gives exact types on every TypeScript client: local, HTTP, astro, mvc-kit and TypeScript codegen. `useSWR` is annotated with `InferExpandedOutput`. Generators for other languages see the wide schema and an `x-ts-pf-expand` extension. It must be data-driven, because codegen prints types from the runtime catalog and cannot print a type function.
 
 `Withheld` keeps population inside [0005](0005-access-and-tenancy-are-query-filters.md): the population query carries the access filter. A UI still has the id to show a restricted row.
 
