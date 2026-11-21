@@ -53,8 +53,9 @@ Done. The spike is `packages/core/src/spike-relations.test.ts` and `src/fixtures
 
 - [ ] The `Access` port as `architecture.md` shows it, and the default adapter reading the `access` functions given at `framework().collection(C, { access })` ([0021](../decisions/0021-access-attaches-at-composition.md)). A missing function denies. Return types are checked as the spike checks them: an inferred return, with its keys checked on the options object.
 - [ ] The generated operations get their scope from `scopeOf` in `crud.ts`, the seam Phase 0 left: `true` means no clause, `false` throws `FORBIDDEN`, and a `Where` merges into the store call. A row outside the filter is `NOT_FOUND`.
-- [ ] Decide how a method's access for its own action (`posts.publish`) runs. It is declared beside the method (0021). Family guards are fixed at `family()` and see only the call, so the `Access` instance must reach them through the call context or through `build()`. Propose before building.
-- [ ] Decide whether access functions are the home for a default filter, such as hiding soft-deleted rows (Phase 0 found an archived deal still returned by `find`).
+- [x] Decide how a method's access for its own action (`posts.publish`) runs: through the call context, with a required scope on every `Repo` call ([0023](../decisions/0023-access-reaches-use-cases-through-the-call-context.md)).
+- [x] Decide whether access functions are the home for a default filter: yes, a `read` filter (0023).
+- [ ] Build 0023: `ctx.access`, the access guard, `build().context()`, the `Repo` scope argument and `unscoped`, `access` required at `.collection()`. `examples/crm` declares its access, and deals hide archived rows.
 
 ### 3. Tenancy
 
