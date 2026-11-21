@@ -2,7 +2,7 @@
 
 Collections that compile into hexok use cases, hexok event classes and a ts-pf contract. A collection is a Zod schema with a slug. `framework()` turns a set of them into a typed RPC contract, and `build()` wires that contract to a store and an event publisher. Lattice builds on [hexok](https://www.npmjs.com/package/hexok) and [ts-pf](https://www.npmjs.com/package/@ts-pf/server) rather than replacing them: every generated piece is a real hexok `UseCase`, `Event`, `Errors`, `Port` and ts-pf `router`, so a hand-written one can take its place with the same types.
 
-Status: Phase 0, not published. The design and the reasons behind it are in [docs/architecture.md](../../docs/architecture.md).
+Status: unpublished, before 1.0. The design and the reasons behind it are in [docs/architecture.md](../../docs/architecture.md).
 
 ## Install
 
@@ -276,13 +276,27 @@ const Posts = collection('posts', {
 A read takes `populate`, a list of what to replace with documents. The output type follows the list on every ts-pf client, and on `useCases`, through ts-pf's expandable outputs:
 
 ```ts
-const post = await client.posts.get({ id, populate: ['authorId', 'categories'] })
-post.authorId // Doc<typeof Users> | Withheld
-post.categories // { sortOrder: number; doc: Doc<typeof Categories> | Withheld }[]
-const plain = await client.posts.get({ id })
-plain.authorId // string
-const page = await client.posts.find({ populate: ['authorId'] })
-const links = await client.posts.categories.list({ id, populate: ['categoriesId'] })
+// examples/crm/src/servers/app.test.ts
+const got = await local.contacts.get({
+  id: ada.id,
+  populate: ['companyId'],
+});
+
+expectTypeOf(got.companyId).toEqualTypeOf<
+  Doc<typeof Companies> | Withheld
+>();
+```
+
+With the `Posts` above, and an `authorId` ref to `users`:
+
+```ts
+const post = await client.posts.get({ id, populate: ['authorId', 'categories'] });
+post.authorId; // Doc<typeof Users> | Withheld
+post.categories; // { sortOrder: number; doc: Doc<typeof Categories> | Withheld }[]
+const plain = await client.posts.get({ id });
+plain.authorId; // string
+const page = await client.posts.find({ populate: ['authorId'] });
+const links = await client.posts.categories.list({ id, populate: ['categoriesId'] });
 ```
 
 - `get` populates ref fields and `many()` relations. `find` populates ref fields only, so one page cannot fetch up to 1000 links per document; a relation on `find` is a compile error and `VALIDATION`. A relation's `list` populates its links' refs, which is how a page of links gets its documents.
@@ -308,7 +322,7 @@ Builds the app's one hexok `UseCase.context` family. A caller passes `{ actor, l
 - Before `execute`, the actor must parse against `actor`, the input against the use case's `input` static, and access must allow the use case's action. A bad actor is `UNAUTHORIZED`, bad input is `VALIDATION`, and a refusal is `FORBIDDEN`.
 - `actorId` names the id that log lines and collection events carry. The family exposes `actor`, `actorId` and `tenantOf`, so hand-written code calls `AppUseCase.actorId(ctx.actor)`.
 - `tenantOf` names the actor's tenant id, or `tenancy.bypass`. A framework with a tenanted collection requires it; see [Tenancy](#tenancy).
-- Every call writes one line through a child of `ctx.logger` with `collection`, `action`, `actorId`, `tenantId` (or `tenancy: 'bypass'`) and `durationMs`.
+- Every call writes one line through a child of `ctx.logger` with `collection`, `action`, `actorId`, `tenantId` (or `tenancy: 'bypass'`), `outcome` and `durationMs`.
 - A hand-written use case extends the family with a `collection` static, and `input` and `output` schemas for a method. Its token is `<slug>.<name>`.
 
 `FamilyContext<Actor>` is the context type a use case receives, and `CallContext<Actor>` the one a caller passes. `Family<Actor, Tenanted>` is the family's type; `Tenanted` is true when it has `tenantOf`.
@@ -339,20 +353,8 @@ Builds the app's one hexok `UseCase.context` family. A caller passes `{ actor, l
 - `access` replaces the functions given at `.collection()` with another `Access` adapter.
 - `app` adds a fresh `access` to each call's context. A direct caller gets one from `context()`. Access answers are kept on the context, so make one per call or per job.
 - `events` must take every collection's events. One that cannot is a compile error that names each refused token.
-- Await `ensure()` after the store has started and before serving:
-
-```ts
-// examples/crm/src/servers/http/main.ts
-const store = new MemoryStore();
-await store.start();
-const crm = createApp({
-  store,
-  events: new LoggingDomainEventPublisher({ logger }),
-});
-// The store creates each collection's declared indexes before serving.
-await crm.ensure();
-```
-- `Framework<Actor, D, E>` is the definition's type.
+- Await `ensure()` after the store has started and before serving, as the CRM's [`main.ts`](#example) does.
+- `Framework<Actor, D, E, Tenanted>` is the definition's type.
 
 ### Access
 
@@ -520,7 +522,7 @@ export class ArchiveDeal extends AppUseCase('deals.delete', {
 
 ### Writing a store adapter
 
-`@latticecms/core/store` has what an adapter needs: the `CollectionStore` port, its types (`StoredDoc`, `Patch`, `FindQuery`, `Page`, `Index`), the parsed filter (`AnyWhere`, with `FieldOps` for each field's operators), and the cursor helpers (`orderOf`, `after`, `encodeCursor`). A store receives values Lattice has parsed. Filters follow MongoDB's null and missing rules, and the keyset of `after` is itself an `AnyWhere`, so a store applies it like any filter.
+`@latticecms/core/store` has what an adapter needs: the `CollectionStore` port, its types (`StoredDoc`, `Patch`, `FindQuery`, `Page`, `Index`), the parsed filter (`AnyWhere`, with `FieldOps` for each field's operators), and the cursor helpers (`orderOf`, `Order`, `after`, `encodeCursor`). A store receives values Lattice has parsed. Filters follow MongoDB's null and missing rules, and the keyset of `after` is itself an `AnyWhere`, so a store applies it like any filter.
 
 `@latticecms/core/store/conformance` has `storeCases`: the cases every store passes, asserted with `node:assert`, so any test runner runs them. Give each case a fresh store:
 
@@ -544,6 +546,14 @@ A case that needs a capability some stores lack says so in `needs`. A store with
 it.each(storeCases.filter((c) => !c.needs?.includes('transactions')))('$name', ({ run }) => run(store));
 ```
 
+### Other types
+
+- `Withheld` is `{ id: string }`: a populated document the caller may not read.
+- `ReadUseCase<Proc, Ctx>` is the type of a populating read in `useCases`: its `execute` is generic in the `populate` list.
+- `Ref<Slug, OnDelete>`, `Many<Target, Through, Fields, OnDelete>`, `RelationsOf` and `JoinShape` are the types of refs, relations and join collections. `OnDelete` and `ManyOnDelete` are their `onDelete` values. An app names them only when it exports its collections from a package with declarations.
+- `CallAccess` is the type of `ctx.access`. `AccessRequest<Actor>` is what `Access.check` receives.
+- `Scope` is what `ctx.access.scope()` and `tenancy.scope()` return.
+
 ## Guarantees
 
 The tests prove each of these.
@@ -561,4 +571,11 @@ The tests prove each of these.
 
 ## Not yet
 
-Auth arrives in a later step. See the [phase table](../../docs/architecture.md#phased-build-plan).
+These are not built. See the [phase table](../../docs/architecture.md#phased-build-plan).
+
+- Auth. The app builds the actor at its edge; the CRM reads it from dev headers. An `@hexok/auth` recipe and an `@hexok/authz` adapter for `Access` come next.
+- Field-level read masking.
+- `entity`: a collection backed by a hexok `Entity` instead of a schema.
+- A store per collection. One `build({ store })` serves every collection.
+- Tracing spans.
+- The admin UI, the CLI and file uploads.
