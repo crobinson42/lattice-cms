@@ -51,11 +51,11 @@ Done. The spike is `packages/core/src/spike-relations.test.ts` and `src/fixtures
 
 ### 2. Access **Checkpoint**
 
-- [ ] The `Access` port as `architecture.md` shows it, and the default adapter reading the `access` functions given at `framework().collection(C, { access })` ([0021](../decisions/0021-access-attaches-at-composition.md)). A missing function denies. Return types are checked as the spike checks them: an inferred return, with its keys checked on the options object.
-- [ ] The generated operations get their scope from `scopeOf` in `crud.ts`, the seam Phase 0 left: `true` means no clause, `false` throws `FORBIDDEN`, and a `Where` merges into the store call. A row outside the filter is `NOT_FOUND`.
+- [x] The `Access` port as `architecture.md` shows it, and the default adapter reading the `access` functions given at `framework().collection(C, { access })` ([0021](../decisions/0021-access-attaches-at-composition.md)). A missing function denies. Return types are checked as the spike checks them: an inferred return, with its keys checked on the options object.
+- [x] The generated operations get their scope from `scopeOf` in `crud.ts`, the seam Phase 0 left: `true` means no clause, `false` throws `FORBIDDEN`, and a `Where` merges into the store call. A row outside the filter is `NOT_FOUND`.
 - [x] Decide how a method's access for its own action (`posts.publish`) runs: through the call context, with a required scope on every `Repo` call ([0023](../decisions/0023-access-reaches-use-cases-through-the-call-context.md)).
 - [x] Decide whether access functions are the home for a default filter: yes, a `read` filter (0023).
-- [ ] Build 0023: `ctx.access`, the access guard, `build().context()`, the `Repo` scope argument and `unscoped`, `access` required at `.collection()`. `examples/crm` declares its access, and deals hide archived rows.
+- [x] Build 0023: `ctx.access`, the access guard, `build().context()`, the `Repo` scope argument and `unscoped`, `access` required at `.collection()`. `examples/crm` declares its access, and deals hide archived rows.
 
 ### 3. Tenancy
 
@@ -133,4 +133,9 @@ Add a line here when the work teaches something the plan did not know. Each line
 - TypeScript does not check excess properties on an object literal an arrow function returns, so `() => ({ authorID: … })` passes as `Where<Doc>`. Access checks inferred return types on the options object. Went to 0021.
 - A template literal around a key union (`` `${K}` ``) makes a compile error print the union instead of the alias name. Use it wherever a key list reaches an error message.
 - A computed key (`{ [tenant]: z.string() }`) types as an index signature, so the tenant shape needs one asserted overload. Expected count after Phase 1: 7.
+- A hexok guard can throw but cannot hand `execute` a value (`use-case.ts` `installExecute`), so access reaches `execute` on the call context. Went to 0023.
+- Generated `create` asks access only in the guard, with `data`, and never keeps the answer. So step 3 needs the tenant clause apart from the access answer: `CallAccess` can build each `Scope` from the tenant clause ANDed with the access `Where`, keeping the tenant clause for create, and `Repo.insert` stamps the tenant from its scope.
+- An edge types its context as `CallContext<Actor>`, not `UseCase.Ctx<family>`, which now includes `access`. Went to `architecture.md`.
+- `Scope` needs an ES private field to be nominal; with public fields only, a plain object passes as an unfiltered scope.
+- Type-check after access: core check 1.08 s to 1.15 s (with a 500-line test file), crm 0.40 s, unchanged. Asserted overloads: 6.
 - Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.

@@ -137,10 +137,11 @@ const { app, useCases, repos, onError } = lattice.build({
 })
 ```
 
-- The definition (`framework({ family, errors })` and `.collection()`) gives `contract` with no store and no publisher. The wiring (`build({ store, events, methods, overrides })`) needs both ([0018](decisions/0018-methods-and-overrides-attach-in-the-framework.md), [0020](decisions/0020-collection-events-join-the-app-catalog.md)).
-- `.collection(C, { methods, overrides })` declares the classes. Their static schemas type the contract, so the definition module imports the use case classes; they load with no ports or I/O, and a browser client imports the contract with `import type`.
+- The definition (`framework({ family, errors })` and `.collection()`) gives `contract` with no store and no publisher. The wiring (`build({ store, events, access?, methods, overrides })`) needs both ([0018](decisions/0018-methods-and-overrides-attach-in-the-framework.md), [0020](decisions/0020-collection-events-join-the-app-catalog.md)).
+- `.collection(C, { access, methods, overrides })` declares the access functions and the classes. `access` is required ([0021](decisions/0021-access-attaches-at-composition.md)). The classes' static schemas type the contract, so the definition module imports the use case classes; they load with no ports or I/O, and a browser client imports the contract with `import type`.
 - `build()` takes one factory each for methods and overrides. Each receives the typed `repos` and returns one instance per declared class, keyed by slug and then name, the same shape as the contract. Each is required exactly when a collection declared one.
-- A `Repo<C>` has `get`, `getMany`, `find({ where?, sort?, limit?, after? })`, `insert`, `update` and `remove`, typed from `C`. It stamps `id`, `createdAt` and `updatedAt` like the generated operations, and does no validation, hooks, access, tenancy or events: it trusts typed input, like a hexok repository.
+- A `Repo<C>` has `get(id, scope)`, `getMany(ids, scope)`, `find({ where?, sort?, limit?, after? }, scope)`, `insert(data, scope)`, `update(id, patch, scope)` and `remove(id, scope)`, typed from `C`. It stamps `id`, `createdAt` and `updatedAt` like the generated operations, and does no validation, hooks or events: it trusts typed input, like a hexok repository.
+- The scope is required: the call's `Scope<C['slug']>` from `ctx.access.scope(C, action)`, or `unscoped` for trusted code that acts for no caller. A row outside the scope acts as missing, and a scope for another collection throws ([0023](decisions/0023-access-reaches-use-cases-through-the-call-context.md)).
 
 | Output | What it is | Used by |
 | --- | --- | --- |
@@ -149,6 +150,7 @@ const { app, useCases, repos, onError } = lattice.build({
 | `useCases` | hexok `UseCase` instances, such as `useCases.posts.create`: the generated one, or the override or method instance that serves the procedure, each precisely typed | Workers, scripts, tests |
 | `repos` | `Repo<C>` per collection, the same objects the factories received | Hand-written use cases and event handlers |
 | `onError` | `onError(logger)` for `FetchHandler` | The HTTP edge |
+| `context` | `context({ actor, logger })`: a `FamilyContext` with the call's `access`. Make one per call or per job | Direct `useCases.*.execute` callers |
 
 ### What each collection generates
 
@@ -175,12 +177,15 @@ export class PublishPost extends AppUseCase('posts.publish', {
 }) {
   constructor(private readonly deps: { posts: Repo<typeof Posts>; email: EmailSender }) { super() }
   async execute(ctx: UseCase.Ctx<typeof AppUseCase>, input: { id: string }): Promise<Doc<typeof Posts>> {
-    /* load, change, save, publish an event */
+    const scope = await ctx.access.scope(Posts, 'publish') // the guard has already refused `false`
+    const post = await this.deps.posts.get(input.id, scope)
+    if (post === null) throw LatticeError.NOT_FOUND({ collection: Posts.slug, id: input.id })
+    /* change, save with the same scope, publish an event */
   }
 }
 ```
 
-- The family guard checks the actor and validates input before `execute`. Phase 1 adds access for the action `publish` and tenancy scoping.
+- The family guards check the actor, validate input, and check access for the action (`publish`) before `execute`. A guard cannot hand `execute` a value, so `execute` asks `ctx.access` for its scope; the answer is kept on the context, so access runs once per call. Tenancy scoping joins the scope in Phase 1.
 - The class's `collection` static and its token (`posts.publish`) must match where it is attached. `execute` must take the class's `input` schema output and return its `output` schema output.
 - The app constructs the instance in `build()`'s `methods` or `overrides` factory, as hexok requires, with the typed `repos` it receives. `build()` is a type error when a declared method or override has no instance or an instance of another class, the same completeness check as ts-pf `impl.router()`, and it checks `instanceof` at runtime.
 - `overrides: { delete: ArchivePost }` swaps one generated operation. The class must accept and return the generated operation's types, so clients see no change.
@@ -278,27 +283,38 @@ Authentication stays in `@hexok/auth` at the edge ([0006](decisions/0006-use-cas
 
 The app follows hexok's `app-template` pattern unchanged. A ts-pf context function reads the credential, `Sessions` or `resolving()` turns it into the actor, and the actor goes on the use case context. Lattice validates the actor against the family's actor schema and never imports `@hexok/auth`. Swapping to the company IdP changes the composition root only.
 
-`FamilyContext.actor` is typed as a valid actor, so an edge cannot hand the family guard "no actor" without a cast. The edge refuses a missing credential itself, as app-template does; the family guard rejects a present but invalid actor. Phase 2's auth recipe revisits this.
+The edge's context is `CallContext<Actor>`, `{ actor, logger }`; Lattice adds `access`. Its `actor` is typed as a valid actor, so an edge cannot hand the family guard "no actor" without a cast. The edge refuses a missing credential itself, as app-template does; the family guard rejects a present but invalid actor. Phase 2's auth recipe revisits this.
 
 ### Access
 
 Access is a hexok port, so the decision engine can be replaced:
 
 ```ts
-abstract class Access extends Port('Access') {
-  abstract check(args: {
-    actor: Actor
-    collection: string
-    action: 'find' | 'get' | 'create' | 'update' | 'delete' | (string & {})  // custom methods too
-    data?: unknown       // create / update input
-  }): Promise<boolean | Where>
+abstract class Access<Actor = unknown> extends Port('Access') {
+  abstract check(request: AccessRequest<Actor>): Promise<boolean | AnyWhere>
+}
+
+type AccessRequest<Actor> = {
+  actor: Actor
+  collection: string
+  action: 'find' | 'get' | 'create' | 'update' | 'delete' | (string & {})  // custom methods too
+  data?: unknown // create only: the parsed input
+}
+
+// FamilyContext<Actor> = CallContext<Actor> & { access: CallAccess }
+interface CallAccess {
+  scope<C>(collection: C, action: string, data?: unknown): Promise<Scope<C['slug']>> // throws FORBIDDEN on false
 }
 ```
 
 - Access is a filter in the query ([0005](decisions/0005-access-and-tenancy-are-query-filters.md)).
-- The default adapter reads each collection's `access` functions, Payload style. A missing function denies.
+- The port spans every collection, so its `Where` is untyped. The default adapter is typed per collection where the functions are declared.
+- The default adapter reads each collection's `access` functions, Payload style. `find` and `get` run `read`. A missing function denies, and `access: {}` denies everything. A declared method with no function is a compile error.
+- A family guard checks access on every use case: generated, override and method. `false` is `FORBIDDEN`, logged once. Lattice's procedure handler adds `access` to each call's context; a direct caller makes one with `build().context()` ([0023](decisions/0023-access-reaches-use-cases-through-the-call-context.md)).
+- `build({ access })` replaces the default adapter, such as with an adapter for another decision engine.
+- A default filter, such as hiding soft-deleted rows, is a `read` filter: `read: () => ({ archived: { eq: false } })`.
 - Access functions attach at `framework().collection(C, { access })`, where the actor type is known ([0021](decisions/0021-access-attaches-at-composition.md)). Each gets `{ actor }`, and `create` also gets `data`. `read`, `update`, `delete` and custom methods return `boolean | Where<Doc<C>>`; `create` returns `boolean`. A `Where` on a field the collection lacks is a compile error.
-- A `Where` result is merged into the query (`find`) or the write's `where` (`get`, `update`, `delete`). Access is never checked by loading a row and then deciding.
+- A `Where` result is ANDed with the caller's `where` in `find`, and is the `where` of `get`, `update` and `delete`. A caller can only narrow it. Access is never checked by loading a row and then deciding.
 - `false` throws one `FORBIDDEN` error. A row outside a `Where` is `NOT_FOUND`, so callers cannot probe for IDs.
 - When `@hexok/authz` ships, it becomes an adapter of this port. Its list checks must return a filter, not only a yes or no.
 - Field-level read masking (`fields: { salary: { read } }`) is Phase 2.
