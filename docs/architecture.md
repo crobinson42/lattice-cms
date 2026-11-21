@@ -130,7 +130,7 @@ export const contract = lattice.contract
 
 // servers/app.ts: the wiring
 const { app, useCases, repos, onError } = lattice.build({
-  store: new MongoStore({ db }), // CollectionStore adapter
+  store,                         // a started CollectionStore: new MongoStore({ url, database }), then await store.start()
   events: domainEvents,          // hexok Port over @hexok/queue
   methods: ({ repos }) => ({ posts: { publish: new PublishPost({ posts: repos.posts, email }) } }),
   overrides: ({ repos }) => ({ posts: { delete: new ArchivePost({ posts: repos.posts }) } }),
@@ -217,7 +217,25 @@ type Index = { fields: Record<string, 1 | -1>; unique?: boolean } // key order i
 
 - `where` on `get`, `update` and `remove` carries the access and tenant filter, so a write never touches a row the caller cannot see.
 - `getMany` exists for relation population. It is one query per collection per request.
-- Adapters use a hexok `Mapper` per collection when the stored shape differs, such as `_id` for Mongo (Phase 1).
+- Adapters use a hexok `Mapper` when the stored shape differs. `MongoStore` maps `id` to a string `_id`.
+- Field names cannot contain `.`, start with `$`, or be `_id`. Mongo would read them as paths, operators or the id. `collection()` rejects them at compile time and at runtime.
+
+### MongoStore
+
+`@latticecms/store-mongo` is the default adapter. It owns its `MongoClient` ([0025](decisions/0025-mongo-store-owns-its-client.md)):
+
+```ts
+const store = new MongoStore({ url: env.MONGODB_URL, database: 'crm', client?: MongoClientOptions })
+await store.start() // connects and pings; a second start() joins a pending one
+// … serve …
+await store.stop()  // closes the client
+```
+
+- A call before `start()`, during it, or after `stop()` rejects with `MongoStoreError` (`NotStarted`, `Starting`, `Stopped`), using ioredis-lifecycle's names.
+- Each collection is a Mongo collection of the same name. `Where` translates one to one; `exists` follows Lattice's null rule, not Mongo's `$exists`, and `contains` is an escaped, case-insensitive regex. Filters are combined with `$and`, never spread, so a filter on `id` cannot replace the id lookup.
+- A duplicate key (11000) on a write is `CONFLICT` with `{ collection, id }`. `ensure` runs `createIndex`, and an options conflict or a unique index over duplicates passes through.
+- Two known differences from `MemoryStore`. Mongo orders strings by UTF-8 bytes, which differs from JavaScript only for U+E000–U+FFFF against astral characters. `contains` folds case differently outside ASCII.
+- Tests run on `mongodb-memory-server`: one single-node replica set per run, pinned to mongod 8.0.14, with a database per test.
 - A `Patch` sets each key it has; a key set to `undefined` removes the field (Mongo `$unset`). It can never change `id`.
 - `MemoryStore` ships in `@latticecms/core` for tests and examples, the way `@hexok/logger` ships `MemoryLogger`. It enforces unique indexes as Mongo does: a missing field keys as null, `ensure` rejects a unique index over existing duplicates, and it rejects an index whose keys exist with other options.
 - A store receives a parsed `AnyWhere`, not the typed `Where<Doc>`: validation happened before it.
@@ -481,7 +499,7 @@ examples/
 | Package | Depends on | Peer |
 | --- | --- | --- |
 | `@latticecms/core` | `hexok`, `@ts-pf/contract`, `@ts-pf/server`, `@ts-pf/protocol` | `zod` 4, `@hexok/logger` |
-| `@latticecms/store-mongo` | `@latticecms/core`, `hexok` | `mongodb` |
+| `@latticecms/store-mongo` | `hexok`, `mongodb` | `@latticecms/core`, `zod` 4 |
 | `@latticecms/admin` | `@ts-pf/client`, `@ts-pf/client-http`, `@ts-pf/docs` | `react`, `@shadalaya/react` |
 
 - Every `@ts-pf/*` package moves together on one version. `@latticecms/core` pins one ts-pf minor and one hexok major, and a bump is its own changeset.

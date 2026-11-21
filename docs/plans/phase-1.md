@@ -82,12 +82,12 @@ Decided at the Checkpoint:
 
 ### 5. `@latticecms/store-mongo`
 
-- [ ] A new package, set up as `AGENTS.md` "Adding a package" says. The tests run on `mongodb-memory-server`, a single-node replica set per run with a database per test ([0025](../decisions/0025-mongo-store-owns-its-client.md)).
-- [ ] `new MongoStore({ url, database, client? })` owns its client, with `start()`, `stop()` and `MongoStoreError` (0025). `mongodb` is a dependency, and `@latticecms/core` and `zod` are peers.
-- [ ] Core refuses schema field names that contain `.`, start with `$`, or are `_id`: a compile error where cheap, and a throw in `collection()`. Mongo reads them as paths, operators or the id.
-- [ ] The README documents two known differences from `MemoryStore`. Mongo orders strings by UTF-8 bytes, which differs from JavaScript only for U+E000–U+FFFF against astral characters. `contains` folds case differently outside ASCII.
-- [ ] `MongoStore` passes the conformance suite. `Where` translates one to one, because the matcher already follows Mongo's null and missing rules. The keyset is a `Where`, so it needs no code of its own. A duplicate key is `CONFLICT`. A `Mapper` maps `id` to `_id`.
-- [ ] The Mongo client lifecycle lives in this package (`architecture.md`, proposed changes table).
+- [x] A new package, set up as `AGENTS.md` "Adding a package" says. The tests run on `mongodb-memory-server`, a single-node replica set per run with a database per test ([0025](../decisions/0025-mongo-store-owns-its-client.md)).
+- [x] `new MongoStore({ url, database, client? })` owns its client, with `start()`, `stop()` and `MongoStoreError` (0025). `mongodb` is a dependency, and `@latticecms/core` and `zod` are peers.
+- [x] Core refuses schema field names that contain `.`, start with `$`, or are `_id`: a compile error where cheap, and a throw in `collection()`. Mongo reads them as paths, operators or the id.
+- [x] The README documents two known differences from `MemoryStore`. Mongo orders strings by UTF-8 bytes, which differs from JavaScript only for U+E000–U+FFFF against astral characters. `contains` folds case differently outside ASCII.
+- [x] `MongoStore` passes the conformance suite. `Where` translates one to one, because the matcher already follows Mongo's null and missing rules. The keyset is a `Where`, so it needs no code of its own. A duplicate key is `CONFLICT`. A `Mapper` maps `id` to `_id`.
+- [x] The Mongo client lifecycle lives in this package (`architecture.md`, proposed changes table).
 
 ### 6. Indexes, `count()` and `withTotal`
 
@@ -131,6 +131,9 @@ Lattice drops the spike's `GetClient`, `FindClient` and `LatticeClient`. Bump `@
 - [ ] `packages/core/README.md` and a `packages/store-mongo/README.md`, with examples from `examples/crm`.
 - [ ] `docs/architecture.md` matches what was built, and its Phase 1 markers are removed.
 - [ ] Changesets for both packages.
+- [ ] Before the first publish, settle the dependency ranges:
+  - `@latticecms/store-mongo` peers `@latticecms/core: "*"`, because core is 0.0.0, and changesets bumps a dependent with a major when its peer range changes;
+  - core and store-mongo each depend on `hexok`, which an app also depends on directly, so decide whether `hexok` and `@ts-pf/*` should be peers.
 
 ## Carried from Phase 0
 
@@ -154,5 +157,7 @@ Add a line here when the work teaches something the plan did not know. Each line
 - Threading `Tenant` through `Collection`, operations, hooks and events raised the untenanted crm's check from 0.39 s to 0.47 s (+47k instantiations). Core is now 1.26 s. Re-measure at step 10; if crm passes about 0.6 s, look for a cheaper form. Asserted overloads: 7 (`tenantShapes`).
 - The conformance suite has 34 cases. Four deliberately broken stores fail 10 of them. `MemoryStore` rejects an index whose keys exist with other options, as Mongo does. Changing an index is a migration.
 - The package-name import of `@latticecms/core/store` gets its permanent test in `packages/store-mongo` (step 5). A core test cannot do it, because core's own tests do not build core first.
+- All 35 `storeCases` passed on `MongoStore` on the first run: Mongo and the matcher never disagreed. Merging filters by spread fails the new where-on-id case. Empty `or` is `{ $expr: false }`.
+- npm 12 skips install scripts, so mongodb-memory-server downloads mongod on the first test run. Turbo's strict env does not pass `MONGOMS_*`. CI should cache `~/.cache/mongodb-binaries`. There is no CI workflow yet.
 - Type-check after access: core check 1.08 s to 1.15 s (with a 500-line test file), crm 0.40 s, unchanged. Asserted overloads: 6.
 - Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.
