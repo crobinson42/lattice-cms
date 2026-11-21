@@ -46,7 +46,7 @@ Lattice owns only the rows marked **Lattice** ([0001](decisions/0001-build-on-he
 | Jobs, schedules | `@hexok/queue` + `@hexok/schedule-coordinator` | Scheduled use cases, as in hexok's `app-template` |
 | Logger, error capture | `@hexok/logger`, `-sentry`, `-newrelic` | Passed to `framework()` |
 | Tracing | `@opentelemetry/api`, called directly (Phase 2) | ts-pf call interceptors + use case hooks |
-| Custom methods | `hexok` `UseCase` | `.method('publish', PublishPost)` adds it to the collection's router slice |
+| Custom methods | `hexok` `UseCase` | `.collection(Posts, { methods: { publish: PublishPost } })` adds it to the collection's router slice |
 | HTTP | `@ts-pf/server-http` `FetchHandler` | Mount on srvx, Hono, Bun, Next or Astro |
 | In-process calls | `@ts-pf/server` `createLocalClient`, or calling use cases directly | Same middleware and errors as HTTP |
 | GraphQL | Not planned | ts-pf is RPC; OpenAPI covers outside callers |
@@ -90,13 +90,14 @@ export const Posts = collection('posts', {
   indexes: [{ fields: { status: 1, createdAt: -1 } }],
 })
   .hooks({ beforeChange: ({ data }) => ({ ...data, title: data.title.trim() }) })
-  .method('publish', PublishPost)
-  .override('delete', ArchivePost)
 ```
 
 - `schema` is a Zod 4 object ([0013](decisions/0013-zod-4-for-collection-schemas.md)). Lattice adds `id`, `createdAt`, `updatedAt` and the tenant field.
 - A collection may pass `entity: Post` instead of `schema`, where `Post extends Entity('Post', schema)`. Then domain rules live on the entity, the hexok way.
 - `ref()` and `many()` are the only field helpers. Everything else is plain Zod.
+- Only `z.object()`. Unknown keys are stripped. A loose object's index signature would reach every client type.
+- `createdAt` and `updatedAt` are ISO 8601 strings, not `Date`. ts-pf sends JSON, so a `Date` would reach an HTTP client as a string while its type said `Date`.
+- A collection names no use case classes. Methods and overrides attach where the app composes ([0018](decisions/0018-methods-and-overrides-attach-in-the-framework.md)).
 
 ### Compose and build
 
@@ -115,14 +116,17 @@ const lattice = framework({
   logger,                        // @hexok/logger
 })
   .collection(Users)
-  .collection(Posts)
+  .collection(Posts, { methods: { publish: PublishPost }, overrides: { delete: ArchivePost } })
   .collection(Categories)
 
 const { contract, app, useCases, repos, events } = lattice.build({
-  methods: { 'posts.publish': new PublishPost({ posts: lattice.repo(Posts), email }) },
-  overrides: { 'posts.delete': new ArchivePost({ posts: lattice.repo(Posts) }) },
+  methods: { posts: { publish: new PublishPost({ posts: lattice.repo(Posts), email }) } },
+  overrides: { posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) } },
 })
 ```
+
+- `.collection(C, { methods, overrides })` declares the classes. Their static schemas type the contract.
+- `build()` takes one instance per declared class, keyed by slug and then name, the same shape as the contract.
 
 | Output | What it is | Used by |
 | --- | --- | --- |
@@ -133,6 +137,8 @@ const { contract, app, useCases, repos, events } = lattice.build({
 | `events` | A hexok `EventCatalog` per collection | Event handlers in the worker |
 
 ### What each collection generates
+
+Every write returns the document: `create` and `update` the stored one, `delete` the one it removed.
 
 - Use cases, in the app's one family: `posts.find`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, plus `posts.categories.list` and `posts.categories.set` for each `many()` relation.
 - A contract slice: `posts.find`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, `posts.publish`, `posts.categories.*`.
@@ -156,8 +162,10 @@ export class PublishPost extends AppUseCase('posts.publish', {
 ```
 
 - The family guard runs access for the action `publish`, tenancy scoping and input validation before `execute`.
+- The class's `collection` static and its token (`posts.publish`) must match where it is attached. `execute` must take the class's `input` schema output and return its `output` schema output.
 - The app constructs the instance and passes it to `build()`, as hexok requires. `build()` is a type error when a declared method or override has no instance, the same completeness check as ts-pf `impl.router()`.
-- `.override('delete', ArchivePost)` swaps one generated operation. The class must accept and return the generated operation's types, so clients see no change.
+- `overrides: { delete: ArchivePost }` swaps one generated operation. The class must accept and return the generated operation's types, so clients see no change.
+- Slugs and method names cannot be ts-pf implementer keys (`$context`, `use`, `useAfter`, `middleware`, `router`), and a method cannot reuse a generated operation's name.
 - A method publishes its own events from a catalog the app owns. Generated catalogs cover CRUD only.
 
 ### Hooks
@@ -176,7 +184,7 @@ abstract class CollectionStore extends Port('CollectionStore') {
   abstract getMany(collection: string, ids: readonly string[], where?: Where): Promise<Doc[]>
   abstract insert(collection: string, doc: Doc): Promise<void>
   abstract update(collection: string, id: string, patch: Partial<Doc>, where?: Where): Promise<Doc | null>
-  abstract remove(collection: string, id: string, where?: Where): Promise<boolean>
+  abstract remove(collection: string, id: string, where?: Where): Promise<Doc | null>
   abstract count(collection: string, where?: Where): Promise<number>
 }
 ```
