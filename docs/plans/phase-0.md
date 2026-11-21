@@ -116,10 +116,10 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 `examples/crm` showed the contract is not static: `framework()` takes the store and the events publisher, so `contract` exists only after ports do. Split definition from wiring. Maintainer's choice.
 
 - [ ] Definition: `framework({ family, errors })` plus `.collection(...)` gives `contract` with no ports, importable by clients and codegen without server code.
-- [ ] Wiring: `build({ store, events, methods, overrides })`. Instances can still take a typed repo of a declared collection.
+- [ ] Wiring: `build({ store, events, methods, overrides })`. The `methods` and `overrides` factories receive the typed `repos`.
 - [ ] `examples/crm` exports a `contract` const from a module with no ports.
 
-Stop and show the maintainer the proposed signatures and the example's two modules before building.
+The maintainer approved option A: `build({ store, events, methods: ({ repos }) => …, overrides: ({ repos }) => … })`, `contract` on the definition, and `lattice.repo()` removed. See `architecture.md` "Compose and build".
 
 ### 10. Docs
 

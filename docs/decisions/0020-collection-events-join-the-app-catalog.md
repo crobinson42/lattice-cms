@@ -9,7 +9,7 @@ revisit: A product needs to subscribe to every collection's events without listi
 
 ## Decision
 
-`collection()` derives three hexok `Event` classes from the schema: `Posts.events.created`, `.updated` and `.deleted`. Lattice generates no `EventCatalog`. The app lists the classes in its own domain catalog, next to its hand-written events. `framework({ events })` takes the app's publisher, and `build()` is a compile error when that publisher cannot take every collection's events.
+`collection()` derives three hexok `Event` classes from the schema: `Posts.events.created`, `.updated` and `.deleted`. Lattice generates no `EventCatalog`. The app lists the classes in its own domain catalog, next to its hand-written events. `build({ events })` takes the app's publisher, and is a compile error when that publisher cannot take every collection's events.
 
 ## Why
 

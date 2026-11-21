@@ -9,7 +9,7 @@ revisit: hexok use case instances carry their class statics in their type, or Ty
 
 ## Decision
 
-A collection is a pure declaration and names no use case classes. The app attaches custom methods and overrides where it composes: `framework().collection(Posts, { methods: { publish: PublishPost }, overrides: { delete: ArchivePost } })`. `build()` takes one instance per declared class, nested by slug: `{ methods: { posts: { publish } }, overrides: { posts: { delete } } }`.
+A collection is a pure declaration and names no use case classes. The app attaches custom methods and overrides where it composes: `framework().collection(Posts, { methods: { publish: PublishPost }, overrides: { delete: ArchivePost } })`. `build()` takes one instance per declared class, nested by slug, from a factory that receives the typed repos: `methods: ({ repos }) => ({ posts: { publish } })`, and the same for `overrides`.
 
 ## Why
 

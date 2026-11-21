@@ -111,33 +111,38 @@ export const AppUseCase = family({
   tenantOf: (actor) => actor.organizationId,
 })
 
-// servers/app.ts
-const lattice = framework({
+// servers/rpc/contract.ts: the definition. No ports, so clients and codegen can import it.
+export const lattice = framework({
   family: AppUseCase,
-  store: new MongoStore({ db }), // CollectionStore adapter
-  events: domainEvents,          // hexok Port over @hexok/queue
   errors: { declared: clientErrors, map: toRpcError }, // the app's servers/rpc/errors.ts
 })
   .collection(Users)
   .collection(Posts, { methods: { publish: PublishPost }, overrides: { delete: ArchivePost } })
   .collection(Categories)
 
-const { contract, app, useCases, repos } = lattice.build({
-  methods: { posts: { publish: new PublishPost({ posts: lattice.repo(Posts), email }) } },
-  overrides: { posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) } },
+export const contract = lattice.contract
+
+// servers/app.ts: the wiring
+const { app, useCases, repos, onError } = lattice.build({
+  store: new MongoStore({ db }), // CollectionStore adapter
+  events: domainEvents,          // hexok Port over @hexok/queue
+  methods: ({ repos }) => ({ posts: { publish: new PublishPost({ posts: repos.posts, email }) } }),
+  overrides: ({ repos }) => ({ posts: { delete: new ArchivePost({ posts: repos.posts }) } }),
 })
 ```
 
-- `.collection(C, { methods, overrides })` declares the classes. Their static schemas type the contract.
-- `build()` takes one instance per declared class, keyed by slug and then name, the same shape as the contract.
-- `lattice.repo(C)` exists before `build()`, so instances can take one. It is a compile error for a collection not added with `.collection()`. A `Repo<C>` has `get`, `getMany`, `find({ where?, sort?, limit?, after? })`, `insert`, `update` and `remove`, typed from `C`. It stamps `id`, `createdAt` and `updatedAt` like the generated operations, and does no validation, hooks, access, tenancy or events: it trusts typed input, like a hexok repository.
+- The definition (`framework({ family, errors })` and `.collection()`) gives `contract` with no store and no publisher. The wiring (`build({ store, events, methods, overrides })`) needs both ([0018](decisions/0018-methods-and-overrides-attach-in-the-framework.md), [0020](decisions/0020-collection-events-join-the-app-catalog.md)).
+- `.collection(C, { methods, overrides })` declares the classes. Their static schemas type the contract, so the definition module imports the use case classes; they load with no ports or I/O, and a browser client imports the contract with `import type`.
+- `build()` takes one factory each for methods and overrides. Each receives the typed `repos` and returns one instance per declared class, keyed by slug and then name, the same shape as the contract. Each is required exactly when a collection declared one.
+- A `Repo<C>` has `get`, `getMany`, `find({ where?, sort?, limit?, after? })`, `insert`, `update` and `remove`, typed from `C`. It stamps `id`, `createdAt` and `updatedAt` like the generated operations, and does no validation, hooks, access, tenancy or events: it trusts typed input, like a hexok repository.
 
 | Output | What it is | Used by |
 | --- | --- | --- |
-| `contract` | A ts-pf `router` of every collection | Clients, `@ts-pf/openapi`, `@ts-pf/codegen`, the admin |
-| `app` | The implemented ts-pf router | `FetchHandler`, `createLocalClient`, `@ts-pf/mcp` |
+| `contract` (on the definition) | A ts-pf `router` of every collection | Clients, `@ts-pf/openapi`, `@ts-pf/codegen`, the admin |
+| `app` (from `build()`) | The implemented ts-pf router | `FetchHandler`, `createLocalClient`, `@ts-pf/mcp` |
 | `useCases` | hexok `UseCase` instances, such as `useCases.posts.create`: the generated one, or the override or method instance that serves the procedure, each precisely typed | Workers, scripts, tests |
-| `repos` | `Repo<C>` per collection, the same objects as `lattice.repo(C)` | Hand-written use cases and event handlers |
+| `repos` | `Repo<C>` per collection, the same objects the factories received | Hand-written use cases and event handlers |
+| `onError` | `onError(logger)` for `FetchHandler` | The HTTP edge |
 
 ### What each collection generates
 
