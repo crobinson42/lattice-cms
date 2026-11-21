@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Lattice CMS is a TypeScript framework for internal tools, CRMs, admin panels and portals. A collection definition compiles into hexok use cases, hexok event catalogs and a ts-pf contract. This file is for agents working on this repository.
+Lattice CMS is a TypeScript framework for internal tools, CRMs, admin panels and portals. A collection definition compiles into hexok use cases, hexok event classes and a ts-pf contract. This file is for agents working on this repository.
 
 ## Where things are written down
 
