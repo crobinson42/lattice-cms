@@ -1,57 +1,15 @@
-import { createLocalClient } from '@ts-pf/server';
 import type { UseCase } from 'hexok';
-import { describe, expect, expectTypeOf, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { ArchivePost } from './fixtures/archive-post.js';
 import { Comments } from './fixtures/comments.js';
-import { AppUseCase, allowAll, callContext } from './fixtures/context.js';
+import { AppUseCase, allowAll } from './fixtures/context.js';
 import { MemoryEventPublisher } from './fixtures/events.js';
 import { Posts } from './fixtures/posts.js';
 import { PublishPost } from './fixtures/publish-post.js';
-import {
-  collection,
-  family,
-  framework,
-  MemoryStore,
-  type Sort,
-  type Where,
-} from './index.js';
-
-type Post = {
-  title: string;
-  body: string;
-  status: 'draft' | 'published';
-  id: string;
-  createdAt: string;
-  updatedAt: string;
-};
+import { collection, family, framework, MemoryStore } from './index.js';
 
 type Ctx = UseCase.Ctx<typeof AppUseCase>;
-
-const lattice = framework({
-  family: AppUseCase,
-})
-  .collection(Posts, {
-    access: { ...allowAll, publish: () => true },
-    methods: { publish: PublishPost },
-    overrides: { delete: ArchivePost },
-  })
-  .collection(Comments, { access: allowAll });
-
-const { app } = lattice.build({
-  store: new MemoryStore(),
-  events: new MemoryEventPublisher(),
-  methods: ({ repos }) => ({
-    posts: { publish: new PublishPost({ posts: repos.posts }) },
-  }),
-  overrides: ({ repos }) => ({
-    posts: { delete: new ArchivePost({ posts: repos.posts }) },
-  }),
-});
-
-const local = createLocalClient(app, {
-  context: callContext(),
-});
 
 /** A store and a publisher for one build. */
 function ports() {
@@ -60,79 +18,6 @@ function ports() {
 
 /** Statements the compiler checks and the test never runs. */
 function typeOnly(_statements: () => unknown): void {}
-
-describe('type flow', () => {
-  it('get returns the schema plus system fields', () => {
-    typeOnly(async () => {
-      const post = await local.posts.get({ id: 'p1' });
-      expectTypeOf(post).toEqualTypeOf<Post>();
-    });
-  });
-
-  it('create excludes system fields; update is a partial patch plus id', () => {
-    expectTypeOf(local.posts.create).parameter(0).toEqualTypeOf<{
-      title: string;
-      body: string;
-      status: 'draft' | 'published';
-    }>();
-    expectTypeOf(local.posts.update).parameter(0).toEqualTypeOf<{
-      title?: string | undefined;
-      body?: string | undefined;
-      status?: 'draft' | 'published' | undefined;
-      id: string;
-    }>();
-    typeOnly(() => {
-      local.posts.create({
-        title: 't',
-        body: 'b',
-        status: 'draft',
-        // @ts-expect-error system fields are not input
-        id: 'p1',
-      });
-      // @ts-expect-error update needs id
-      local.posts.update({ title: 't' });
-    });
-  });
-
-  it('find takes where, sort, limit and after and returns a page', () => {
-    expectTypeOf(local.posts.find).parameter(0).toEqualTypeOf<{
-      where?: Where<Post> | undefined;
-      sort?: Sort<Post> | undefined;
-      limit?: number | undefined;
-      after?: string | undefined;
-    }>();
-    expectTypeOf(local.posts.find).returns.resolves.toEqualTypeOf<{
-      docs: Post[];
-      next: string | null;
-    }>();
-  });
-
-  it('a custom method is typed from its use case', () => {
-    expectTypeOf(local.posts.publish)
-      .parameter(0)
-      .toEqualTypeOf<{ id: string }>();
-    expectTypeOf(local.posts.publish).returns.resolves.toEqualTypeOf<Post>();
-  });
-
-  it('an override keeps the generated types; delete returns the document', () => {
-    expectTypeOf(local.posts.delete)
-      .parameter(0)
-      .toEqualTypeOf<{ id: string }>();
-    expectTypeOf(local.posts.delete).returns.resolves.toEqualTypeOf<Post>();
-  });
-
-  it('a second collection gets its own slice', () => {
-    expectTypeOf(local.comments.get).returns.resolves.toEqualTypeOf<{
-      postId: string;
-      text: string;
-      id: string;
-      createdAt: string;
-      updatedAt: string;
-    }>();
-    // @ts-expect-error methods belong to their own collection
-    expectTypeOf(local.comments.publish).toBeFunction();
-  });
-});
 
 describe('method checks', () => {
   const publishInput = z.object({ id: z.string() });
@@ -542,29 +427,5 @@ describe('build checks', () => {
       'update',
       'delete',
     ]);
-  });
-});
-
-describe('load time', () => {
-  it('imports the fixtures and builds without throwing', () => {
-    lattice.build({
-      ...ports(),
-      methods: ({ repos }) => ({
-        posts: { publish: new PublishPost({ posts: repos.posts }) },
-      }),
-      overrides: ({ repos }) => ({
-        posts: { delete: new ArchivePost({ posts: repos.posts }) },
-      }),
-    });
-    expect(Object.keys(lattice.contract.posts)).toEqual([
-      'find',
-      'count',
-      'get',
-      'create',
-      'update',
-      'delete',
-      'publish',
-    ]);
-    expect(Object.keys(lattice.contract.comments)).toHaveLength(6);
   });
 });

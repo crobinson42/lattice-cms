@@ -24,10 +24,22 @@ import {
   framework,
   MemoryStore,
   type Repo,
+  type Sort,
   unscoped,
+  type Where,
 } from './index.js';
 
 type Post = z.output<typeof Posts.output>;
+
+/** The post type, spelled out, so the derived one is checked against it. */
+type ExpectedPost = {
+  title: string;
+  body: string;
+  status: 'draft' | 'published';
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+};
 
 /** Statements the compiler checks and the test never runs. */
 function typeOnly(_statements: () => unknown): void {}
@@ -332,6 +344,110 @@ describe('repo insert parses like create', () => {
     expect(
       await store.find({ collection: 'deals', sort: [], limit: 10 }),
     ).toEqual({ docs: [], next: null });
+  });
+});
+
+describe('type flow', () => {
+  const { local } = setup();
+
+  it('get returns the schema plus system fields', () => {
+    typeOnly(async () => {
+      const post = await local.posts.get({ id: 'p1' });
+      expectTypeOf(post).toEqualTypeOf<ExpectedPost>();
+    });
+  });
+
+  it('create excludes system fields; update is a partial patch plus id', () => {
+    expectTypeOf(local.posts.create).parameter(0).toEqualTypeOf<{
+      title: string;
+      body: string;
+      status: 'draft' | 'published';
+    }>();
+    expectTypeOf(local.posts.update).parameter(0).toEqualTypeOf<{
+      title?: string | undefined;
+      body?: string | undefined;
+      status?: 'draft' | 'published' | undefined;
+      id: string;
+    }>();
+    typeOnly(() => {
+      local.posts.create({
+        title: 't',
+        body: 'b',
+        status: 'draft',
+        // @ts-expect-error system fields are not input
+        id: 'p1',
+      });
+      // @ts-expect-error update needs id
+      local.posts.update({ title: 't' });
+    });
+  });
+
+  it('find takes where, sort, limit and after and returns a page', () => {
+    expectTypeOf(local.posts.find).parameter(0).toEqualTypeOf<{
+      where?: Where<ExpectedPost> | undefined;
+      sort?: Sort<ExpectedPost> | undefined;
+      limit?: number | undefined;
+      after?: string | undefined;
+    }>();
+    expectTypeOf(local.posts.find).returns.resolves.toEqualTypeOf<{
+      docs: ExpectedPost[];
+      next: string | null;
+    }>();
+  });
+
+  it('a custom method is typed from its use case', () => {
+    expectTypeOf(local.posts.publish)
+      .parameter(0)
+      .toEqualTypeOf<{ id: string }>();
+    expectTypeOf(
+      local.posts.publish,
+    ).returns.resolves.toEqualTypeOf<ExpectedPost>();
+  });
+
+  it('an override keeps the generated types; delete returns the document', () => {
+    expectTypeOf(local.posts.delete)
+      .parameter(0)
+      .toEqualTypeOf<{ id: string }>();
+    expectTypeOf(
+      local.posts.delete,
+    ).returns.resolves.toEqualTypeOf<ExpectedPost>();
+  });
+
+  it('a second collection gets its own slice', () => {
+    expectTypeOf(local.comments.get).returns.resolves.toEqualTypeOf<{
+      postId: string;
+      text: string;
+      id: string;
+      createdAt: string;
+      updatedAt: string;
+    }>();
+    // @ts-expect-error methods belong to their own collection
+    expectTypeOf(local.comments.publish).toBeFunction();
+  });
+});
+
+describe('load time', () => {
+  it('imports the fixtures and builds without throwing', () => {
+    definition.build({
+      store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
+      methods: ({ repos }) => ({
+        posts: { publish: new PublishPost({ posts: repos.posts }) },
+      }),
+      overrides: ({ repos }) => ({
+        posts: { delete: new ArchivePost({ posts: repos.posts }) },
+      }),
+    });
+    expect(Object.keys(definition.contract.posts)).toEqual([
+      'find',
+      'count',
+      'get',
+      'create',
+      'update',
+      'delete',
+      'publish',
+    ]);
+    expect(Object.keys(definition.contract.comments)).toHaveLength(6);
   });
 });
 
