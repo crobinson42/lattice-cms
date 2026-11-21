@@ -2,6 +2,7 @@
   "name": "@latticecms/core",
   "version": "0.0.0",
   "description": "Collections that compile into hexok use cases and a ts-pf contract.",
+  "license": "MIT",
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -23,7 +24,10 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/fixtures"
   ],
   "publishConfig": {
     "access": "public"
@@ -31,7 +35,7 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
-    "type-check": "tsc --noEmit -p tsconfig.check.json",
+    "type-check": "tsc --noEmit -p tsconfig.check.json && tsc -p tsconfig.dist.json",
     "lint": "biome check .",
     "clean": "rm -rf dist *.tsbuildinfo"
   },

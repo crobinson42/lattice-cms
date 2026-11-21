@@ -75,17 +75,36 @@ function patchSchema(schema: z.ZodObject): z.ZodObject {
   });
 }
 
-/** A stored document's schema: the schema plus the system fields and the tenant field. */
+/** The fields Lattice adds to a collection's schema: system and tenant. */
+type Stamped<Tenant extends string> = typeof systemShape &
+  Record<Tenant, z.ZodString>;
+
+/**
+ * The stored document's schema, as zod's `extend` types it. It is named, not
+ * inferred from `outputOf`: declaration emit spells an inferred type out,
+ * dropping zod's `Extend` alias, and the spelled-out form of a join
+ * collection's output no longer fits `AnyCollection` in the published .d.ts.
+ */
+type Output<
+  Shape extends z.core.$ZodShape,
+  Tenant extends string,
+> = z.ZodObject<
+  z.core.util.Extend<Shape, z.core.util.Writeable<Stamped<Tenant>>>,
+  z.core.$strip
+>;
+
 function outputOf<Shape extends z.core.$ZodShape, Tenant extends string>(
   schema: Schema<Shape>,
   tenant: Tenant | undefined,
-) {
-  return schema.extend({ ...systemShape, ...tenantShapes(tenant).field });
+): Output<Shape, Tenant> {
+  // Typed, so `extend` infers `Stamped<Tenant>` itself: an anonymous spread
+  // type would make an `Extend` the compiler cannot relate to `Output`.
+  const stamped: Stamped<Tenant> = {
+    ...systemShape,
+    ...tenantShapes(tenant).field,
+  };
+  return schema.extend(stamped);
 }
-
-type Output<Shape extends z.core.$ZodShape, Tenant extends string> = ReturnType<
-  typeof outputOf<Shape, Tenant>
->;
 
 /**
  * The input and output schema of each generated operation, from the

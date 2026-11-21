@@ -11,7 +11,7 @@
       "env": ["MONGODB_URL", "REDIS_URL", "MONGOMS_*"]
     },
     "type-check": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build", "build"],
       "outputs": []
     },
     "lint": {
