@@ -96,7 +96,13 @@ Stop and show the maintainer the subpath's exports and how an adapter runs the s
 
 ### 9. Population
 
-Blocked on ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)). Requested from the ts-pf session `lattice-populated-types` on 2026-11-21. Bump `@ts-pf/*` when it ships. If ts-pf declines, stop and ask the maintainer before falling back to the spike's typed client.
+Blocked on ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)). Requested from the ts-pf session `lattice-populated-types` on 2026-11-21. The shape is agreed, and it is planned for ts-pf 0.6.0:
+- `.output(Wide).expand({ key: 'populate', at: ['docs'], fields })`, where the output schema is the wide type the server sends.
+- The plain type is derived by removing `fields`.
+- A `populate` variable typed `K[]` gets the wide type.
+- `InferExpandedOutput` annotates `useSWR`.
+
+Lattice drops the spike's `GetClient`, `FindClient` and `LatticeClient`. Bump `@ts-pf/*` when it ships. If ts-pf declines, stop and ask the maintainer before falling back to the spike's typed client.
 
 - [ ] `populate` on reads, one level deep. Ids are collected per target collection, and `getMany` is called once each.
 - [ ] Access and tenancy apply to populated documents. A populated document the caller may not read comes back as `{ id }` only.

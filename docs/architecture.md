@@ -411,7 +411,7 @@ Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the sc
 
 | Item | Where | Needed by | Recommendation | Why |
 | --- | --- | --- | --- | --- |
-| Expandable outputs: `procedure.output(O).expand({ key, at, fields })`, so the output type follows a list in the input | ts-pf | Phase 1 step 9 | Build it (requested) | Population changes a read's output per call. ts-pf's client is one non-generic signature per procedure, so no Lattice-side type reaches swr, mvc-kit or codegen clients |
+| Expandable outputs: `procedure.output(Wide).expand({ key, at, fields })`, so the output type follows a list in the input | ts-pf | Phase 1 step 9 | Agreed, planned for 0.6.0 | Population changes a read's output per call. ts-pf's client is one non-generic signature per procedure, so no Lattice-side type reaches swr, mvc-kit or codegen clients |
 | `@hexok/authz` | hexok (already planned) | Phase 2 | Build it; add list checks that return a filter | Every product needs it. Lattice adapts its `Access` port to it |
 | Tracing port | hexok | Phase 2 | No new package. Lattice calls `@opentelemetry/api` directly | The OTel API is already vendor-neutral and a no-op without an SDK, so an app can solve this today (gate question 2) |
 | Blob storage port, `@hexok/blob` + `@hexok/blob-s3` | hexok | Phase 3 | Build it, shaped like `email` / `sms` | Any product with uploads needs it. S3 covers DigitalOcean Spaces |

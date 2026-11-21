@@ -9,7 +9,7 @@ revisit: ts-pf declines expandable outputs, or its design cannot express a ref r
 
 ## Decision
 
-A read's output type follows its `populate` input through a ts-pf feature, expandable outputs: `procedure.output(O).expand({ key: 'populate', at, fields })`. Lattice's `contractOf` declares the expansion for `get` and `find`. Clients use ts-pf's own types, with no Lattice wrapper. A populated document the caller may not read is `Withheld`, `{ id }` only, so a populated ref types as `Doc<Target> | Withheld`, and callers narrow on it.
+A read's output type follows its `populate` input through a ts-pf feature, expandable outputs: `procedure.output(Wide).expand({ key: 'populate', at: ['docs'], fields })`. The output schema is the wide type the server sends. ts-pf derives the plain type by removing `fields`, and gives the wide type when `populate` is not a literal list. Lattice's `contractOf` declares the expansion for `get` and `find`. Clients use ts-pf's own types, with no Lattice wrapper. A populated document the caller may not read is `Withheld`, `{ id }` only, so a populated ref types as `Doc<Target> | Withheld`, and callers narrow on it.
 
 Lattice does not edit ts-pf ([0001](0001-build-on-hexok-and-ts-pf.md)). The feature is requested from ts-pf. Population (Phase 1 step 9) waits for its release.
 
