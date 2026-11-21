@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: ts-pf declines expandable outputs, or its design cannot express a ref replaced inside a list (`find`'s `docs[]`).

@@ -7,7 +7,7 @@ This plan is a working document. It is deleted when the exit holds, after anythi
 ## Exit
 
 - [ ] `examples/crm` runs on Mongo through `@latticecms/store-mongo`, and its tests pass on both `MemoryStore` and `MongoStore`.
-- [ ] Tenant isolation tests pass: no read, write, count, population or cursor reaches another tenant's rows, and every `tenancy.bypass` call is logged.
+- [ ] Tenant isolation tests pass: no read, write, count, population or cursor reaches another tenant's rows, and every bypassed call is logged.
 - [ ] One store conformance suite passes on `MemoryStore` and `MongoStore` alike.
 - [ ] A client still needs no casts and no annotations, including on populated reads.
 - [ ] `npm run lint`, `type-check`, `test` and `build` pass at the root. Type-check time is re-measured against 0003.
@@ -60,8 +60,9 @@ Done. The spike is `packages/core/src/spike-relations.test.ts` and `src/fixtures
 ### 3. Tenancy
 
 - [ ] `collection(slug, { tenant: 'organizationId' })` and `family({ tenantOf })`. Create stamps the tenant field, every filter adds it, and clients cannot set or change it. A tenant field in the schema is a compile error, as in the spike.
-- [ ] A tenanted collection added to a framework whose family has no `tenantOf` fails at compile time if the spike's approach allows it, otherwise at `.collection()`. Decide whether the tenant field stays in the client `Where` (harmless, since the tenant clause is ANDed in).
-- [ ] `tenancy.bypass(actor)` reads across tenants, and every bypassed call is logged with the actor and collection.
+- [ ] A tenanted collection added to a framework whose family has no `tenantOf` is a compile error and a throw. The tenant field stays in the client `Where`: it is a no-op inside a tenant, and it filters under bypass.
+- [ ] `tenantOf` returning `tenancy.bypass` reads across tenants, read-only, and every bypassed call is logged with the actor and collection ([0024](../decisions/0024-tenant-bypass-is-decided-by-tenant-of.md)). `tenancy.scope(C, tenantId)` for event handlers. `unscoped` cannot insert into a tenanted collection.
+- [ ] Update never writes the tenant field. Today it would write a stored `organizationId` back as `undefined`.
 - [ ] Events carry `tenantId`, and log lines carry `tenantId`.
 - [ ] Isolation tests through `createLocalClient` on `MemoryStore`: find, get, update, delete, cursors and events.
 

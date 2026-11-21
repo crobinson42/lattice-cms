@@ -27,6 +27,9 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 | [0018](0018-methods-and-overrides-attach-in-the-framework.md) | Methods and overrides attach in the framework, not on the collection | default | hexok use case instances carry their class statics in their type, or TypeScript resolves a class whose base expression refers back to the value that names it. |
 | [0019](0019-hooks-are-before-change-and-after-read.md) | Collection hooks are `beforeChange` and `afterRead`, and only transform data | default | ts-pf can skip input validation per procedure, or a real case needs to reshape input that would fail the schema. |
 | [0020](0020-collection-events-join-the-app-catalog.md) | Collection events are classes on the collection, listed in the app's one catalog | default | A product needs to subscribe to every collection's events without listing them, or hexok publishers stop checking events against one catalog. |
+| [0021](0021-access-attaches-at-composition.md) | Access functions attach where the app composes, not on the collection | default | A collection needs access rules that do not depend on the app's actor, or TypeScript gains partial type argument inference so `collection<Actor>('posts', …)` infers the rest. |
+| [0022](0022-populated-reads-use-ts-pf-expandable-outputs.md) | Populated reads are typed by ts-pf expandable outputs | default | ts-pf declines expandable outputs, or its design cannot express a ref replaced inside a list (`find`'s `docs[]`). |
+| [0023](0023-access-reaches-use-cases-through-the-call-context.md) | Access reaches use cases through the call context, and repos take a required scope | default | hexok lets a guard add to the context that `execute` receives, or a second `Access` adapter needs more than actor, collection, action and create data. |
 
 ## Proposed
 
@@ -34,8 +37,6 @@ These are not decided yet. Treat them as context, not rules.
 
 | ID | Decision | Strength | Revisit when |
 | --- | --- | --- | --- |
-| [0021](0021-access-attaches-at-composition.md) | Access functions attach where the app composes, not on the collection | default | A collection needs access rules that do not depend on the app's actor, or TypeScript gains partial type argument inference so `collection<Actor>('posts', …)` infers the rest. |
-| [0022](0022-populated-reads-use-ts-pf-expandable-outputs.md) | Populated reads are typed by ts-pf expandable outputs | default | ts-pf declines expandable outputs, or its design cannot express a ref replaced inside a list (`find`'s `docs[]`). |
-| [0023](0023-access-reaches-use-cases-through-the-call-context.md) | Access reaches use cases through the call context, and repos take a required scope | default | hexok lets a guard add to the context that `execute` receives, or a second `Access` adapter needs more than actor, collection, action and create data. |
+| [0024](0024-tenant-bypass-is-decided-by-tenant-of.md) | The family's `tenantOf` decides a tenant bypass, and server code scopes by tenant explicitly | default | Support staff need to write across tenants, or an app needs a bypass decided by something the actor cannot carry. |
 
 1 superseded record is history and not listed. Do not follow them.

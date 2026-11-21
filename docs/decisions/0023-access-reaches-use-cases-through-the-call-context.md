@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: hexok lets a guard add to the context that `execute` receives, or a second `Access` adapter needs more than actor, collection, action and create data.

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: A collection needs access rules that do not depend on the app's actor, or TypeScript gains partial type argument inference so `collection<Actor>('posts', …)` infers the rest.
