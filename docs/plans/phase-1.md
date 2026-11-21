@@ -59,12 +59,12 @@ Done. The spike is `packages/core/src/spike-relations.test.ts` and `src/fixtures
 
 ### 3. Tenancy
 
-- [ ] `collection(slug, { tenant: 'organizationId' })` and `family({ tenantOf })`. Create stamps the tenant field, every filter adds it, and clients cannot set or change it. A tenant field in the schema is a compile error, as in the spike.
-- [ ] A tenanted collection added to a framework whose family has no `tenantOf` is a compile error and a throw. The tenant field stays in the client `Where`: it is a no-op inside a tenant, and it filters under bypass.
-- [ ] `tenantOf` returning `tenancy.bypass` reads across tenants, read-only, and every bypassed call is logged with the actor and collection ([0024](../decisions/0024-tenant-bypass-is-decided-by-tenant-of.md)). `tenancy.scope(C, tenantId)` for event handlers. `unscoped` cannot insert into a tenanted collection.
-- [ ] Update never writes the tenant field. Today it would write a stored `organizationId` back as `undefined`.
-- [ ] Events carry `tenantId`, and log lines carry `tenantId`.
-- [ ] Isolation tests through `createLocalClient` on `MemoryStore`: find, get, update, delete, cursors and events.
+- [x] `collection(slug, { tenant: 'organizationId' })` and `family({ tenantOf })`. Create stamps the tenant field, every filter adds it, and clients cannot set or change it. A tenant field in the schema is a compile error, as in the spike.
+- [x] A tenanted collection added to a framework whose family has no `tenantOf` is a compile error and a throw. The tenant field stays in the client `Where`: it is a no-op inside a tenant, and it filters under bypass.
+- [x] `tenantOf` returning `tenancy.bypass` reads across tenants, read-only, and every bypassed call is logged with the actor and collection ([0024](../decisions/0024-tenant-bypass-is-decided-by-tenant-of.md)). `tenancy.scope(C, tenantId)` for event handlers. `unscoped` cannot insert into a tenanted collection.
+- [x] Update never writes the tenant field. Today it would write a stored `organizationId` back as `undefined`.
+- [x] Events carry `tenantId`, and log lines carry `tenantId`.
+- [x] Isolation tests through `createLocalClient` on `MemoryStore`: find, get, update, delete, cursors and events.
 
 ### 4. Store adapter surface **Checkpoint**
 
@@ -140,5 +140,8 @@ Add a line here when the work teaches something the plan did not know. Each line
 - Generated `create` asks access only in the guard, with `data`, and never keeps the answer. So step 3 needs the tenant clause apart from the access answer: `CallAccess` can build each `Scope` from the tenant clause ANDed with the access `Where`, keeping the tenant clause for create, and `Repo.insert` stamps the tenant from its scope.
 - An edge types its context as `CallContext<Actor>`, not `UseCase.Ctx<family>`, which now includes `access`. Went to `architecture.md`.
 - `Scope` needs an ES private field to be nominal; with public fields only, a plain object passes as an unfiltered scope.
+- `tenantOf` returning `null` or `''` at runtime would have matched or stamped rows no tenant owns. `CallAccess` fails closed unless it gets a non-empty string or `tenancy.bypass`. Went to `architecture.md`.
+- `Repo.insert` never takes `unscoped` on a tenanted collection, so the step 7 migrations runner and any step 10 seed must name the tenant with `tenancy.scope(C, tenantId)`.
+- Threading `Tenant` through `Collection`, operations, hooks and events raised the untenanted crm's check from 0.39 s to 0.47 s (+47k instantiations). Core is now 1.26 s. Re-measure at step 10; if crm passes about 0.6 s, look for a cheaper form. Asserted overloads: 7 (`tenantShapes`).
 - Type-check after access: core check 1.08 s to 1.15 s (with a 500-line test file), crm 0.40 s, unchanged. Asserted overloads: 6.
 - Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.

@@ -63,7 +63,7 @@ A collection is a declaration. Lattice turns it into hexok use cases, hexok even
 
 ### Define a collection
 
-This example shows the full design. Phase 0 builds `schema` and `.hooks()`; `ref()`, `many()`, `tenant`, `relations`, `indexes` and `entity` arrive in Phase 1, as the [phased build plan](#phased-build-plan) says. [`packages/core/README.md`](../packages/core/README.md) shows what runs today.
+This example shows the full design. Phase 0 built `schema` and `.hooks()`, and Phase 1 has added `tenant`; `ref()`, `many()`, `relations`, `indexes` and `entity` arrive in Phase 1, as the [phased build plan](#phased-build-plan) says. [`packages/core/README.md`](../packages/core/README.md) shows what runs today.
 
 ```ts
 // collections/posts.ts
@@ -105,7 +105,7 @@ export const Posts = collection('posts', {
 export const AppUseCase = family({
   actor: actorSchema,                        // the app's actor, built by @hexok/auth at the edge
   actorId: (actor) => actor.userId,          // the id log lines carry
-  tenantOf: (actor) => actor.organizationId, // Phase 1
+  tenantOf: (actor) => (actor.support ? tenancy.bypass : actor.organizationId), // the call's tenant (0024)
 })
 
 // servers/rpc/contract.ts: the definition. No ports, so clients and codegen can import it.
@@ -141,7 +141,7 @@ const { app, useCases, repos, onError } = lattice.build({
 - `.collection(C, { access, methods, overrides })` declares the access functions and the classes. `access` is required ([0021](decisions/0021-access-attaches-at-composition.md)). The classes' static schemas type the contract, so the definition module imports the use case classes; they load with no ports or I/O, and a browser client imports the contract with `import type`.
 - `build()` takes one factory each for methods and overrides. Each receives the typed `repos` and returns one instance per declared class, keyed by slug and then name, the same shape as the contract. Each is required exactly when a collection declared one.
 - A `Repo<C>` has `get(id, scope)`, `getMany(ids, scope)`, `find({ where?, sort?, limit?, after? }, scope)`, `insert(data, scope)`, `update(id, patch, scope)` and `remove(id, scope)`, typed from `C`. It stamps `id`, `createdAt` and `updatedAt` like the generated operations, and does no validation, hooks or events: it trusts typed input, like a hexok repository.
-- The scope is required: the call's `Scope<C['slug']>` from `ctx.access.scope(C, action)`, or `unscoped` for trusted code that acts for no caller. A row outside the scope acts as missing, and a scope for another collection throws ([0023](decisions/0023-access-reaches-use-cases-through-the-call-context.md)).
+- The scope is required: the call's `Scope<C['slug']>` from `ctx.access.scope(C, action)`, `tenancy.scope(C, tenantId)` for server code inside one tenant, or `unscoped` for trusted code that acts for no caller. A row outside the scope acts as missing, and a scope for another collection throws ([0023](decisions/0023-access-reaches-use-cases-through-the-call-context.md)). On a tenanted collection, `insert` stamps the scope's tenant and does not take `unscoped`, and `update` never writes the tenant field ([0024](decisions/0024-tenant-bypass-is-decided-by-tenant-of.md)).
 
 | Output | What it is | Used by |
 | --- | --- | --- |
@@ -323,13 +323,15 @@ interface CallAccess {
 
 Row-level tenancy is the only built-in strategy ([0009](decisions/0009-strict-tenant-isolation-in-v1.md)). It covers the team's organization model.
 
-- `family({ actor, tenantOf: (actor) => actor.organizationId })` names the actor's active organization. The edge picks it, from the session or a header, as the app already does.
-- A collection with `tenant: 'organizationId'` gets that field stamped on create and added to every filter. Clients cannot set or change it.
+- `family({ actor, actorId, tenantOf })` names the actor's active organization, or returns `tenancy.bypass` for a platform actor. The edge picks the organization, and sets the platform flag, from the session or a header. The actor schema validates both. `Family<Actor, Tenanted>` records whether `tenantOf` exists, and a tenanted collection in a family without it is a compile error ([0024](decisions/0024-tenant-bypass-is-decided-by-tenant-of.md)).
+- A collection with `tenant: 'organizationId'` gets that field in its output, `Doc`, `Where` and `Sort`, never in create or update input. Create stamps it after `beforeChange`, and update never writes it. A schema field with the tenant's name is a compile error.
+- Every `Scope` is the tenant clause ANDed with the access `Where`, and carries `tenantId`. Another tenant's row is `NOT_FOUND`. A `tenantOf` that returns no tenant id fails the call, so a missing tenant never widens a filter.
 - Join collections inherit the parent's tenant field.
 - A collection without `tenant` is global, such as a lookup table.
 - No cross-tenant sharing in v1. The tenant filter is one clause that the `Access` port can widen later (own organization OR shared to me), so `@hexok/authz` adds sharing without changing collections.
-- `tenancy.bypass(actor)` lets a platform actor (support staff, GodMode) read across tenants. Every bypassed call is logged with the actor and collection.
-- Generated events carry `tenantId` in their payload (Phase 1).
+- `tenancy.bypass` lets a platform actor (support staff, GodMode) read across tenants. A bypass is read-only on tenanted collections: generated writes and repo writes through its scope are `FORBIDDEN`. Its call line carries `tenancy: 'bypass'`, and each bypassed scope logs one `tenancy.bypass` line with the actor, collection and action.
+- Server code names its tenant. An event handler uses `tenancy.scope(C, tenantId)`: the tenant clause and no access, and inserts through it are stamped. `unscoped` reads and writes every tenant, but cannot insert into a tenanted collection.
+- Generated events of a tenanted collection carry `tenantId: string`. A method's own event declares `tenantId` and fills it from `scope.tenantId`.
 
 Schema-per-tenant and database-per-tenant are possible by routing a collection's `store` per tenant. They are not built in v1.
 
@@ -337,7 +339,7 @@ Schema-per-tenant and database-per-tenant are possible by routing a collection's
 
 Events are hexok's event model plus the queue and broadcast ports ([0010](decisions/0010-collection-events-stay-in-the-product.md), [0011](decisions/0011-no-read-events.md)). Use cases publish events after a successful write; event handlers do the side-effects in the worker.
 
-- `collection()` derives three hexok `Event` classes from the schema: `Posts.events.created`, `.updated` and `.deleted`, with tokens `posts.created`, `posts.updated` and `posts.deleted`. Payloads are `{ doc, actorId }`, plus `previous` on update and `tenantId` from Phase 1, typed from the schema. They hold no use case references, so the collection stays a pure declaration ([0020](decisions/0020-collection-events-join-the-app-catalog.md)).
+- `collection()` derives three hexok `Event` classes from the schema: `Posts.events.created`, `.updated` and `.deleted`, with tokens `posts.created`, `posts.updated` and `posts.deleted`. Payloads are `{ doc, actorId }`, plus `previous` on update and `tenantId` on a tenanted collection, typed from the schema. They hold no use case references, so the collection stays a pure declaration ([0020](decisions/0020-collection-events-join-the-app-catalog.md)).
 - Events publish after the store write succeeds, with `doc` as stored (before `afterRead`). A publish failure reaches the caller although the write happened: the delivery gap below. Overrides and methods publish their own events; Lattice publishes nothing for them.
 - `actorId` is the family's `actorId` option, which the family exposes (`AppUseCase.actorId(ctx.actor)`), so log lines and events read one function.
 - The app lists them in its own one catalog, next to its hand-written events. Its existing `DomainEventPublisher` and queue adapter then publish them unchanged. `build()` is a compile error when the publisher passed as `build({ events })` cannot take every collection's events, and the error names each refused token. `events` is required; an app with no subscribers passes a no-op publisher.
@@ -414,7 +416,7 @@ REST with path parameters is not offered. If an outside partner needs it, it is 
 
 Every generated operation logs and times itself through the family's hexok `hooks()`, with no code in the collection.
 
-- Logging: the call context carries a `@hexok/logger` `Logger`. The edge passes `rootLogger.child({ requestId })`; workers, scripts and tests pass their own. The family's hooks log each call through a child with `actorId`, `collection`, `action` and `durationMs`, and `tenantId` from Phase 1. A context logger, not one given to `framework()` or `family()`, because family hooks are fixed when the family is created and see only the call, and because no module has to import a configured logger at load time. Sentry and New Relic attach through `TeeLogger`, as in `app-template`.
+- Logging: the call context carries a `@hexok/logger` `Logger`. The edge passes `rootLogger.child({ requestId })`; workers, scripts and tests pass their own. The family's hooks log each call through a child with `actorId`, `collection`, `action`, `durationMs`, and `tenantId` or `tenancy: 'bypass'`. A context logger, not one given to `framework()` or `family()`, because family hooks are fixed when the family is created and see only the call, and because no module has to import a configured logger at load time. Sentry and New Relic attach through `TeeLogger`, as in `app-template`.
 - One line per call that passes the guards: `info` with `outcome: 'ok'` on return; `info` with `outcome: 'refused'`, `catalog` and `code` for a member of any hexok `Errors` catalog; `error` with the stack for anything else.
 - The family's guards log their own rejections, since hexok runs guards outside hooks. A refusal is logged exactly once on every path: RPC, in process, or `useCases.*.execute`. Lattice's router middleware logs only ts-pf's own input rejections, which no family sees.
 - Errors: `onCatch` logs unexpected errors once. The edge passes `build()`'s `onError(logger)` to `FetchHandler`, so the same error is not logged twice (see [API surfaces](#api-surfaces)).
