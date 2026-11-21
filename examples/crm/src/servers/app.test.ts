@@ -161,6 +161,10 @@ describe('deals', () => {
     await local.deals.delete({ id: gone.id });
 
     expect((await local.deals.find({})).docs).toEqual([kept]);
+    // The pipeline total runs the same read filter as find.
+    expect(
+      await local.deals.count({ where: { stage: { eq: 'lead' } } }),
+    ).toEqual({ count: 1 });
     expect(await asResult(local.deals.get({ id: gone.id }))).toMatchObject({
       ok: false,
       error: { code: 'NOT_FOUND' },

@@ -13,4 +13,6 @@ export const Deals = collection('deals', {
     archived: z.boolean().default(false),
     closedAt: z.iso.datetime().optional(),
   }),
+  // The pipeline view: a stage's deals, newest first.
+  indexes: [{ fields: { stage: 1, createdAt: -1 } }],
 });

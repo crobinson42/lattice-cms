@@ -1,11 +1,12 @@
 import { Event, type EventCatalog } from 'hexok';
 import { z } from 'zod';
 import { defaultLimit, maxLimit, sortSchema } from './sort.js';
+import type { Index } from './store.js';
 import { tenantShapes } from './tenancy.js';
 import { innerOf, whereSchema, wrapperOf } from './where.js';
 
 /** The operations Lattice generates for every collection. */
-export type Action = 'find' | 'get' | 'create' | 'update' | 'delete';
+export type Action = 'find' | 'count' | 'get' | 'create' | 'update' | 'delete';
 
 const systemShape = {
   id: z.string(),
@@ -95,6 +96,10 @@ export function operations<
       }),
       output: z.object({ docs: z.array(output), next: z.string().nullable() }),
     },
+    count: {
+      input: z.object({ where: whereSchema(output).optional() }),
+      output: z.object({ count: z.number().int().nonnegative() }),
+    },
     get: { input: id, output },
     create: { input: schema, output },
     update: { input: patchSchema(schema), output },
@@ -138,6 +143,16 @@ export type Events<
   Shape extends z.core.$ZodShape,
   Tenant extends string = never,
 > = ReturnType<typeof events<Slug, Shape, Tenant>>;
+
+/**
+ * An index on a collection, by the names of its stored document's fields:
+ * the schema's, the system fields and the tenant field. Key order is the
+ * index's key order.
+ */
+export type CollectionIndex<Doc> = {
+  readonly fields: { readonly [K in keyof Doc & string]?: 1 | -1 };
+  readonly unique?: boolean;
+};
 
 /** A collection's data without system fields: what create takes. */
 export type Data<Shape extends z.core.$ZodShape> = z.output<Schema<Shape>>;
@@ -195,6 +210,8 @@ export interface Collection<
   readonly tenant: [Tenant] extends [never] ? undefined : Tenant;
   /** The document a read returns: the schema plus `id`, `createdAt`, `updatedAt` and the tenant field. */
   readonly output: Operations<Shape, Tenant>['get']['output'];
+  /** The indexes `build().ensure()` creates, in declaration order. */
+  readonly indexes: readonly Index[];
   /**
    * The hexok `Event` classes its generated writes publish, with tokens
    * `<slug>.created`, `.updated` and `.deleted`. The app lists them in its
@@ -335,6 +352,13 @@ export function collection<
      * create, and filters every call by the caller's tenant.
      */
     readonly tenant?: Tenant;
+    /**
+     * Indexes the store creates at startup, through `build().ensure()`. A
+     * tenanted collection's indexes usually lead with the tenant field.
+     */
+    readonly indexes?: readonly CollectionIndex<
+      z.output<Output<Shape, Tenant>>
+    >[];
   } & FieldCheck<Shape> &
     TenantCheck<Shape, Tenant>,
 ): Collection<Slug, Shape, Tenant> {
@@ -357,10 +381,37 @@ export function collection<
     );
   }
   const output = outputOf<Shape, Tenant>(options.schema, tenant);
+  // A stored index names each field with its direction; an optional key
+  // left undefined names nothing.
+  const indexes: readonly Index[] = (options.indexes ?? []).map(
+    ({ fields, unique }) => ({
+      fields: Object.fromEntries(
+        Object.entries(fields).flatMap(
+          ([field, direction]): [string, 1 | -1][] =>
+            direction === 1 || direction === -1 ? [[field, direction]] : [],
+        ),
+      ),
+      ...(unique === undefined ? {} : { unique }),
+    }),
+  );
+  const fields = Object.keys(output.shape);
+  for (const index of indexes) {
+    const keys = Object.keys(index.fields);
+    if (keys.length === 0) {
+      throw new Error(`Lattice: an index on "${slug}" names no fields`);
+    }
+    const unknown = keys.find((key) => !fields.includes(key));
+    if (unknown !== undefined) {
+      throw new Error(
+        `Lattice: an index on "${slug}" names "${unknown}", which is not a field`,
+      );
+    }
+  }
   return declared<Slug, Shape, Tenant>(
     slug,
     options.schema,
     tenantShapes(tenant).tenant,
+    indexes,
     output,
     events(slug, output, tenant),
     {},
@@ -377,6 +428,7 @@ function declared<
   slug: Slug,
   schema: Schema<Shape>,
   tenant: Collection<Slug, Shape, Tenant>['tenant'],
+  indexes: readonly Index[],
   output: Operations<Shape, Tenant>['get']['output'],
   events: Events<Slug, Shape, Tenant>,
   hooks: Hooks<Shape, Tenant>,
@@ -385,13 +437,22 @@ function declared<
     slug,
     schema,
     tenant,
+    indexes,
     output,
     events,
     ...hooks,
     hooks: (next) =>
-      declared<Slug, Shape, Tenant>(slug, schema, tenant, output, events, {
-        ...hooks,
-        ...next,
-      }),
+      declared<Slug, Shape, Tenant>(
+        slug,
+        schema,
+        tenant,
+        indexes,
+        output,
+        events,
+        {
+          ...hooks,
+          ...next,
+        },
+      ),
   };
 }

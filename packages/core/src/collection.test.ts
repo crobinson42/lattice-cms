@@ -105,3 +105,51 @@ describe('collection() field forms', () => {
     ).toThrow('"a.tag" has a transform');
   });
 });
+
+describe('collection() indexes', () => {
+  const schema = z.object({ stage: z.string(), amount: z.number() });
+
+  it('names fields of the stored document: the schema, system fields and the tenant', () => {
+    const Deals = collection('deals', {
+      schema,
+      tenant: 'organizationId',
+      indexes: [
+        { fields: { organizationId: 1, stage: 1, createdAt: -1 } },
+        { fields: { organizationId: 1, amount: -1 }, unique: true },
+      ],
+    });
+    expect(Deals.indexes).toEqual([
+      { fields: { organizationId: 1, stage: 1, createdAt: -1 } },
+      { fields: { organizationId: 1, amount: -1 }, unique: true },
+    ]);
+    expect(Object.keys(Deals.indexes[0]?.fields ?? {})).toEqual([
+      'organizationId',
+      'stage',
+      'createdAt',
+    ]);
+    expect(collection('plain', { schema }).indexes).toEqual([]);
+  });
+
+  it('an unknown field is a compile error and a throw', () => {
+    expect(() =>
+      collection('deals', {
+        schema,
+        // @ts-expect-error 'stages' does not exist on the deals document
+        indexes: [{ fields: { stages: 1 } }],
+      }),
+    ).toThrow('an index on "deals" names "stages", which is not a field');
+    expect(() =>
+      collection('deals', {
+        schema,
+        // @ts-expect-error a global collection has no tenant field
+        indexes: [{ fields: { organizationId: 1 } }],
+      }),
+    ).toThrow('names "organizationId", which is not a field');
+  });
+
+  it('an index with no fields throws', () => {
+    expect(() =>
+      collection('deals', { schema, indexes: [{ fields: {} }] }),
+    ).toThrow('an index on "deals" names no fields');
+  });
+});

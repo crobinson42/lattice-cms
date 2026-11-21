@@ -7,6 +7,7 @@ describe('the contract module', () => {
     expect(Object.keys(contract)).toEqual(['companies', 'contacts', 'deals']);
     expect(Object.keys(contract.deals)).toEqual([
       'find',
+      'count',
       'get',
       'create',
       'update',

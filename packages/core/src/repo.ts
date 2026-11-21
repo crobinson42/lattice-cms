@@ -60,6 +60,8 @@ export interface Repo<C extends AnyCollection> {
     docs: Doc<C>[];
     next: string | null;
   }>;
+  /** How many documents in scope match `where`. */
+  count(where: Where<Doc<C>>, scope: RepoScope<C>): Promise<number>;
   /** Stores `data` with a new `id`, `createdAt`, `updatedAt` and the scope's tenant. */
   insert(data: z.output<C['schema']>, scope: InsertScope<C>): Promise<Doc<C>>;
   /**
@@ -158,6 +160,9 @@ export function repo(
     async find(query, scope) {
       const where = both(query.where, whereOf(slug, scope));
       return store.find(findQuery(slug, { ...query, where }));
+    },
+    async count(where, scope) {
+      return store.count(slug, both(where, whereOf(slug, scope)));
     },
     async insert(data, scope) {
       // A new row has no filter to meet, but a scope for another collection

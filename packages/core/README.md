@@ -182,15 +182,17 @@ expect(again.error.status).toBe(409);
 
 ## Reference
 
-### `collection(slug, { schema, tenant? })`
+### `collection(slug, { schema, tenant?, indexes? })`
 
-Returns a `Collection` with `slug`, `schema`, `tenant`, `output`, `events` and `hooks()`. `output` is the stored document's schema: the collection's schema plus `id`, `createdAt`, `updatedAt` and the tenant field.
+Returns a `Collection` with `slug`, `schema`, `tenant`, `indexes`, `output`, `events` and `hooks()`. `output` is the stored document's schema: the collection's schema plus `id`, `createdAt`, `updatedAt` and the tenant field.
 
 - `schema` is a `z.object()`. Unknown keys are stripped.
 - `id`, `createdAt`, `updatedAt`, `and` and `or` are reserved field names.
 - No `z.date()` and no transforms, anywhere in the schema. Store ISO strings (`z.iso.datetime()`). Normalize in a `beforeChange` hook. `collection()` throws at definition time, and a top-level Date or reserved name fails to compile.
 - `createdAt` and `updatedAt` are ISO 8601 strings.
 - `tenant: 'organizationId'` makes the collection tenanted; see [Tenancy](#tenancy). Without it, the collection is global.
+- A field name may not contain `.`, start with `$`, or be `_id`: MongoDB would read it as a path, an operator or the id.
+- `indexes` lists the indexes the store creates at startup, through `build().ensure()`: `[{ fields: { stage: 1, createdAt: -1 } }, { fields: { email: 1 }, unique: true }]`. Fields are named from the stored document, so the system fields and the tenant field count; any other name is a compile error and a throw. Key order is the index's order. `id` needs no index. A tenanted collection's indexes usually lead with the tenant field, because every call filters by it; Lattice does not add it for you.
 
 ### Hooks
 
@@ -215,7 +217,7 @@ Builds the app's one hexok `UseCase.context` family. A caller passes `{ actor, l
 
 `framework({ family, errors? })` starts a definition. `errors` is the app's `{ declared, map }`; an app with no domain errors leaves it out.
 
-`.collection(C, { access, methods?, overrides? })` adds a collection. Its slug becomes a contract slice with `find`, `get`, `create`, `update` and `delete`. `access` is required; see [Access](#access).
+`.collection(C, { access, methods?, overrides? })` adds a collection. Its slug becomes a contract slice with `find`, `count`, `get`, `create`, `update` and `delete`. `access` is required; see [Access](#access).
 
 - `methods: { name: Class }` adds a procedure. `overrides: { action: Class }` replaces a generated one.
 - Each class must name `C` and its token, and its `execute` must take and return the procedure's types. A mismatch, a reserved name, or a slug added twice is a compile error and a runtime throw.
@@ -231,18 +233,32 @@ Builds the app's one hexok `UseCase.context` family. A caller passes `{ actor, l
 | `repos` | A `Repo<C>` per collection: the objects the factories received |
 | `onError` | `onError(logger)` for `FetchHandler` |
 | `context` | `context({ actor, logger })`: the context for a direct `useCases.*.execute` call |
+| `ensure` | `ensure()`: creates each collection's declared indexes, in definition order, and never drops one |
 
 - `methods` and `overrides` are factories, `({ repos }) => instances`, keyed by slug and then name. Each is required exactly when a collection declared one.
 - `access` replaces the functions given at `.collection()` with another `Access` adapter.
 - `app` adds a fresh `access` to each call's context. A direct caller gets one from `context()`. Access answers are kept on the context, so make one per call or per job.
 - `events` must take every collection's events. One that cannot is a compile error that names each refused token.
+- Await `ensure()` after the store has started and before serving:
+
+```ts
+// examples/crm/src/servers/http/main.ts
+const store = new MemoryStore();
+await store.start();
+const crm = createApp({
+  store,
+  events: new LoggingDomainEventPublisher({ logger }),
+});
+// The store creates each collection's declared indexes before serving.
+await crm.ensure();
+```
 - `Framework<Actor, D, E>` is the definition's type.
 
 ### Access
 
 Access decides what a call may see and change. It is a filter in the query: Lattice never loads a row and then decides whether the caller may see it.
 
-`.collection(C, { access })` takes one function per action: `read` (find and get), `create`, `update`, `delete`, and one per method.
+`.collection(C, { access })` takes one function per action: `read` (find, count and get), `create`, `update`, `delete`, and one per method.
 
 - Each function receives `{ actor }`, typed by the family's actor schema. `create` also receives `data`, its parsed input.
 - `read`, `update`, `delete` and a method return `boolean` or a `Where` on `C`'s documents, or a promise of one. `create` returns `boolean`.
@@ -263,7 +279,7 @@ const deal = await this.deps.deals.get(input.id, scope);
 
 Hide rows with a `read` filter, such as soft-deleted ones. The CRM's `live` filter above hides an archived deal from `find` and `get`, and keeps it from changing.
 
-`Access` is the hexok port behind this. `build({ access })` takes another adapter of it. Its `check({ actor, collection, action, data? })` returns `boolean` or a `Where`; `action` is `find`, `get`, `create`, `update`, `delete` or a method's name, and `data` is passed for `create` only.
+`Access` is the hexok port behind this. `build({ access })` takes another adapter of it. Its `check({ actor, collection, action, data? })` returns `boolean` or a `Where`; `action` is `find`, `count`, `get`, `create`, `update`, `delete` or a method's name, and `data` is passed for `create` only.
 
 ### Tenancy
 
@@ -318,6 +334,8 @@ await repos.notes.update(id, patch, tenancy.scope(Notes, event.payload.tenantId)
 - `limit` is 1 to 100, default 20. `next` is an opaque cursor for `after`, or null on the last page.
 - A field or operator the schema does not allow is a type error and `VALIDATION`.
 
+`count` takes `{ where? }` and returns `{ count }`: how many documents `find` would return across every page. It runs `read` access and the tenant clause, as `find` does, validates `where` the same way, and writes one log line. A list that needs a total calls `find` and `count` side by side; `find` never counts.
+
 ### Errors
 
 Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404 with `{ collection, id }`) and `CONFLICT` (409 with `{ collection, id }`), plus the app's declared errors. `VALIDATION` is ts-pf's protocol code, with `{ path, message }[]` issues.
@@ -352,7 +370,7 @@ Generated writes publish through `build({ events })` after the store write succe
 
 ### `Repo` and `Doc`
 
-`Repo<C>` is a typed view of the store for one collection: `get`, `getMany`, `find`, `insert`, `update` and `remove`. `insert` stamps `id`, `createdAt` and `updatedAt`; `update` bumps `updatedAt`. It runs no validation, no hooks and no events. Use it in hand-written use cases and event handlers.
+`Repo<C>` is a typed view of the store for one collection: `get`, `getMany`, `find`, `count`, `insert`, `update` and `remove`. `insert` stamps `id`, `createdAt` and `updatedAt`; `update` bumps `updatedAt`. It runs no validation, no hooks and no events. Use it in hand-written use cases and event handlers.
 
 Every call takes a scope as its last argument: the call's `Scope` from `ctx.access.scope()`, a tenant's from `tenancy.scope()`, or `unscoped`. A row outside the scope acts as missing. `unscoped` reads and writes every row; trusted code that acts for no caller passes it, such as a script. A `Scope` for another collection throws.
 

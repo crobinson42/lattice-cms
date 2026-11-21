@@ -7,10 +7,14 @@ import { createHttpHandler } from './handler.js';
 
 // Phase 0: documents live in memory, and events are logged, not queued.
 const logger = new ConsoleLogger();
+const store = new MemoryStore();
+await store.start();
 const crm = createApp({
-  store: new MemoryStore(),
+  store,
   events: new LoggingDomainEventPublisher({ logger }),
 });
+// The store creates each collection's declared indexes before serving.
+await crm.ensure();
 
 const server = serve({
   port: Number(process.env.PORT ?? 3000),

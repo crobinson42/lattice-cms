@@ -18,6 +18,7 @@ import { MongoStore } from '@latticecms/store-mongo';
 const store = new MongoStore({ url: process.env.MONGODB_URL, database: 'crm' });
 await store.start();
 const crm = createApp({ store, events });
+await crm.ensure(); // creates each collection's declared indexes
 
 // On shutdown, after the server stops taking requests:
 await store.stop();
@@ -41,7 +42,7 @@ Start the store before the app serves traffic, and stop it after the server clos
 - Filters are combined with `$and`, never merged into one object, so a filter on `id` cannot replace the call's own id match.
 - `find` sorts by the sort keys and then `_id`, and applies the cursor as one more filter.
 - A duplicate key on `insert` or `update`, from the id or a unique index, is Lattice's `CONFLICT` with `{ collection, id }` of the document being written.
-- `ensure(collection, indexes)` creates each index with `createIndex` and never drops one. An index with the same keys and other options rejects, and so does a unique index over existing duplicates: changing an index is a migration.
+- `ensure(collection, indexes)` creates each index with `createIndex` and never drops one. `build().ensure()` calls it for every collection that declares indexes. An index with the same keys and other options rejects, and so does a unique index over existing duplicates: changing an index is a migration.
 - `count` is `countDocuments`.
 
 ## Known differences from `MemoryStore`

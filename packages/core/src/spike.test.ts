@@ -362,6 +362,7 @@ describe('override checks', () => {
     });
     expect(Object.keys(app.contract.posts)).toEqual([
       'find',
+      'count',
       'get',
       'create',
       'update',
@@ -535,6 +536,7 @@ describe('build checks', () => {
     expect(() => app.build(ports())).not.toThrow();
     expect(Object.keys(app.contract.comments)).toEqual([
       'find',
+      'count',
       'get',
       'create',
       'update',
@@ -556,12 +558,13 @@ describe('load time', () => {
     });
     expect(Object.keys(lattice.contract.posts)).toEqual([
       'find',
+      'count',
       'get',
       'create',
       'update',
       'delete',
       'publish',
     ]);
-    expect(Object.keys(lattice.contract.comments)).toHaveLength(5);
+    expect(Object.keys(lattice.contract.comments)).toHaveLength(6);
   });
 });

@@ -75,6 +75,7 @@ describe('the definition', () => {
     expect(Object.keys(definition.contract)).toEqual(['posts', 'comments']);
     expect(Object.keys(definition.contract.posts)).toEqual([
       'find',
+      'count',
       'get',
       'create',
       'update',

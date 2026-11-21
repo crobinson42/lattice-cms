@@ -53,6 +53,7 @@ import type { TenantField } from './tenancy.js';
 
 const actions = [
   'find',
+  'count',
   'get',
   'create',
   'update',
@@ -294,6 +295,12 @@ type Built<E extends Entries, D extends ErrorMap, Actor> = {
   readonly repos: Repos<E>;
   readonly onError: typeof unexpectedErrors;
   /**
+   * Creates the indexes each collection declares, collection by collection
+   * in definition order, and never drops one. Await it after the store has
+   * started and before serving.
+   */
+  readonly ensure: () => Promise<void>;
+  /**
    * The context for a direct `useCases.*.execute` call: the caller's, plus
    * the call's access. Access answers are kept on it, so make one per call
    * or per job.
@@ -443,6 +450,7 @@ export class Framework<
     >;
     readonly repos: RuntimeWiring['repos'];
     readonly onError: typeof unexpectedErrors;
+    readonly ensure: () => Promise<void>;
     readonly context: (base: CallContext<Actor>) => FamilyContext<Actor>;
   } {
     const { store, events } = options;
@@ -523,6 +531,12 @@ export class Framework<
       useCases,
       repos,
       onError: unexpectedErrors,
+      ensure: async () => {
+        for (const { collection } of this.entries) {
+          if (collection.indexes.length === 0) continue;
+          await store.ensure(collection.slug, collection.indexes);
+        }
+      },
       context,
     };
   }

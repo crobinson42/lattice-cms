@@ -42,7 +42,7 @@ type AccessFunction = {
 /** The access functions given at `.collection()`, by action or method name. */
 export type AccessMap = Readonly<Record<string, AccessFunction>>;
 
-/** The keys of `access` besides method names. `read` serves find and get. */
+/** The keys of `access` besides method names. `read` serves find, count and get. */
 type AccessAction = 'read' | 'create' | 'update' | 'delete';
 
 /** What an access function may return for `A`. Create has no row to filter. */
@@ -114,7 +114,7 @@ export type AccessCheck<R, M, C extends AnyCollection> = [
 
 /**
  * The default adapter: the functions given at `.collection(C, { access })`.
- * `find` and `get` run `read`. A missing function denies.
+ * `find`, `count` and `get` run `read`. A missing function denies.
  */
 export class CollectionAccess extends Adapter(Access) {
   constructor(private readonly maps: ReadonlyMap<string, AccessMap>) {
@@ -124,7 +124,10 @@ export class CollectionAccess extends Adapter(Access) {
   override async check(request: AccessRequest<unknown>) {
     const { actor, collection, action, data } = request;
     const map = this.maps.get(collection);
-    const name = action === 'find' || action === 'get' ? 'read' : action;
+    const name =
+      action === 'find' || action === 'get' || action === 'count'
+        ? 'read'
+        : action;
     // Own keys only: an action named `toString` must not reach the prototype.
     const fn =
       map !== undefined && Object.hasOwn(map, name) ? map[name] : undefined;

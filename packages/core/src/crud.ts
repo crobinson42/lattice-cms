@@ -130,6 +130,16 @@ const operations: Record<
     };
   },
 
+  async count(call, raw) {
+    const { where } = parse(call.ops.count.input, raw);
+    return {
+      count: await call.store.count(
+        call.collection.slug,
+        both(where, call.scope),
+      ),
+    };
+  },
+
   async get(call, raw) {
     const { id } = parse(call.ops.get.input, raw);
     const doc = await call.store.get(call.collection.slug, id, call.scope);
