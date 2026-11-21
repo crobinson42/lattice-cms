@@ -96,7 +96,7 @@ Decided at the Checkpoint:
 
 ### 7. Migrations runner
 
-- [ ] `migrate(store, migrations, { logger, lock? })` in store-mongo, per [0027](../decisions/0027-migrations-lock-in-the-database-they-migrate.md). Migrations are forward only, from an explicit list checked by id and name. `_migrations` records what ran. A transaction is opt-in per migration. The lock is a lease in `_migrations_lock`, not Redis, and a second process waits for it. The CLI that calls it is Phase 3.
+- [x] `migrate(store, migrations, { logger, lock? })` in store-mongo, per [0027](../decisions/0027-migrations-lock-in-the-database-they-migrate.md). Migrations are forward only, from an explicit list checked by id and name. `_migrations` records what ran. A transaction is opt-in per migration. The lock is a lease in `_migrations_lock`, not Redis, and a second process waits for it. The CLI that calls it is Phase 3.
 
 ### 8. Relations
 
@@ -160,5 +160,6 @@ Add a line here when the work teaches something the plan did not know. Each line
 - All 35 `storeCases` passed on `MongoStore` on the first run: Mongo and the matcher never disagreed. Merging filters by spread fails the new where-on-id case. Empty `or` is `{ $expr: false }`.
 - npm 12 skips install scripts, so mongodb-memory-server downloads mongod on the first test run. Turbo's strict env does not pass `MONGOMS_*`. CI should cache `~/.cache/mongodb-binaries`. There is no CI workflow yet.
 - Core type-check has grown from 0.87 s to 1.37 s over steps 1–6 (842k instantiations); crm 0.49 s. The sixth generated operation (`count`) cost about 0.1 s in core.
+- Mongo rejects `$expr` in an upsert's query, so the migrations lease is acquired by a `findOneAndUpdate` pipeline whose fields `$cond` on `$lt: ['$expiresAt', '$$NOW']`; the returned token says who holds it. With `transaction: true`, the driver may retry `up`, which is one more reason `up` must be safe to re-run.
 - Type-check after access: core check 1.08 s to 1.15 s (with a 500-line test file), crm 0.40 s, unchanged. Asserted overloads: 6.
 - Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.
