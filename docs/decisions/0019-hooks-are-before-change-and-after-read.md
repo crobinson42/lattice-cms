@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-20
 revisit: ts-pf can skip input validation per procedure, or a real case needs to reshape input that would fail the schema.

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-20
 revisit: A product needs to subscribe to every collection's events without listing them, or hexok publishers stop checking events against one catalog.

@@ -19,21 +19,19 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 | [0009](0009-strict-tenant-isolation-in-v1.md) | Strict tenant isolation in v1 | default | A product needs to share a record across organizations, or `@hexok/authz` ships cross-tenant grants. |
 | [0010](0010-collection-events-stay-in-the-product.md) | Collection events stay inside the product | lock | Only with the maintainer. |
 | [0011](0011-no-read-events.md) | Reads are logged and traced, not published as events | default | A product needs an audit trail of reads. |
-| [0012](0012-hooks-only-transform-data.md) | Collection hooks only transform data | default | A real case cannot be expressed as an entity method, an override or an event handler. |
 | [0013](0013-zod-4-for-collection-schemas.md) | Collection schemas are Zod 4 | default | Standard Schema gains a way to extend and introspect object shapes. |
 | [0014](0014-api-first-admin-later.md) | API first; the admin is Phase 3 | default | Phase 2 exits. |
 | [0015](0015-versions-in-a-separate-collection.md) | Versions and drafts live in a separate collection | default | Phase 4 starts, or a product needs versions earlier. |
 | [0016](0016-new-internal-tools-first.md) | New internal tools adopt Lattice first | default | Phase 2 exits with one internal tool in production. |
 | [0017](0017-breaking-changes-are-free-before-1-0.md) | Before 1.0, breaking changes are free | lock | The first `@latticecms/*` release that another repository depends on. |
+| [0018](0018-methods-and-overrides-attach-in-the-framework.md) | Methods and overrides attach in the framework, not on the collection | default | hexok use case instances carry their class statics in their type, or TypeScript resolves a class whose base expression refers back to the value that names it. |
+| [0019](0019-hooks-are-before-change-and-after-read.md) | Collection hooks are `beforeChange` and `afterRead`, and only transform data | default | ts-pf can skip input validation per procedure, or a real case needs to reshape input that would fail the schema. |
+| [0020](0020-collection-events-join-the-app-catalog.md) | Collection events are classes on the collection, listed in the app's one catalog | default | A product needs to subscribe to every collection's events without listing them, or hexok publishers stop checking events against one catalog. |
 
 ## Proposed
 
 These are not decided yet. Treat them as context, not rules.
 
-| ID | Decision | Strength | Revisit when |
-| --- | --- | --- | --- |
-| [0018](0018-methods-and-overrides-attach-in-the-framework.md) | Methods and overrides attach in the framework, not on the collection | default | hexok use case instances carry their class statics in their type, or TypeScript resolves a class whose base expression refers back to the value that names it. |
-| [0019](0019-hooks-are-before-change-and-after-read.md) | Collection hooks are `beforeChange` and `afterRead`, and only transform data | default | ts-pf can skip input validation per procedure, or a real case needs to reshape input that would fail the schema. |
-| [0020](0020-collection-events-join-the-app-catalog.md) | Collection events are classes on the collection, listed in the app's one catalog | default | A product needs to subscribe to every collection's events without listing them, or hexok publishers stop checking events against one catalog. |
+None.
 
-0 superseded records are history and not listed. Do not follow them.
+1 superseded record is history and not listed. Do not follow them.

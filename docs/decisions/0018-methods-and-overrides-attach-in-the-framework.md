@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-20
 revisit: hexok use case instances carry their class statics in their type, or TypeScript resolves a class whose base expression refers back to the value that names it.

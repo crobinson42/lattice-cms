@@ -1,5 +1,6 @@
 ---
-status: accepted
+status: superseded
+superseded_by: 0019
 strength: default
 date: 2026-11-20
 revisit: A real case cannot be expressed as an entity method, an override or an event handler.
