@@ -2,7 +2,7 @@
   "name": "@latticecms/example-crm",
   "version": "0.0.0",
   "private": true,
-  "description": "A CRM on Lattice: three collections served at /rpc.",
+  "description": "A CRM on Lattice: three tenanted collections on MongoDB, served at /rpc.",
   "type": "module",
   "scripts": {
     "build": "tsc -b",
@@ -13,16 +13,24 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "devDependencies": {
-    "@ts-pf/client": "^0.6.0"
+    "@ts-pf/client": "^0.6.0",
+    "mongodb": "^7.9.1",
+    "mongodb-memory-server": "^11.3.0"
   },
   "dependencies": {
     "@hexok/logger": "^0.2.0",
     "@latticecms/core": "*",
+    "@latticecms/store-mongo": "*",
     "@ts-pf/protocol": "^0.6.0",
     "@ts-pf/server": "^0.6.0",
     "@ts-pf/server-http": "^0.6.0",
     "hexok": "^2.2.7",
     "srvx": "^1.0.8",
     "zod": "^4.1.0"
+  },
+  "config": {
+    "mongodbMemoryServer": {
+      "version": "8.0.14"
+    }
   }
 }

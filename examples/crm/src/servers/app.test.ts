@@ -1,13 +1,20 @@
 import { MemoryLogger, NoopLogger } from '@hexok/logger';
-import { framework, MemoryStore, unscoped } from '@latticecms/core';
+import {
+  type Doc,
+  framework,
+  MemoryStore,
+  unscoped,
+  type Withheld,
+} from '@latticecms/core';
 import { asResult } from '@ts-pf/client';
 import { createLocalClient } from '@ts-pf/server';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { MemoryDomainEventPublisher } from '../infra/events/memory-domain-events.js';
+import { backends, storeOf } from '../test/stores.js';
 import { createApp } from './app.js';
 import { AppUseCase, Companies, Contacts, Deals } from './rpc/contract.js';
 
-const actor = { userId: 'u1' };
+const actor = { userId: 'u1', organizationId: 'o1' };
 
 /** Access that allows every generated operation. */
 const open = {
@@ -17,341 +24,415 @@ const open = {
   delete: () => true,
 };
 
-function setup() {
-  const events = new MemoryDomainEventPublisher();
-  const crm = createApp({ store: new MemoryStore(), events });
-  const local = createLocalClient(crm.app, {
-    context: { actor, logger: new NoopLogger() },
-  });
-  return { ...crm, events, local };
-}
-
 /** The event keys published so far, in order. */
 function published(events: MemoryDomainEventPublisher) {
   return events.messages.map((message) => message.key);
 }
 
-describe('companies', () => {
-  it('create, get, find, update and delete', async () => {
-    const { local } = setup();
+describe.each(backends)('on $name', (backend) => {
+  const store = storeOf(backend);
 
-    const acme = await local.companies.create({ name: 'Acme' });
-    expect(acme).toMatchObject({ name: 'Acme', id: expect.any(String) });
-    expect(await local.companies.get({ id: acme.id })).toEqual(acme);
-
-    const renamed = await local.companies.update({
-      id: acme.id,
-      domain: 'acme.test',
+  function setup() {
+    const events = new MemoryDomainEventPublisher();
+    const crm = createApp({ store: store(), events });
+    const local = createLocalClient(crm.app, {
+      context: { actor, logger: new NoopLogger() },
     });
-    expect(renamed).toMatchObject({ name: 'Acme', domain: 'acme.test' });
+    return { ...crm, events, local };
+  }
 
-    const { docs } = await local.companies.find({
-      where: { domain: { eq: 'acme.test' } },
+  describe('companies', () => {
+    it('create, get, find, update and delete', async () => {
+      const { local } = setup();
+
+      const acme = await local.companies.create({ name: 'Acme' });
+      expect(acme).toMatchObject({ name: 'Acme', id: expect.any(String) });
+      expect(await local.companies.get({ id: acme.id })).toEqual(acme);
+
+      const renamed = await local.companies.update({
+        id: acme.id,
+        domain: 'acme.test',
+      });
+      expect(renamed).toMatchObject({ name: 'Acme', domain: 'acme.test' });
+
+      const { docs } = await local.companies.find({
+        where: { domain: { eq: 'acme.test' } },
+      });
+      expect(docs).toEqual([renamed]);
+
+      expect(await local.companies.delete({ id: acme.id })).toEqual(renamed);
+      const gone = await asResult(local.companies.get({ id: acme.id }));
+      expect(gone.ok ? 'ok' : gone.error.code).toBe('NOT_FOUND');
     });
-    expect(docs).toEqual([renamed]);
-
-    expect(await local.companies.delete({ id: acme.id })).toEqual(renamed);
-    const gone = await asResult(local.companies.get({ id: acme.id }));
-    expect(gone.ok ? 'ok' : gone.error.code).toBe('NOT_FOUND');
   });
-});
 
-describe('contacts', () => {
-  it('create, find by company, update and delete; a bad email is VALIDATION', async () => {
-    const { local } = setup();
-    const acme = await local.companies.create({ name: 'Acme' });
+  describe('contacts', () => {
+    it('create, find by company, update and delete; a bad email is VALIDATION', async () => {
+      const { local } = setup();
+      const acme = await local.companies.create({ name: 'Acme' });
 
-    const ada = await local.contacts.create({
-      name: 'Ada',
-      email: 'ada@acme.test',
-      companyId: acme.id,
-    });
-    const { docs } = await local.contacts.find({
-      where: { companyId: { eq: acme.id } },
-      sort: ['name'],
-    });
-    expect(docs).toEqual([ada]);
-
-    const moved = await local.contacts.update({ id: ada.id, name: 'Ada L' });
-    expect(moved.name).toBe('Ada L');
-    expect(await local.contacts.delete({ id: ada.id })).toEqual(moved);
-
-    const bad = await asResult(
-      local.contacts.create({
-        name: 'Bob',
-        email: 'not an email',
+      const ada = await local.contacts.create({
+        name: 'Ada',
+        email: 'ada@acme.test',
         companyId: acme.id,
-      }),
-    );
-    if (bad.ok || bad.error.code !== 'VALIDATION')
-      throw new Error('expected VALIDATION');
-    expect(bad.error.data.issues.map((issue) => issue.path)).toEqual([
-      ['email'],
-    ]);
-  });
-});
-
-describe('the contacts hook', () => {
-  it('stores the email in lower case, on create and on update', async () => {
-    const { local } = setup();
-    const ada = await local.contacts.create({
-      name: 'Ada',
-      email: 'Ada@Acme.Test',
-      companyId: 'c1',
-    });
-    expect(ada.email).toBe('ada@acme.test');
-
-    const moved = await local.contacts.update({
-      id: ada.id,
-      email: 'ADA@New.Test',
-    });
-    expect(moved.email).toBe('ada@new.test');
-  });
-});
-
-describe('deals', () => {
-  it('create applies the defaults the client may leave out', async () => {
-    const { local } = setup();
-    const deal = await local.deals.create({
-      title: 'Big one',
-      companyId: 'c1',
-      amount: 1000,
-    });
-    expect(deal).toMatchObject({ stage: 'lead', archived: false });
-    expect(deal).not.toHaveProperty('closedAt');
-
-    const moved = await local.deals.update({ id: deal.id, stage: 'proposal' });
-    expect(moved.stage).toBe('proposal');
-    const { docs } = await local.deals.find({
-      where: { stage: { in: ['proposal'] } },
-      sort: ['-amount'],
-    });
-    expect(docs).toEqual([moved]);
-  });
-
-  it('delete is the ArchiveDeal override: it archives, and the row stays', async () => {
-    const { local, repos, events } = setup();
-    const deal = await local.deals.create({
-      title: 'Big one',
-      companyId: 'c1',
-      amount: 1000,
-    });
-
-    const archived = await local.deals.delete({ id: deal.id });
-
-    expect(archived).toMatchObject({ id: deal.id, archived: true });
-    expect(await repos.deals.get(deal.id, unscoped)).toEqual(archived);
-    // The override publishes nothing, and Lattice publishes nothing for it.
-    expect(published(events)).toEqual(['dealsCreated']);
-  });
-
-  it('hides an archived deal from find and get, through the read filter', async () => {
-    const { local } = setup();
-    const kept = await local.deals.create({
-      title: 'Kept',
-      companyId: 'c1',
-      amount: 1,
-    });
-    const gone = await local.deals.create({
-      title: 'Gone',
-      companyId: 'c1',
-      amount: 2,
-    });
-
-    await local.deals.delete({ id: gone.id });
-
-    expect((await local.deals.find({})).docs).toEqual([kept]);
-    // The pipeline total runs the same read filter as find.
-    expect(
-      await local.deals.count({ where: { stage: { eq: 'lead' } } }),
-    ).toEqual({ count: 1 });
-    expect(await asResult(local.deals.get({ id: gone.id }))).toMatchObject({
-      ok: false,
-      error: { code: 'NOT_FOUND' },
-    });
-    expect(await asResult(local.deals.delete({ id: gone.id }))).toMatchObject({
-      ok: false,
-      error: { code: 'NOT_FOUND' },
-    });
-  });
-
-  it('the override answers a missing id as the generated delete does', async () => {
-    const { local } = setup();
-    const { app } = framework({
-      family: AppUseCase,
-    })
-      .collection(Deals, { access: open })
-      .build({
-        store: new MemoryStore(),
-        events: new MemoryDomainEventPublisher(),
       });
-    const generated = createLocalClient(app, {
-      context: { actor, logger: new NoopLogger() },
-    });
-
-    const fromOverride = await asResult(local.deals.delete({ id: 'nope' }));
-    const fromGenerated = await asResult(
-      generated.deals.delete({ id: 'nope' }),
-    );
-
-    if (fromOverride.ok || fromGenerated.ok)
-      throw new Error('expected NOT_FOUND');
-    if (fromOverride.error.code !== 'NOT_FOUND') {
-      throw new Error(fromOverride.error.code);
-    }
-    expect(fromOverride.error.data).toEqual({
-      collection: 'deals',
-      id: 'nope',
-    });
-    expect({
-      code: fromOverride.error.code,
-      data: fromOverride.error.data,
-      status: fromOverride.error.status,
-    }).toEqual({
-      code: fromGenerated.error.code,
-      data: fromGenerated.error.data,
-      status: fromGenerated.error.status,
-    });
-  });
-
-  it('close wins or loses a deal once, publishes DealClosed, and refuses a second close', async () => {
-    const { local, events } = setup();
-    const deal = await local.deals.create({
-      title: 'Big one',
-      companyId: 'c1',
-      amount: 1000,
-    });
-
-    const won = await local.deals.close({ id: deal.id, outcome: 'won' });
-    expect(won).toMatchObject({ stage: 'won', closedAt: expect.any(String) });
-    expect(events.messages.at(-1)).toEqual({
-      key: 'dealClosed',
-      payload: { dealId: deal.id, outcome: 'won', actorId: 'u1' },
-    });
-
-    const again = await asResult(
-      local.deals.close({ id: deal.id, outcome: 'lost' }),
-    );
-    if (again.ok) throw new Error('expected AlreadyClosed');
-    if (again.error.code !== 'AlreadyClosed') throw new Error(again.error.code);
-    expectTypeOf(again.error.data).toEqualTypeOf<{ id: string }>();
-    expect(again.error.data).toEqual({ id: deal.id });
-    expect(again.error.status).toBe(409);
-  });
-});
-
-describe('events', () => {
-  it('one event per generated write, plus the method’s own', async () => {
-    const { local, events } = setup();
-
-    const acme = await local.companies.create({ name: 'Acme' });
-    await local.companies.update({ id: acme.id, name: 'Acme Inc' });
-    await local.companies.delete({ id: acme.id });
-    const ada = await local.contacts.create({
-      name: 'Ada',
-      email: 'ada@acme.test',
-      companyId: acme.id,
-    });
-    await local.contacts.update({ id: ada.id, name: 'Ada L' });
-    await local.contacts.delete({ id: ada.id });
-    const deal = await local.deals.create({
-      title: 'Big one',
-      companyId: acme.id,
-      amount: 1,
-    });
-    await local.deals.update({ id: deal.id, amount: 2 });
-    await local.deals.close({ id: deal.id, outcome: 'lost' });
-    // Reads publish nothing.
-    await local.deals.get({ id: deal.id });
-    await local.deals.find({});
-
-    expect(published(events)).toEqual([
-      'companiesCreated',
-      'companiesUpdated',
-      'companiesDeleted',
-      'contactsCreated',
-      'contactsUpdated',
-      'contactsDeleted',
-      'dealsCreated',
-      'dealsUpdated',
-      'dealClosed',
-    ]);
-  });
-});
-
-describe('the family', () => {
-  it('answers UNAUTHORIZED without a valid actor, and logs it once', async () => {
-    const { app } = setup();
-    const logger = new MemoryLogger();
-    const anonymous = createLocalClient(app, {
-      context: { actor: { userId: '' }, logger },
-    });
-
-    const result = await asResult(anonymous.deals.find({}));
-
-    expect(result.ok ? 'ok' : result.error.code).toBe('UNAUTHORIZED');
-    expect(logger.records).toMatchObject([
-      { level: 'info', fields: { outcome: 'refused', code: 'UNAUTHORIZED' } },
-    ]);
-  });
-});
-
-describe('the contract’s types', () => {
-  it('a client gets full types with no annotation at the call site', async () => {
-    const { local } = setup();
-    const deal = await local.deals.create({
-      title: 'Big one',
-      companyId: 'c1',
-      amount: 1,
-    });
-    expectTypeOf(deal).toEqualTypeOf<{
-      title: string;
-      companyId: string;
-      amount: number;
-      stage: 'lead' | 'proposal' | 'won' | 'lost';
-      archived: boolean;
-      id: string;
-      createdAt: string;
-      updatedAt: string;
-      closedAt?: string | undefined;
-    }>();
-    expectTypeOf(local.deals.close)
-      .parameter(0)
-      .toEqualTypeOf<{ id: string; outcome: 'won' | 'lost' }>();
-  });
-
-  it('the override and the method keep the generated slice’s types', () => {
-    const { local } = setup();
-    const { app } = framework({
-      family: AppUseCase,
-    })
-      .collection(Companies, { access: open })
-      .collection(Contacts, { access: open })
-      .collection(Deals, { access: open })
-      .build({
-        store: new MemoryStore(),
-        events: new MemoryDomainEventPublisher(),
+      const { docs } = await local.contacts.find({
+        where: { companyId: { eq: acme.id } },
+        sort: ['name'],
       });
-    const plain = createLocalClient(app, {
-      context: { actor, logger: new NoopLogger() },
+      expect(docs).toEqual([ada]);
+
+      const moved = await local.contacts.update({ id: ada.id, name: 'Ada L' });
+      expect(moved.name).toBe('Ada L');
+      expect(await local.contacts.delete({ id: ada.id })).toEqual(moved);
+
+      const bad = await asResult(
+        local.contacts.create({
+          name: 'Bob',
+          email: 'not an email',
+          companyId: acme.id,
+        }),
+      );
+      if (bad.ok || bad.error.code !== 'VALIDATION')
+        throw new Error('expected VALIDATION');
+      expect(bad.error.data.issues.map((issue) => issue.path)).toEqual([
+        ['email'],
+      ]);
     });
-    // The plain app declares no app errors, so compare inputs and outputs.
-    type Rich = typeof local.deals;
-    type Plain = typeof plain.deals;
-    expectTypeOf<Parameters<Rich['delete']>[0]>().toEqualTypeOf<
-      Parameters<Plain['delete']>[0]
-    >();
-    expectTypeOf<Awaited<ReturnType<Rich['delete']>>>().toEqualTypeOf<
-      Awaited<ReturnType<Plain['delete']>>
-    >();
-    expectTypeOf<Parameters<Rich['create']>[0]>().toEqualTypeOf<
-      Parameters<Plain['create']>[0]
-    >();
-    expectTypeOf<Parameters<Rich['find']>[0]>().toEqualTypeOf<
-      Parameters<Plain['find']>[0]
-    >();
-    expectTypeOf<Awaited<ReturnType<Rich['close']>>>().toEqualTypeOf<
-      Awaited<ReturnType<Plain['get']>>
-    >();
+  });
+
+  describe('the contacts hook', () => {
+    it('stores the email in lower case, on create and on update', async () => {
+      const { local } = setup();
+      const ada = await local.contacts.create({
+        name: 'Ada',
+        email: 'Ada@Acme.Test',
+        companyId: 'c1',
+      });
+      expect(ada.email).toBe('ada@acme.test');
+
+      const moved = await local.contacts.update({
+        id: ada.id,
+        email: 'ADA@New.Test',
+      });
+      expect(moved.email).toBe('ada@new.test');
+    });
+  });
+
+  describe('deals', () => {
+    it('create applies the defaults the client may leave out', async () => {
+      const { local } = setup();
+      const deal = await local.deals.create({
+        title: 'Big one',
+        companyId: 'c1',
+        amount: 1000,
+      });
+      expect(deal).toMatchObject({ stage: 'lead', archived: false });
+      expect(deal).not.toHaveProperty('closedAt');
+
+      const moved = await local.deals.update({
+        id: deal.id,
+        stage: 'proposal',
+      });
+      expect(moved.stage).toBe('proposal');
+      const { docs } = await local.deals.find({
+        where: { stage: { in: ['proposal'] } },
+        sort: ['-amount'],
+      });
+      expect(docs).toEqual([moved]);
+    });
+
+    it('delete is the ArchiveDeal override: it archives, and the row stays', async () => {
+      const { local, repos, events } = setup();
+      const deal = await local.deals.create({
+        title: 'Big one',
+        companyId: 'c1',
+        amount: 1000,
+      });
+
+      const archived = await local.deals.delete({ id: deal.id });
+
+      expect(archived).toMatchObject({ id: deal.id, archived: true });
+      expect(await repos.deals.get(deal.id, unscoped)).toEqual(archived);
+      // The override publishes nothing, and Lattice publishes nothing for it.
+      expect(published(events)).toEqual(['dealsCreated']);
+    });
+
+    it('hides an archived deal from find and get, through the read filter', async () => {
+      const { local } = setup();
+      const kept = await local.deals.create({
+        title: 'Kept',
+        companyId: 'c1',
+        amount: 1,
+      });
+      const gone = await local.deals.create({
+        title: 'Gone',
+        companyId: 'c1',
+        amount: 2,
+      });
+
+      await local.deals.delete({ id: gone.id });
+
+      expect((await local.deals.find({})).docs).toEqual([kept]);
+      // The pipeline total runs the same read filter as find.
+      expect(
+        await local.deals.count({ where: { stage: { eq: 'lead' } } }),
+      ).toEqual({ count: 1 });
+      expect(await asResult(local.deals.get({ id: gone.id }))).toMatchObject({
+        ok: false,
+        error: { code: 'NOT_FOUND' },
+      });
+      expect(await asResult(local.deals.delete({ id: gone.id }))).toMatchObject(
+        {
+          ok: false,
+          error: { code: 'NOT_FOUND' },
+        },
+      );
+    });
+
+    it('the override answers a missing id as the generated delete does', async () => {
+      const { local } = setup();
+      const { app } = framework({
+        family: AppUseCase,
+      })
+        .collection(Companies, { access: open })
+        .collection(Deals, { access: open })
+        .build({
+          store: new MemoryStore(),
+          events: new MemoryDomainEventPublisher(),
+        });
+      const generated = createLocalClient(app, {
+        context: { actor, logger: new NoopLogger() },
+      });
+
+      const fromOverride = await asResult(local.deals.delete({ id: 'nope' }));
+      const fromGenerated = await asResult(
+        generated.deals.delete({ id: 'nope' }),
+      );
+
+      if (fromOverride.ok || fromGenerated.ok)
+        throw new Error('expected NOT_FOUND');
+      if (fromOverride.error.code !== 'NOT_FOUND') {
+        throw new Error(fromOverride.error.code);
+      }
+      expect(fromOverride.error.data).toEqual({
+        collection: 'deals',
+        id: 'nope',
+      });
+      expect({
+        code: fromOverride.error.code,
+        data: fromOverride.error.data,
+        status: fromOverride.error.status,
+      }).toEqual({
+        code: fromGenerated.error.code,
+        data: fromGenerated.error.data,
+        status: fromGenerated.error.status,
+      });
+    });
+
+    it('close wins or loses a deal once, publishes DealClosed, and refuses a second close', async () => {
+      const { local, events } = setup();
+      const deal = await local.deals.create({
+        title: 'Big one',
+        companyId: 'c1',
+        amount: 1000,
+      });
+
+      const won = await local.deals.close({ id: deal.id, outcome: 'won' });
+      expect(won).toMatchObject({ stage: 'won', closedAt: expect.any(String) });
+      expect(events.messages.at(-1)).toEqual({
+        key: 'dealClosed',
+        payload: { dealId: deal.id, outcome: 'won', actorId: 'u1' },
+      });
+
+      const again = await asResult(
+        local.deals.close({ id: deal.id, outcome: 'lost' }),
+      );
+      if (again.ok) throw new Error('expected AlreadyClosed');
+      if (again.error.code !== 'AlreadyClosed')
+        throw new Error(again.error.code);
+      expectTypeOf(again.error.data).toEqualTypeOf<{ id: string }>();
+      expect(again.error.data).toEqual({ id: deal.id });
+      expect(again.error.status).toBe(409);
+    });
+  });
+
+  describe('refs', () => {
+    it('a company with contacts, or with deals, archived ones too, cannot be deleted', async () => {
+      const { local } = setup();
+      const acme = await local.companies.create({ name: 'Acme' });
+      const ada = await local.contacts.create({
+        name: 'Ada',
+        email: 'ada@acme.test',
+        companyId: acme.id,
+      });
+
+      const refused = await asResult(local.companies.delete({ id: acme.id }));
+      if (refused.ok || refused.error.code !== 'REFERENCED') {
+        throw new Error('expected REFERENCED');
+      }
+      expect(refused.error.status).toBe(409);
+      expect(refused.error.data).toEqual({
+        collection: 'companies',
+        id: acme.id,
+        by: { collection: 'contacts', field: 'companyId' },
+      });
+
+      await local.contacts.delete({ id: ada.id });
+      const deal = await local.deals.create({
+        title: 'Big one',
+        companyId: acme.id,
+        amount: 1,
+      });
+      await local.deals.delete({ id: deal.id });
+      // The archived deal is hidden from reads, and still refers to Acme.
+      expect(
+        await asResult(local.companies.delete({ id: acme.id })),
+      ).toMatchObject({
+        ok: false,
+        error: {
+          code: 'REFERENCED',
+          data: { by: { collection: 'deals', field: 'companyId' } },
+        },
+      });
+    });
+
+    it('a contact populates its company', async () => {
+      const { local } = setup();
+      const acme = await local.companies.create({ name: 'Acme' });
+      const ada = await local.contacts.create({
+        name: 'Ada',
+        email: 'ada@acme.test',
+        companyId: acme.id,
+      });
+
+      const got = await local.contacts.get({
+        id: ada.id,
+        populate: ['companyId'],
+      });
+
+      expectTypeOf(got.companyId).toEqualTypeOf<
+        Doc<typeof Companies> | Withheld
+      >();
+      expect(got.companyId).toEqual(acme);
+    });
+  });
+
+  describe('events', () => {
+    it('one event per generated write, plus the method’s own', async () => {
+      const { local, events } = setup();
+
+      const acme = await local.companies.create({ name: 'Acme' });
+      await local.companies.update({ id: acme.id, name: 'Acme Inc' });
+      await local.companies.delete({ id: acme.id });
+      const ada = await local.contacts.create({
+        name: 'Ada',
+        email: 'ada@acme.test',
+        companyId: acme.id,
+      });
+      await local.contacts.update({ id: ada.id, name: 'Ada L' });
+      await local.contacts.delete({ id: ada.id });
+      const deal = await local.deals.create({
+        title: 'Big one',
+        companyId: acme.id,
+        amount: 1,
+      });
+      await local.deals.update({ id: deal.id, amount: 2 });
+      await local.deals.close({ id: deal.id, outcome: 'lost' });
+      // Reads publish nothing.
+      await local.deals.get({ id: deal.id });
+      await local.deals.find({});
+
+      expect(published(events)).toEqual([
+        'companiesCreated',
+        'companiesUpdated',
+        'companiesDeleted',
+        'contactsCreated',
+        'contactsUpdated',
+        'contactsDeleted',
+        'dealsCreated',
+        'dealsUpdated',
+        'dealClosed',
+      ]);
+    });
+  });
+
+  describe('the family', () => {
+    it('answers UNAUTHORIZED without a valid actor, and logs it once', async () => {
+      const { app } = setup();
+      const logger = new MemoryLogger();
+      const anonymous = createLocalClient(app, {
+        context: { actor: { userId: '', organizationId: 'o1' }, logger },
+      });
+
+      const result = await asResult(anonymous.deals.find({}));
+
+      expect(result.ok ? 'ok' : result.error.code).toBe('UNAUTHORIZED');
+      expect(logger.records).toMatchObject([
+        { level: 'info', fields: { outcome: 'refused', code: 'UNAUTHORIZED' } },
+      ]);
+    });
+  });
+
+  describe('the contract’s types', () => {
+    it('a client gets full types with no annotation at the call site', async () => {
+      const { local } = setup();
+      const deal = await local.deals.create({
+        title: 'Big one',
+        companyId: 'c1',
+        amount: 1,
+      });
+      expectTypeOf(deal).toEqualTypeOf<{
+        title: string;
+        companyId: string;
+        amount: number;
+        stage: 'lead' | 'proposal' | 'won' | 'lost';
+        archived: boolean;
+        id: string;
+        organizationId: string;
+        createdAt: string;
+        updatedAt: string;
+        closedAt?: string | undefined;
+      }>();
+      expectTypeOf(local.deals.close)
+        .parameter(0)
+        .toEqualTypeOf<{ id: string; outcome: 'won' | 'lost' }>();
+    });
+
+    it('the override and the method keep the generated slice’s types', () => {
+      const { local } = setup();
+      const { app } = framework({
+        family: AppUseCase,
+      })
+        .collection(Companies, { access: open })
+        .collection(Contacts, { access: open })
+        .collection(Deals, { access: open })
+        .build({
+          store: new MemoryStore(),
+          events: new MemoryDomainEventPublisher(),
+        });
+      const plain = createLocalClient(app, {
+        context: { actor, logger: new NoopLogger() },
+      });
+      // The plain app declares no app errors, so compare inputs and outputs.
+      type Rich = typeof local.deals;
+      type Plain = typeof plain.deals;
+      expectTypeOf<Parameters<Rich['delete']>[0]>().toEqualTypeOf<
+        Parameters<Plain['delete']>[0]
+      >();
+      expectTypeOf<Awaited<ReturnType<Rich['delete']>>>().toEqualTypeOf<
+        Awaited<ReturnType<Plain['delete']>>
+      >();
+      expectTypeOf<Parameters<Rich['create']>[0]>().toEqualTypeOf<
+        Parameters<Plain['create']>[0]
+      >();
+      expectTypeOf<Parameters<Rich['find']>[0]>().toEqualTypeOf<
+        Parameters<Plain['find']>[0]
+      >();
+      // get is generic in its populate list; without one it is plain.
+      expectTypeOf<Awaited<ReturnType<Rich['close']>>>().toEqualTypeOf<
+        Awaited<ReturnType<typeof plain.deals.get<readonly []>>>
+      >();
+    });
   });
 });

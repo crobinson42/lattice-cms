@@ -1,9 +1,11 @@
 import { MemoryLogger } from '@hexok/logger';
-import { MemoryStore, unscoped } from '@latticecms/core';
+import { type CollectionStore, MemoryStore, tenancy } from '@latticecms/core';
 import { describe, expect, it } from 'vitest';
 import { MemoryDomainEventPublisher } from '../../infra/events/memory-domain-events.js';
+import { backends, storeOf } from '../../test/stores.js';
 import { createApp } from '../app.js';
-import { createHttpHandler, devUserHeader } from './handler.js';
+import { Deals } from '../rpc/contract.js';
+import { createHttpHandler, devOrgHeader, devUserHeader } from './handler.js';
 
 /** A store that is down: every read fails. */
 class DownStore extends MemoryStore {
@@ -12,26 +14,34 @@ class DownStore extends MemoryStore {
   }
 }
 
-function setup(store = new MemoryStore()) {
+function setup(store: CollectionStore) {
   const logger = new MemoryLogger();
   const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
   return { ...crm, logger, fetch: createHttpHandler(crm, { logger }) };
 }
 
-function call(path: string, input: unknown, user?: string): Request {
+/** A POST to `path`, as user u1 of organization o1 unless told otherwise. */
+function call(
+  path: string,
+  input: unknown,
+  headers: Record<string, string> = {
+    [devUserHeader]: 'u1',
+    [devOrgHeader]: 'o1',
+  },
+): Request {
   return new Request(`http://localhost/rpc/${path}`, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(user === undefined ? {} : { [devUserHeader]: user }),
-    },
+    headers: { 'content-type': 'application/json', ...headers },
     body: JSON.stringify({ input }),
   });
 }
 
-describe('POST /rpc/deals/close', () => {
-  it('closes the deal for a caller named by the dev header', async () => {
-    const { fetch, repos } = setup();
+describe.each(backends)('POST /rpc/deals/close on $name', (backend) => {
+  const store = storeOf(backend);
+
+  it('closes the deal for a caller named by the dev headers', async () => {
+    const { fetch, repos } = setup(store());
+    // Trusted code writes with a tenant scope it names.
     const deal = await repos.deals.insert(
       {
         title: 'Big one',
@@ -40,42 +50,47 @@ describe('POST /rpc/deals/close', () => {
         stage: 'lead',
         archived: false,
       },
-      unscoped,
+      tenancy.scope(Deals, 'o1'),
     );
 
     const response = await fetch(
-      call('deals/close', { id: deal.id, outcome: 'won' }, 'u1'),
+      call('deals/close', { id: deal.id, outcome: 'won' }),
     );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       ok: true,
-      output: { id: deal.id, stage: 'won' },
+      output: { id: deal.id, stage: 'won', organizationId: 'o1' },
     });
   });
 
-  it('is 401 UNAUTHORIZED without the dev header, logged once', async () => {
-    const { fetch, logger } = setup();
+  it('is 401 UNAUTHORIZED without the user or the organization, logged once each', async () => {
+    const { fetch, logger } = setup(store());
 
-    const response = await fetch(
-      call('deals/close', { id: 'd1', outcome: 'won' }),
-    );
-
-    expect(response.status).toBe(401);
-    expect(await response.json()).toMatchObject({
-      ok: false,
-      error: { code: 'UNAUTHORIZED' },
-    });
+    for (const headers of [
+      { [devOrgHeader]: 'o1' },
+      { [devUserHeader]: 'u1' },
+    ]) {
+      const response = await fetch(
+        call('deals/close', { id: 'd1', outcome: 'won' }, headers),
+      );
+      expect(response.status).toBe(401);
+      expect(await response.json()).toMatchObject({
+        ok: false,
+        error: { code: 'UNAUTHORIZED' },
+      });
+    }
     expect(logger.records).toMatchObject([
+      { level: 'info', fields: { outcome: 'refused', code: 'UNAUTHORIZED' } },
       { level: 'info', fields: { outcome: 'refused', code: 'UNAUTHORIZED' } },
     ]);
   });
 
   it('answers a missing deal with Lattice’s NOT_FOUND, its status and data', async () => {
-    const { fetch } = setup();
+    const { fetch } = setup(store());
 
     const response = await fetch(
-      call('deals/close', { id: 'nope', outcome: 'won' }, 'u1'),
+      call('deals/close', { id: 'nope', outcome: 'won' }),
     );
 
     expect(response.status).toBe(404);
@@ -88,12 +103,14 @@ describe('POST /rpc/deals/close', () => {
       },
     });
   });
+});
 
+describe('a store that fails', () => {
   it('answers 500 INTERNAL for a failure inside a use case, logged once', async () => {
     const { fetch, logger } = setup(new DownStore());
 
     const response = await fetch(
-      call('deals/close', { id: 'd1', outcome: 'won' }, 'u1'),
+      call('deals/close', { id: 'd1', outcome: 'won' }),
     );
 
     expect(response.status).toBe(500);

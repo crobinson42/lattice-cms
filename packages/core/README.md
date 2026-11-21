@@ -14,43 +14,51 @@ npm i @latticecms/core zod @hexok/logger
 
 ## Example
 
-From [`examples/crm`](../../examples/crm): three collections, one override, one custom method and one app error, served at `/rpc`.
+From [`examples/crm`](../../examples/crm): three tenanted collections on MongoDB, one override, one custom method and one app error, served at `/rpc`.
 
 A collection is a slug and a `z.object()` schema. Hooks transform data and nothing else.
 
 ```ts
 // examples/crm/src/domain/collections/contacts.ts
-import { collection } from '@latticecms/core';
+import { collection, ref } from '@latticecms/core';
 import { z } from 'zod';
 
 export const Contacts = collection('contacts', {
   schema: z.object({
     name: z.string().min(1),
     email: z.email(),
-    // A plain id until ref() arrives in Phase 1.
-    companyId: z.string(),
+    // A company with contacts cannot be deleted: restrict, the default.
+    companyId: ref('companies'),
   }),
+  tenant: 'organizationId',
 }).hooks({
   // One spelling per address, so a where on email finds it.
   beforeChange: ({ data }) => ({ ...data, email: data.email.toLowerCase() }),
 });
 ```
 
-The app has one use case family. Generated and hand-written use cases extend it, and share its guards and logging.
+The app has one use case family. Generated and hand-written use cases extend it, and share its guards and logging. `tenantOf` gives each call its organization.
 
 ```ts
 // examples/crm/src/app/use-cases/context.ts
-import { family } from '@latticecms/core';
+import { family, tenancy } from '@latticecms/core';
 import type { UseCase } from 'hexok';
 import { z } from 'zod';
 
 /** Who is calling. The edge builds it; real auth arrives in Phase 2. */
-export const actorSchema = z.object({ userId: z.string().min(1) });
+export const actorSchema = z.object({
+  userId: z.string().min(1),
+  organizationId: z.string().min(1),
+  /** Support staff read every organization's rows, and change none. */
+  support: z.boolean().optional(),
+});
 
 /** The app's one use case family. Generated and hand-written use cases share it. */
 export const AppUseCase = family({
   actor: actorSchema,
   actorId: (actor) => actor.userId,
+  tenantOf: (actor) =>
+    actor.support === true ? tenancy.bypass : actor.organizationId,
 });
 
 export type AppCtx = UseCase.Ctx<typeof AppUseCase>;
@@ -134,6 +142,18 @@ export function createApp({ store, events }: AppPorts) {
 }
 
 export type CrmApp = ReturnType<typeof createApp>;
+```
+
+The server starts the store, runs the migrations, creates the indexes, then serves:
+
+```ts
+// examples/crm/src/servers/http/main.ts
+const store = new MongoStore({ url, database: process.env.MONGODB_DATABASE ?? 'crm' });
+const crm = createApp({ store, events: new LoggingDomainEventPublisher({ logger }) });
+
+await store.start();
+await migrate(store, migrations, { logger });
+await crm.ensure();
 ```
 
 ts-pf's `FetchHandler` serves the app. `onError` from `build()` logs what the family did not.

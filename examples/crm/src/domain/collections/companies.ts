@@ -6,4 +6,6 @@ export const Companies = collection('companies', {
     name: z.string().min(1),
     domain: z.string().optional(),
   }),
+  // Each organization sees and changes only its own rows.
+  tenant: 'organizationId',
 });
