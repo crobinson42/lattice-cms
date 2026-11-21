@@ -82,7 +82,10 @@ Decided at the Checkpoint:
 
 ### 5. `@latticecms/store-mongo`
 
-- [ ] A new package, set up as `AGENTS.md` "Adding a package" says. Pick the test database, a real Mongo process (such as `mongodb-memory-server`) or a container, and say why before adding it.
+- [ ] A new package, set up as `AGENTS.md` "Adding a package" says. The tests run on `mongodb-memory-server`, a single-node replica set per run with a database per test ([0025](../decisions/0025-mongo-store-owns-its-client.md)).
+- [ ] `new MongoStore({ url, database, client? })` owns its client, with `start()`, `stop()` and `MongoStoreError` (0025). `mongodb` is a dependency, and `@latticecms/core` and `zod` are peers.
+- [ ] Core refuses schema field names that contain `.`, start with `$`, or are `_id`: a compile error where cheap, and a throw in `collection()`. Mongo reads them as paths, operators or the id.
+- [ ] The README documents two known differences from `MemoryStore`. Mongo orders strings by UTF-8 bytes, which differs from JavaScript only for U+E000–U+FFFF against astral characters. `contains` folds case differently outside ASCII.
 - [ ] `MongoStore` passes the conformance suite. `Where` translates one to one, because the matcher already follows Mongo's null and missing rules. The keyset is a `Where`, so it needs no code of its own. A duplicate key is `CONFLICT`. A `Mapper` maps `id` to `_id`.
 - [ ] The Mongo client lifecycle lives in this package (`architecture.md`, proposed changes table).
 

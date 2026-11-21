@@ -36,6 +36,8 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 
 These are not decided yet. Treat them as context, not rules.
 
-None.
+| ID | Decision | Strength | Revisit when |
+| --- | --- | --- | --- |
+| [0025](0025-mongo-store-owns-its-client.md) | `MongoStore` owns its client, and its tests run on mongodb-memory-server | default | Apps routinely need to share one MongoClient pool with other libraries in the same process, or mongodb-memory-server stops shipping a mongod for a platform the team develops on. |
 
 1 superseded record is history and not listed. Do not follow them.
