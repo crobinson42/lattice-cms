@@ -81,10 +81,10 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 
 ### 6. Events
 
-- [ ] `collection()` derives `Posts.events.created`, `.updated` and `.deleted`: hexok `Event` classes with tokens `<slug>.created` and so on. Payloads are `{ doc, previous?, actorId }`, typed from the schema. (`tenantId` is added in Phase 1.)
-- [ ] A test app lists them in its own `EventCatalog` next to a hand-written event, as `architecture.md` shows.
-- [ ] `framework({ events })` takes a publisher with a `publish(event)` method. An app-template-style `DomainEventPublisher` over that catalog fits unchanged, and `build()` is a compile error when the publisher cannot take a collection's events. Tests use an in-memory publisher that checks events against the app catalog, as app-template's queue adapter does.
-- [ ] Events publish after the store write succeeds, never before.
+- [x] `collection()` derives `Posts.events.created`, `.updated` and `.deleted`: hexok `Event` classes with tokens `<slug>.created` and so on. Payloads are `{ doc, previous?, actorId }`, typed from the schema. (`tenantId` is added in Phase 1.)
+- [x] A test app lists them in its own `EventCatalog` next to a hand-written event, as `architecture.md` shows.
+- [x] `framework({ events })` takes a publisher with a `publish(event)` method. An app-template-style `DomainEventPublisher` over that catalog fits unchanged, and `.collection()` is a compile error when the publisher cannot take a collection's events. Tests use an in-memory publisher that checks events against the app catalog, as app-template's queue adapter does.
+- [x] Events publish after the store write succeeds, never before.
 
 ### 7. Contract, router and errors
 
@@ -108,6 +108,7 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 - [ ] One override (`deals.delete` archives instead of deleting) and one custom method (`deals.close`).
 - [ ] Served by `FetchHandler` on srvx at `/rpc`, with an actor read from a dev header. Real auth is Phase 2.
 - [ ] Tests through `createLocalClient` cover each collection's CRUD, the override, the method, and one event per action.
+- [ ] Measure the consumer's emitted declarations. Step 6 found each collection event class inlined into a consumer's catalog `.d.ts` (about 2.3k lines for 7 events). If named exported types let declarations reference the classes instead, use them.
 - [ ] Its app module exports the collections, the family, `lattice` and `contract`, and its type-check runs with `declaration: true`. That is the check that every type a consumer's declarations name is exported from `@latticecms/core` (TS2883 fires only outside the package).
 
 ### 10. Docs
@@ -128,6 +129,8 @@ Add a line here when the work teaches something the plan did not know: a type li
 - Step 1: type-check of the spike is 0.70 s and 189k instantiations for two collections. Re-measure at step 9.
 - Step 1: TS2883 (a type that cannot be named) only fires for a consumer outside `packages/core`; inside, TypeScript names types by relative path. The public types are `Collection`, `Framework`, `Contract`, `Family` and `FamilyContext` because a consumer's declarations need them. Went to step 9.
 - Step 1: hexok's `#brand` is a structural key in declarations, so `build()` tells instances of two use cases with the same `execute` types apart only by private members. `build()` also checks `instanceof` the declared class at runtime. Nowhere else yet.
+- Step 6: hexok `Event` classes are invariant in their payload, so `AnyCollection` holds them as `EventCatalog`'s erased constructor, and `crud.ts` checks each payload with `satisfies`. Nowhere else.
+- Step 6: `Family` carries `actorId`; `AppUseCase.guard(...)` after `family()` returns a plain hexok factory without it, which `framework()` rejects. Went to `architecture.md`.
 - Step 6: app-template's publisher accepts, and at runtime allows, only its own catalog's events, so per-collection catalogs could not fit it. Event classes moved onto the collection, for the app to list in its one catalog. Maintainer's choice. Went to [0020](../decisions/0020-collection-events-join-the-app-catalog.md), `architecture.md` and steps 6 and 8.
 - Step 5: Zod 4 `.partial()` and `.exactPartial()` fill `default`/`prefault` even under `.optional()`, and `.partial()` throws on refined objects. The patch schema is rebuilt per field without defaults, using `z.core.util.clone` to rebuild any wrapper. Went to `architecture.md`.
 - Step 5: update validates the merged document with the whole schema, so object refinements hold, and dropped keys are removed. Old documents that break the current schema fail update until migrated. Went to `architecture.md`; Phase 1 migrations.

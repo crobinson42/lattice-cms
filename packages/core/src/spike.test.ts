@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { ArchivePost } from './fixtures/archive-post.js';
 import { Comments } from './fixtures/comments.js';
 import { AppUseCase, callContext } from './fixtures/context.js';
+import { MemoryEventPublisher } from './fixtures/events.js';
 import { Posts } from './fixtures/posts.js';
 import { PublishPost } from './fixtures/publish-post.js';
 import {
@@ -29,7 +30,11 @@ type Ctx = UseCase.Ctx<typeof AppUseCase>;
 
 const now = () => new Date().toISOString();
 
-const lattice = framework({ family: AppUseCase, store: new MemoryStore() })
+const lattice = framework({
+  family: AppUseCase,
+  store: new MemoryStore(),
+  events: new MemoryEventPublisher(),
+})
   .collection(Posts, {
     methods: { publish: PublishPost },
     overrides: { delete: ArchivePost },
@@ -38,7 +43,9 @@ const lattice = framework({ family: AppUseCase, store: new MemoryStore() })
 
 const { app } = lattice.build({
   methods: { posts: { publish: new PublishPost({ now }) } },
-  overrides: { posts: { delete: new ArchivePost() } },
+  overrides: {
+    posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+  },
 });
 
 const local = createLocalClient(app, {
@@ -204,7 +211,11 @@ describe('method checks', () => {
   }
 
   it('rejects a method that does not match its schemas or where it is attached', () => {
-    const app = framework({ family: AppUseCase, store: new MemoryStore() });
+    const app = framework({
+      family: AppUseCase,
+      store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
+    });
     typeOnly(() => {
       app.collection(Posts, {
         // @ts-expect-error execute takes { id: number }; the input schema says string
@@ -231,22 +242,24 @@ describe('method checks', () => {
 
   it('rejects a reserved or generated name, at compile time and at runtime', () => {
     expect(() =>
-      framework({ family: AppUseCase, store: new MemoryStore() }).collection(
-        Posts,
-        {
-          // @ts-expect-error use is a ts-pf implementer key
-          methods: { use: UseMethod },
-        },
-      ),
+      framework({
+        family: AppUseCase,
+        store: new MemoryStore(),
+        events: new MemoryEventPublisher(),
+      }).collection(Posts, {
+        // @ts-expect-error use is a ts-pf implementer key
+        methods: { use: UseMethod },
+      }),
     ).toThrow('"posts.use" cannot be a method name');
     expect(() =>
-      framework({ family: AppUseCase, store: new MemoryStore() }).collection(
-        Posts,
-        {
-          // @ts-expect-error get is a generated operation
-          methods: { get: PublishPost },
-        },
-      ),
+      framework({
+        family: AppUseCase,
+        store: new MemoryStore(),
+        events: new MemoryEventPublisher(),
+      }).collection(Posts, {
+        // @ts-expect-error get is a generated operation
+        methods: { get: PublishPost },
+      }),
     ).toThrow('"posts.get" cannot be a method name');
   });
 });
@@ -290,7 +303,11 @@ describe('override checks', () => {
   }
 
   it('rejects an override that takes or returns the wrong types', () => {
-    const app = framework({ family: AppUseCase, store: new MemoryStore() });
+    const app = framework({
+      family: AppUseCase,
+      store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
+    });
     typeOnly(() => {
       app.collection(Posts, {
         // @ts-expect-error input id is a number
@@ -323,9 +340,14 @@ describe('override checks', () => {
     const { contract } = framework({
       family: AppUseCase,
       store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
     })
       .collection(Posts, { overrides: { delete: ArchivePost } })
-      .build({ overrides: { posts: { delete: new ArchivePost() } } });
+      .build({
+        overrides: {
+          posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+        },
+      });
     expect(Object.keys(contract.posts)).toEqual([
       'find',
       'get',
@@ -341,6 +363,7 @@ describe('collection checks', () => {
     const app = framework({
       family: AppUseCase,
       store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
     }).collection(Posts);
     // @ts-expect-error posts is already a collection
     expect(() => app.collection(Posts)).toThrow(
@@ -352,7 +375,11 @@ describe('collection checks', () => {
     const Routers = collection('router', {
       schema: z.object({ name: z.string() }),
     });
-    const app = framework({ family: AppUseCase, store: new MemoryStore() });
+    const app = framework({
+      family: AppUseCase,
+      store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
+    });
     // @ts-expect-error router is a ts-pf implementer key
     expect(() => app.collection(Routers)).toThrow(
       '"router" is a ts-pf implementer key',
@@ -364,6 +391,7 @@ describe('build checks', () => {
   const withBoth = framework({
     family: AppUseCase,
     store: new MemoryStore(),
+    events: new MemoryEventPublisher(),
   }).collection(Posts, {
     methods: { publish: PublishPost },
     overrides: { delete: ArchivePost },
@@ -376,7 +404,9 @@ describe('build checks', () => {
       withBoth.build({
         // @ts-expect-error posts has no methods
         methods: {},
-        overrides: { posts: { delete: new ArchivePost() } },
+        overrides: {
+          posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+        },
       });
       withBoth.build({
         methods: { posts: { publish: new PublishPost({ now }) } },
@@ -384,9 +414,13 @@ describe('build checks', () => {
         overrides: { posts: {} },
       });
       withBoth.build({
-        // @ts-expect-error an ArchivePost is not a PublishPost: PublishPost has private deps
-        methods: { posts: { publish: new ArchivePost() } },
-        overrides: { posts: { delete: new ArchivePost() } },
+        methods: {
+          // @ts-expect-error an ArchivePost is not a PublishPost: their private deps differ
+          posts: { publish: new ArchivePost({ store: new MemoryStore() }) },
+        },
+        overrides: {
+          posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+        },
       });
     });
   });
@@ -396,7 +430,9 @@ describe('build checks', () => {
       withBoth.build({
         // @ts-expect-error posts.publish has no instance
         methods: { posts: {} },
-        overrides: { posts: { delete: new ArchivePost() } },
+        overrides: {
+          posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+        },
       }),
     ).toThrow('no instance for method "posts.publish"');
   });
@@ -414,13 +450,14 @@ describe('build checks', () => {
   it('throws on an override key that is not a generated operation', () => {
     // .collection() throws, before build(): method names are checked there too.
     expect(() =>
-      framework({ family: AppUseCase, store: new MemoryStore() }).collection(
-        Posts,
-        {
-          // @ts-expect-error publish is not a generated operation
-          overrides: { publish: ArchivePost },
-        },
-      ),
+      framework({
+        family: AppUseCase,
+        store: new MemoryStore(),
+        events: new MemoryEventPublisher(),
+      }).collection(Posts, {
+        // @ts-expect-error publish is not a generated operation
+        overrides: { publish: ArchivePost },
+      }),
     ).toThrow('"posts.publish" is not a generated operation');
   });
 
@@ -433,22 +470,39 @@ describe('build checks', () => {
     }
   }
 
+  class HideDelete extends AppUseCase('posts.delete', { collection: Posts }) {
+    async execute(
+      _ctx: Ctx,
+      _input: { id: string },
+    ): Promise<z.output<typeof Posts.output>> {
+      throw new Error('todo');
+    }
+  }
+
   it('throws when an instance is of another class with the same members', () => {
-    // SoftDelete and ArchivePost have no private members, so the type check
+    // SoftDelete and HideDelete have no private members, so the type check
     // accepts one for the other. The runtime check does not.
     expect(() =>
-      framework({ family: AppUseCase, store: new MemoryStore() })
-        .collection(Posts, { overrides: { delete: ArchivePost } })
-        .build({ overrides: { posts: { delete: new SoftDelete() } } }),
-    ).toThrow('"posts.delete" instance is not an instance of ArchivePost');
+      framework({
+        family: AppUseCase,
+        store: new MemoryStore(),
+        events: new MemoryEventPublisher(),
+      })
+        .collection(Posts, { overrides: { delete: SoftDelete } })
+        .build({ overrides: { posts: { delete: new HideDelete() } } }),
+    ).toThrow('"posts.delete" instance is not an instance of SoftDelete');
   });
 
   it('throws when a method instance is of another class', () => {
     expect(() =>
       withBoth.build({
-        // @ts-expect-error an ArchivePost is not a PublishPost
-        methods: { posts: { publish: new ArchivePost() } },
-        overrides: { posts: { delete: new ArchivePost() } },
+        methods: {
+          // @ts-expect-error an ArchivePost is not a PublishPost
+          posts: { publish: new ArchivePost({ store: new MemoryStore() }) },
+        },
+        overrides: {
+          posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+        },
       }),
     ).toThrow('"posts.publish" instance is not an instance of PublishPost');
   });
@@ -457,6 +511,7 @@ describe('build checks', () => {
     const { contract } = framework({
       family: AppUseCase,
       store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
     })
       .collection(Comments)
       .build();
@@ -474,7 +529,9 @@ describe('load time', () => {
   it('imports the fixtures and builds without throwing', () => {
     const { contract } = lattice.build({
       methods: { posts: { publish: new PublishPost({ now }) } },
-      overrides: { posts: { delete: new ArchivePost() } },
+      overrides: {
+        posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+      },
     });
     expect(Object.keys(contract.posts)).toEqual([
       'find',

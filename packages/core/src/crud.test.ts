@@ -11,6 +11,7 @@ import {
 import { z } from 'zod';
 import { LatticeError } from './errors.js';
 import { AppUseCase, callContext } from './fixtures/context.js';
+import { noSubscribers } from './fixtures/events.js';
 import { collection, framework, MemoryStore } from './index.js';
 import type { Doc, FindQuery, Patch } from './store.js';
 import type { AnyWhere } from './where.js';
@@ -68,7 +69,11 @@ class RecordingStore extends MemoryStore {
 
 function setup(notes = Notes) {
   const store = new RecordingStore();
-  const { app } = framework({ family: AppUseCase, store })
+  const { app } = framework({
+    family: AppUseCase,
+    store,
+    events: noSubscribers,
+  })
     .collection(notes)
     .build();
   const local = createLocalClient(app, { context: callContext() });
@@ -378,7 +383,11 @@ describe('update validates the merged document', () => {
 
   function deals() {
     const store = new MemoryStore();
-    const { app } = framework({ family: AppUseCase, store })
+    const { app } = framework({
+      family: AppUseCase,
+      store,
+      events: noSubscribers,
+    })
       .collection(Deals)
       .build();
     return { store, local: createLocalClient(app, { context: callContext() }) };
@@ -457,6 +466,7 @@ describe('a patch never applies a default', () => {
       const { app } = framework({
         family: AppUseCase,
         store: new MemoryStore(),
+        events: noSubscribers,
       })
         .collection(Wrapped)
         .build();

@@ -1,3 +1,4 @@
+import { Event, type EventCatalog } from 'hexok';
 import { z } from 'zod';
 import { maxLimit, sortSchema } from './sort.js';
 import { innerOf, whereSchema, wrapperOf } from './where.js';
@@ -91,6 +92,31 @@ export type Operations<Shape extends z.core.$ZodShape> = ReturnType<
   typeof operations<Shape>
 >;
 
+/**
+ * The event classes of a collection, one per write. A payload's `doc` is the
+ * stored document, before afterRead: an event records what was written, and
+ * afterRead only shapes what a read returns.
+ */
+function events<const Slug extends string, Shape extends z.core.$ZodShape>(
+  slug: Slug,
+  output: Operations<Shape>['get']['output'],
+) {
+  const actorId = z.string();
+  return {
+    created: Event(`${slug}.created`, z.object({ doc: output, actorId })),
+    updated: Event(
+      `${slug}.updated`,
+      z.object({ doc: output, previous: output, actorId }),
+    ),
+    deleted: Event(`${slug}.deleted`, z.object({ doc: output, actorId })),
+  };
+}
+
+export type Events<
+  Slug extends string,
+  Shape extends z.core.$ZodShape,
+> = ReturnType<typeof events<Slug, Shape>>;
+
 /** A collection's data without system fields: what create takes. */
 export type Data<Shape extends z.core.$ZodShape> = z.output<Schema<Shape>>;
 
@@ -132,13 +158,35 @@ export interface Collection<
   readonly schema: Schema<Shape>;
   /** The document a read returns: the schema plus `id`, `createdAt` and `updatedAt`. */
   readonly output: Operations<Shape>['get']['output'];
+  /**
+   * The hexok `Event` classes its generated writes publish, with tokens
+   * `<slug>.created`, `.updated` and `.deleted`. The app lists them in its
+   * own catalog.
+   */
+  readonly events: Events<Slug, Shape>;
   readonly beforeChange?: Hooks<Shape>['beforeChange'];
   readonly afterRead?: Hooks<Shape>['afterRead'];
   /** The same collection with these hooks. A later call replaces a hook it names. */
   hooks(hooks: Hooks<Shape>): Collection<Slug, Shape>;
 }
 
-export type AnyCollection = Collection<string, z.core.$ZodShape>;
+/** An event class as hexok's `EventCatalog` takes it, whatever its payload. */
+type AnyEventClass = Parameters<typeof EventCatalog>[1][string];
+
+/**
+ * Any collection, as the framework reads it. Its event classes are erased
+ * the way a catalog erases them: an `Event` class's payload type is both a
+ * constructor parameter and a property, so one collection's classes fit no
+ * wider payload type. `hooks()` is left out because it returns them.
+ */
+export type AnyCollection = Omit<
+  Collection<string, z.core.$ZodShape>,
+  'events' | 'hooks'
+> & {
+  readonly events: Readonly<
+    Record<keyof Events<string, z.core.$ZodShape>, AnyEventClass>
+  >;
+};
 
 // System fields, and the `Where` keys that combine filters. A schema field
 // with one of these names would be replaced or would read as a filter.
@@ -223,19 +271,26 @@ export function collection<
     }
     checkField(`${slug}.${name}`, field);
   }
-  return declared(slug, options.schema, {});
+  const output = operations(options.schema).get.output;
+  return declared(slug, options.schema, output, events(slug, output), {});
 }
 
+// A collection with other hooks keeps the same event classes: a catalog
+// matches an event to its class with instanceof.
 function declared<Slug extends string, Shape extends z.core.$ZodShape>(
   slug: Slug,
   schema: Schema<Shape>,
+  output: Operations<Shape>['get']['output'],
+  events: Events<Slug, Shape>,
   hooks: Hooks<Shape>,
 ): Collection<Slug, Shape> {
   return {
     slug,
     schema,
-    output: operations(schema).get.output,
+    output,
+    events,
     ...hooks,
-    hooks: (next) => declared(slug, schema, { ...hooks, ...next }),
+    hooks: (next) =>
+      declared(slug, schema, output, events, { ...hooks, ...next }),
   };
 }

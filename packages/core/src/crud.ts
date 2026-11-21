@@ -6,6 +6,7 @@ import type {
   ChangeArgs,
   Data,
   Document,
+  Events,
   Operations,
 } from './collection.js';
 import { LatticeError, parse } from './errors.js';
@@ -16,18 +17,34 @@ import type { AnyWhere } from './where.js';
 
 type AnyShape = z.core.$ZodShape;
 
+// The payload of each event. AnyCollection's event classes take any payload,
+// so each one is checked against its schema type with `satisfies`.
+type Payload<Name extends keyof Events<string, AnyShape>> = InstanceType<
+  Events<string, AnyShape>[Name]
+>['payload'];
+
 /** A use case as build() calls it. */
 export type Executable<Ctx> = {
   execute(ctx: Ctx, input: unknown): Promise<unknown>;
 };
 
+/**
+ * The app's event publisher, such as app-template's `DomainEventPublisher`.
+ * `publish` is a method signature, so its parameter is bivariant: a publisher
+ * typed by any catalog fits here. `.collection()` checks that it takes that
+ * collection's events.
+ */
+export type EventPublisher = { publish(event: object): Promise<void> };
+
 /** What one generated call works with. */
 type Call = {
   readonly store: CollectionStore;
+  readonly events: EventPublisher;
   readonly collection: AnyCollection;
   readonly ops: Operations<AnyShape>;
   /** The access and tenant filter of this call, for every store call. */
   readonly scope: AnyWhere | undefined;
+  readonly actorId: string;
 };
 
 /**
@@ -85,6 +102,11 @@ async function change(
  * rejected bad input, but hexok hands execute the raw value, so parsing here
  * strips unknown keys and applies the create schema's defaults.
  */
+/*
+ * Each write publishes its event after the store write succeeds, so a failed
+ * write publishes nothing. A publish that fails reaches the caller although
+ * the write stays: the delivery gap architecture.md accepts until the outbox.
+ */
 const operations: Record<
   Action,
   (call: Call, raw: unknown) => Promise<unknown>
@@ -123,6 +145,12 @@ const operations: Record<
       updatedAt: now,
     };
     await call.store.insert(call.collection.slug, doc);
+    await call.events.publish(
+      new call.collection.events.created({
+        doc,
+        actorId: call.actorId,
+      } satisfies Payload<'created'>),
+    );
     return read(call, doc);
   },
 
@@ -160,6 +188,13 @@ const operations: Record<
       call.scope,
     );
     if (updated === null) throw notFound(call, id);
+    await call.events.publish(
+      new call.collection.events.updated({
+        doc: documentOf(call, updated),
+        previous,
+        actorId: call.actorId,
+      } satisfies Payload<'updated'>),
+    );
     return read(call, updated);
   },
 
@@ -171,6 +206,12 @@ const operations: Record<
       call.scope,
     );
     if (removed === null) throw notFound(call, id);
+    await call.events.publish(
+      new call.collection.events.deleted({
+        doc: documentOf(call, removed),
+        actorId: call.actorId,
+      } satisfies Payload<'deleted'>),
+    );
     return read(call, removed);
   },
 };
@@ -179,6 +220,7 @@ const operations: Record<
 export function generated<Actor>(
   family: Family<Actor>,
   store: CollectionStore,
+  events: EventPublisher,
   collection: AnyCollection,
   ops: Operations<AnyShape>,
   action: Action,
@@ -190,14 +232,27 @@ export function generated<Actor>(
     input,
     output,
   }) {
-    constructor(private readonly deps: { store: CollectionStore }) {
+    constructor(
+      private readonly deps: {
+        store: CollectionStore;
+        events: EventPublisher;
+      },
+    ) {
       super();
     }
 
     async execute(ctx: FamilyContext<Actor>, raw: unknown): Promise<unknown> {
-      const scope = scopeOf(ctx, collection);
-      return run({ store: this.deps.store, collection, ops, scope }, raw);
+      return run(
+        {
+          ...this.deps,
+          collection,
+          ops,
+          scope: scopeOf(ctx, collection),
+          actorId: family.actorId(ctx.actor),
+        },
+        raw,
+      );
     }
   }
-  return new Generated({ store });
+  return new Generated({ store, events });
 }

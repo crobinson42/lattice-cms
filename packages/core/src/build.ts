@@ -17,7 +17,7 @@ import {
   type Operations,
   operations,
 } from './collection.js';
-import { type Executable, generated } from './crud.js';
+import { type EventPublisher, type Executable, generated } from './crud.js';
 import type { Family, FamilyContext } from './family.js';
 import type { CollectionStore } from './store.js';
 
@@ -107,6 +107,28 @@ type SlugCheck<C extends AnyCollection, E extends Entries> = C extends {
     ? { readonly '~error': `"${C['slug']}" is already a collection` }
     : unknown;
 
+// Each event of `Col` that `P.publish` does not take, by token.
+type Refused<Col extends AnyCollection, P extends EventPublisher> = {
+  [K in keyof Col['events']]: [Instance<Col['events'][K]>] extends [
+    Parameters<P['publish']>[0],
+  ]
+    ? never
+    : Instance<Col['events'][K]> extends { readonly token: infer T }
+      ? T
+      : never;
+}[keyof Col['events']];
+
+// Checked as a tuple, not through `P extends { publish(...) }`: publish is
+// usually a method, and a method's parameter is bivariant, so a publisher of
+// another catalog's events would pass.
+type EventCheck<Col extends AnyCollection, P extends EventPublisher> = [
+  Refused<Col, P>,
+] extends [never]
+  ? unknown
+  : {
+      readonly '~error': `the events publisher does not take "${Refused<Col, P> & string}"`;
+    };
+
 /** One collection's contract slice: the generated operations plus its methods. */
 type Slice<E extends Entry> = {
   [K in Action | (keyof E['methods'] & string)]: K extends Action
@@ -164,10 +186,11 @@ type RuntimeInstances<Ctx> = Readonly<
   Record<string, Readonly<Record<string, Executable<Ctx>>> | undefined>
 >;
 
-export class Framework<Actor, E extends Entries> {
+export class Framework<Actor, P extends EventPublisher, E extends Entries> {
   constructor(
     private readonly family: Family<Actor>,
     private readonly store: CollectionStore,
+    private readonly events: P,
     private readonly entries: readonly Entry[],
   ) {}
 
@@ -184,10 +207,11 @@ export class Framework<Actor, E extends Entries> {
       [A in keyof O]: OverrideCheck<C, A, FamilyContext<Actor>>;
     } = Record<never, never>,
   >(
-    collection: C & SlugCheck<C, E>,
+    collection: C & SlugCheck<C, E> & EventCheck<C, P>,
     options?: { readonly methods?: M; readonly overrides?: O },
   ): Framework<
     Actor,
+    P,
     E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
   > {
     const { slug } = collection;
@@ -213,8 +237,9 @@ export class Framework<Actor, E extends Entries> {
     }
     return new Framework<
       Actor,
+      P,
       E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
-    >(this.family, this.store, [
+    >(this.family, this.store, this.events, [
       ...this.entries,
       { collection, methods, overrides },
     ]);
@@ -254,7 +279,14 @@ export class Framework<Actor, E extends Entries> {
         const declared = overrides[action];
         sliceUseCases[action] =
           declared === undefined
-            ? generated(this.family, this.store, collection, ops, action)
+            ? generated(
+                this.family,
+                this.store,
+                this.events,
+                collection,
+                ops,
+                action,
+              )
             : instanceOf(
                 'override',
                 slug,
@@ -332,14 +364,21 @@ function instanceOf<Ctx>(
 }
 
 /** Starts an app: the family every generated and hand-written use case extends. */
-export function framework<Actor>(options: {
+export function framework<Actor, P extends EventPublisher>(options: {
   family: Family<Actor>;
   /** Where every collection's documents live. */
   store: CollectionStore;
-}): Framework<Actor, Record<never, never>> {
-  return new Framework<Actor, Record<never, never>>(
+  /**
+   * The app's domain event publisher. Generated writes publish each
+   * collection's events through it. An app with no subscribers passes one
+   * that does nothing.
+   */
+  events: P;
+}): Framework<Actor, P, Record<never, never>> {
+  return new Framework<Actor, P, Record<never, never>>(
     options.family,
     options.store,
+    options.events,
     [],
   );
 }

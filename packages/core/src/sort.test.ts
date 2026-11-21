@@ -2,6 +2,7 @@ import { createLocalClient } from '@ts-pf/server';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
 import { AppUseCase, callContext } from './fixtures/context.js';
+import { noSubscribers } from './fixtures/events.js';
 import { type Forms, forms } from './fixtures/forms.js';
 import { validationPaths } from './fixtures/validation.js';
 import { collection, framework, MemoryStore, type Sort } from './index.js';
@@ -21,7 +22,11 @@ const Things = collection('things', {
 
 type Thing = z.output<typeof Things.output>;
 
-const { app } = framework({ family: AppUseCase, store: new MemoryStore() })
+const { app } = framework({
+  family: AppUseCase,
+  store: new MemoryStore(),
+  events: noSubscribers,
+})
   .collection(Things)
   .build();
 const local = createLocalClient(app, {

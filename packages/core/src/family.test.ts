@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { LatticeError } from './errors.js';
 import { AppUseCase, actor, callContext } from './fixtures/context.js';
+import { MemoryEventPublisher } from './fixtures/events.js';
 import { Posts } from './fixtures/posts.js';
 import { validationPaths } from './fixtures/validation.js';
 import { framework, MemoryStore } from './index.js';
@@ -55,7 +56,11 @@ function codeOf(call: Promise<unknown>): Promise<unknown> {
 
 function setup() {
   const publish = new CountingPublish();
-  const { app } = framework({ family: AppUseCase, store: new MemoryStore() })
+  const { app } = framework({
+    family: AppUseCase,
+    store: new MemoryStore(),
+    events: new MemoryEventPublisher(),
+  })
     .collection(Posts, { methods: { publish: CountingPublish } })
     .build({ methods: { posts: { publish } } });
   return { publish, app };

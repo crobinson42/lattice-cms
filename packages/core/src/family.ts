@@ -20,11 +20,14 @@ export type FamilyContext<Actor> = {
   readonly logger: Logger;
 };
 
-/** A Lattice family: a hexok `UseCase.context` factory. */
+/**
+ * A Lattice family: a hexok `UseCase.context` factory, and the id of an actor
+ * as its log lines and the generated events carry it.
+ */
 export type Family<Actor> = UseCase.ContextFactory<
   FamilyContext<Actor>,
   FamilySpec
->;
+> & { readonly actorId: (actor: Actor) => string };
 
 /**
  * An expected refusal: a member of any hexok `Errors` catalog, LatticeError
@@ -49,10 +52,10 @@ function refusal(
  */
 export function family<A extends StandardSchemaV1>(options: {
   actor: A;
-  /** The id the call's log lines carry as `actorId`. */
+  /** The id the call's log lines and the generated events carry as `actorId`. */
   actorId: (actor: StandardSchemaV1.InferOutput<A>) => string;
 }): Family<StandardSchemaV1.InferOutput<A>> {
-  return UseCase.context<
+  const factory = UseCase.context<
     FamilyContext<StandardSchemaV1.InferOutput<A>>,
     FamilySpec
   >()
@@ -103,6 +106,8 @@ export function family<A extends StandardSchemaV1>(options: {
         }
       },
     });
+  // The generated use cases read actorId here, so the app states it once.
+  return Object.assign(factory, { actorId: options.actorId });
 }
 
 function since(started: number): number {
