@@ -1,0 +1,37 @@
+{
+  "name": "@latticecms/core",
+  "version": "0.0.0",
+  "description": "Collections that compile into hexok use cases and a ts-pf contract.",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit -p tsconfig.check.json",
+    "lint": "biome check .",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@ts-pf/contract": "^0.5.1",
+    "@ts-pf/protocol": "^0.5.1",
+    "@ts-pf/server": "^0.5.1",
+    "hexok": "^2.2.7"
+  },
+  "peerDependencies": {
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "zod": "^4.1.0"
+  }
+}
