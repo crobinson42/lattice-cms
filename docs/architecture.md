@@ -202,22 +202,44 @@ Every collection talks to one hexok port, `CollectionStore`. MongoDB is the defa
 
 ```ts
 abstract class CollectionStore extends Port('CollectionStore') {
-  abstract ensure(collection: CollectionDef): Promise<void>           // indexes (Phase 1)
-  abstract find(q: FindQuery): Promise<Page>                           // { docs, next }; where, sort, limit, after
-  abstract get(collection: string, id: string, where?: Where): Promise<StoredDoc | null>
-  abstract getMany(collection: string, ids: readonly string[], where?: Where): Promise<StoredDoc[]>
-  abstract insert(collection: string, doc: StoredDoc): Promise<void>  // CONFLICT on an existing id
-  abstract update(collection: string, id: string, patch: Patch, where?: Where): Promise<StoredDoc | null>
-  abstract remove(collection: string, id: string, where?: Where): Promise<StoredDoc | null>
-  abstract count(collection: string, where?: Where): Promise<number> // Phase 1
+  abstract ensure(collection: string, indexes: readonly Index[]): Promise<void> // creates missing indexes, never drops one
+  abstract find(q: FindQuery): Promise<Page>                                     // { docs, next }; where, sort, limit, after
+  abstract get(collection: string, id: string, where?: AnyWhere): Promise<StoredDoc | null>
+  abstract getMany(collection: string, ids: readonly string[], where?: AnyWhere): Promise<StoredDoc[]>
+  abstract insert(collection: string, doc: StoredDoc): Promise<void>            // CONFLICT on an existing id or a unique index
+  abstract update(collection: string, id: string, patch: Patch, where?: AnyWhere): Promise<StoredDoc | null> // CONFLICT on a unique index
+  abstract remove(collection: string, id: string, where?: AnyWhere): Promise<StoredDoc | null>
+  abstract count(collection: string, where?: AnyWhere): Promise<number>
 }
+
+type Index = { fields: Record<string, 1 | -1>; unique?: boolean } // key order is the index's order
 ```
 
 - `where` on `get`, `update` and `remove` carries the access and tenant filter, so a write never touches a row the caller cannot see.
 - `getMany` exists for relation population. It is one query per collection per request.
 - Adapters use a hexok `Mapper` per collection when the stored shape differs, such as `_id` for Mongo (Phase 1).
 - A `Patch` sets each key it has; a key set to `undefined` removes the field (Mongo `$unset`). It can never change `id`.
-- `MemoryStore` ships in `@latticecms/core` for tests and examples, the way `@hexok/logger` ships `MemoryLogger`.
+- `MemoryStore` ships in `@latticecms/core` for tests and examples, the way `@hexok/logger` ships `MemoryLogger`. It enforces unique indexes as Mongo does: a missing field keys as null, `ensure` rejects a unique index over existing duplicates, and it rejects an index whose keys exist with other options.
+- A store receives a parsed `AnyWhere`, not the typed `Where<Doc>`: validation happened before it.
+
+### Writing a store adapter
+
+An adapter package imports `@latticecms/core/store`: `CollectionStore`, the port types (`StoredDoc`, `Patch`, `FindQuery`, `Page`, `Index`, `AnyWhere`, `FieldOps`) and the cursor helpers (`orderOf`, `after`, `encodeCursor`). It never gets the input schemas or the in-process matcher.
+
+The conformance suite, `@latticecms/core/store/conformance`, is data: `storeCases`, each `{ name, run(store) }`, asserting with `node:assert/strict`. Any test runner runs it, and core takes no runner dependency. The adapter gives each case a fresh store:
+
+```ts
+import { storeCases } from '@latticecms/core/store/conformance'
+
+describe('MongoStore conformance', () => {
+  let store: MongoStore
+  beforeEach(async () => { store = await freshStore() })
+  afterEach(() => store.stop())
+  it.each(storeCases)('$name', ({ run }) => run(store))
+})
+```
+
+`MemoryStore` passes the same suite. When a case needs a capability some stores lack, such as transactions, it declares it, and an adapter filters `storeCases`; until then the suite has no options.
 
 ### Where filter
 

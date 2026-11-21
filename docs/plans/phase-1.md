@@ -68,9 +68,9 @@ Done. The spike is `packages/core/src/spike-relations.test.ts` and `src/fixtures
 
 ### 4. Store adapter surface **Checkpoint**
 
-- [ ] A subpath export, `@latticecms/core/store`, with the port types (`StoredDoc`, `Patch`, `FindQuery`, `Page`), the parsed `Where` type, and the cursor helpers (`orderOf`, `after`, `encodeCursor`). The root export stays as it is.
-- [ ] A store conformance suite that an adapter package runs against its own store: every port method, `where` honored, copies, cursors with ties, and `CONFLICT`. `MemoryStore` passes it.
-- [ ] `ensure()` and `count()` join the port. `MemoryStore` implements both.
+- [x] A subpath export, `@latticecms/core/store`, with the port types (`StoredDoc`, `Patch`, `FindQuery`, `Page`), the parsed `Where` type, and the cursor helpers (`orderOf`, `after`, `encodeCursor`). The root export stays as it is.
+- [x] A store conformance suite that an adapter package runs against its own store: every port method, `where` honored, copies, cursors with ties, and `CONFLICT`. `MemoryStore` passes it.
+- [x] `ensure()` and `count()` join the port. `MemoryStore` implements both.
 
 Stop and show the maintainer the subpath's exports and how an adapter runs the suite.
 
@@ -149,5 +149,7 @@ Add a line here when the work teaches something the plan did not know. Each line
 - `tenantOf` returning `null` or `''` at runtime would have matched or stamped rows no tenant owns. `CallAccess` fails closed unless it gets a non-empty string or `tenancy.bypass`. Went to `architecture.md`.
 - `Repo.insert` never takes `unscoped` on a tenanted collection, so the step 7 migrations runner and any step 10 seed must name the tenant with `tenancy.scope(C, tenantId)`.
 - Threading `Tenant` through `Collection`, operations, hooks and events raised the untenanted crm's check from 0.39 s to 0.47 s (+47k instantiations). Core is now 1.26 s. Re-measure at step 10; if crm passes about 0.6 s, look for a cheaper form. Asserted overloads: 7 (`tenantShapes`).
+- The conformance suite has 34 cases. Four deliberately broken stores fail 10 of them. `MemoryStore` rejects an index whose keys exist with other options, as Mongo does. Changing an index is a migration.
+- The package-name import of `@latticecms/core/store` gets its permanent test in `packages/store-mongo` (step 5). A core test cannot do it, because core's own tests do not build core first.
 - Type-check after access: core check 1.08 s to 1.15 s (with a 500-line test file), crm 0.40 s, unchanged. Asserted overloads: 6.
 - Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.
