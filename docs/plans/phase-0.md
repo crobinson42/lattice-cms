@@ -8,7 +8,7 @@ This plan is a working document. It is deleted when the exit holds, after anythi
 
 - [ ] `examples/crm` defines three collections, serves them at `/rpc` with `@ts-pf/server-http`, and its tests pass on `MemoryStore`.
 - [ ] A TypeScript client of the generated `contract` gets full types for every operation with no casts and no type annotations at the call site.
-- [ ] One operation is replaced with an override and one custom method is added, and both keep the contract's types.
+- [x] One operation is replaced with an override and one custom method is added, and both keep the contract's types.
 - [ ] `npm run lint`, `type-check`, `test` and `build` pass at the root.
 
 ## In scope
@@ -97,10 +97,10 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 
 ### 8. Overrides and custom methods
 
-- [ ] `.collection(C, { overrides: { action: Class } })` replaces one generated use case. `build({ overrides: { slug: { action } } })` takes the instance.
-- [ ] `.collection(C, { methods: { name: Class } })` adds a procedure to the collection's slice. `build({ methods: { slug: { name } } })` takes the instance.
-- [ ] Missing instances and type mismatches are compile errors (proved in step 1; now with runtime tests).
-- [ ] `build()` also returns `useCases` and `repos`, as the architecture doc lists.
+- [x] `.collection(C, { overrides: { action: Class } })` replaces one generated use case. `build({ overrides: { slug: { action } } })` takes the instance.
+- [x] `.collection(C, { methods: { name: Class } })` adds a procedure to the collection's slice. `build({ methods: { slug: { name } } })` takes the instance.
+- [x] Missing instances and type mismatches are compile errors (proved in step 1; now with runtime tests).
+- [x] `build()` also returns `useCases` and `repos`, as the architecture doc lists.
 
 ### 9. `examples/crm`
 
@@ -129,6 +129,9 @@ Add a line here when the work teaches something the plan did not know: a type li
 - Step 1: type-check of the spike is 0.70 s and 189k instantiations for two collections. Re-measure at step 9.
 - Step 1: TS2883 (a type that cannot be named) only fires for a consumer outside `packages/core`; inside, TypeScript names types by relative path. The public types are `Collection`, `Framework`, `Contract`, `Family` and `FamilyContext` because a consumer's declarations need them. Went to step 9.
 - Step 1: hexok's `#brand` is a structural key in declarations, so `build()` tells instances of two use cases with the same `execute` types apart only by private members. `build()` also checks `instanceof` the declared class at runtime. Nowhere else yet.
+- Step 8: six asserted overloads now sit where runtime-built values meet precise types (`build`, `whereSchema`, `sortSchema`, `patchSchema`, `repo`, `Framework.repo`). Each is commented; no value is cast. Typing `CollectionStore` per collection would remove the two repo ones. Nowhere yet; watch the count.
+- Step 8: `Repo.update` takes `Partial<Data>`, so under `exactOptionalPropertyTypes` it cannot unset an optional field, though the store can. Nowhere yet.
+- Step 8: generated `useCases` members take the schema's input type (defaults optional), while the contract follows ts-pf's output typing until the ts-pf fix lands.
 - Step 7: ts-pf reserves `VALIDATION`, `INTERNAL`, `BAD_REQUEST`, `METHOD_NOT_ALLOWED` and `PAYLOAD_TOO_LARGE`; Lattice declares four codes and sends `VALIDATION` as the protocol code. In-process callers get unknown errors raw; only the wire makes `INTERNAL`. Went to `architecture.md`.
 - Step 7: refusal logging is once per refusal: the family's `onCatch` records what it logged in a `WeakSet`, and Lattice's router middleware logs the rest (guard and ts-pf input rejections). A guard rejection reached by calling `execute` directly is logged by nobody. Went to step 8.
 - Step 7: overrides and methods throw the app's domain errors, which Lattice's five codes cannot carry. `framework({ errors: { declared, map } })` takes the app's existing error map and mapper. Maintainer's choice. Went to `architecture.md` and step 7.

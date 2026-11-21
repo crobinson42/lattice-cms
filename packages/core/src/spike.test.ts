@@ -28,8 +28,6 @@ type Post = {
 
 type Ctx = UseCase.Ctx<typeof AppUseCase>;
 
-const now = () => new Date().toISOString();
-
 const lattice = framework({
   family: AppUseCase,
   store: new MemoryStore(),
@@ -42,9 +40,11 @@ const lattice = framework({
   .collection(Comments);
 
 const { app } = lattice.build({
-  methods: { posts: { publish: new PublishPost({ now }) } },
+  methods: {
+    posts: { publish: new PublishPost({ posts: lattice.repo(Posts) }) },
+  },
   overrides: {
-    posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+    posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) },
   },
 });
 
@@ -345,7 +345,7 @@ describe('override checks', () => {
       .collection(Posts, { overrides: { delete: ArchivePost } })
       .build({
         overrides: {
-          posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+          posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) },
         },
       });
     expect(Object.keys(contract.posts)).toEqual([
@@ -405,21 +405,23 @@ describe('build checks', () => {
         // @ts-expect-error posts has no methods
         methods: {},
         overrides: {
-          posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+          posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) },
         },
       });
       withBoth.build({
-        methods: { posts: { publish: new PublishPost({ now }) } },
+        methods: {
+          posts: { publish: new PublishPost({ posts: lattice.repo(Posts) }) },
+        },
         // @ts-expect-error posts.delete has no instance
         overrides: { posts: {} },
       });
       withBoth.build({
         methods: {
           // @ts-expect-error an ArchivePost is not a PublishPost: their private deps differ
-          posts: { publish: new ArchivePost({ store: new MemoryStore() }) },
+          posts: { publish: new ArchivePost({ posts: lattice.repo(Posts) }) },
         },
         overrides: {
-          posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+          posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) },
         },
       });
     });
@@ -431,7 +433,7 @@ describe('build checks', () => {
         // @ts-expect-error posts.publish has no instance
         methods: { posts: {} },
         overrides: {
-          posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+          posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) },
         },
       }),
     ).toThrow('no instance for method "posts.publish"');
@@ -440,7 +442,9 @@ describe('build checks', () => {
   it('throws when a declared override has no instance', () => {
     expect(() =>
       withBoth.build({
-        methods: { posts: { publish: new PublishPost({ now }) } },
+        methods: {
+          posts: { publish: new PublishPost({ posts: lattice.repo(Posts) }) },
+        },
         // @ts-expect-error posts.delete has no instance
         overrides: { posts: {} },
       }),
@@ -498,10 +502,10 @@ describe('build checks', () => {
       withBoth.build({
         methods: {
           // @ts-expect-error an ArchivePost is not a PublishPost
-          posts: { publish: new ArchivePost({ store: new MemoryStore() }) },
+          posts: { publish: new ArchivePost({ posts: lattice.repo(Posts) }) },
         },
         overrides: {
-          posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+          posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) },
         },
       }),
     ).toThrow('"posts.publish" instance is not an instance of PublishPost');
@@ -528,9 +532,11 @@ describe('build checks', () => {
 describe('load time', () => {
   it('imports the fixtures and builds without throwing', () => {
     const { contract } = lattice.build({
-      methods: { posts: { publish: new PublishPost({ now }) } },
+      methods: {
+        posts: { publish: new PublishPost({ posts: lattice.repo(Posts) }) },
+      },
       overrides: {
-        posts: { delete: new ArchivePost({ store: new MemoryStore() }) },
+        posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) },
       },
     });
     expect(Object.keys(contract.posts)).toEqual([

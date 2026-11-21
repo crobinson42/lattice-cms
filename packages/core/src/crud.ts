@@ -11,7 +11,7 @@ import type {
 } from './collection.js';
 import { LatticeError, parse } from './errors.js';
 import type { Family, FamilyContext } from './family.js';
-import { defaultLimit, defaultSort } from './sort.js';
+import { findQuery, stamped, touched } from './repo.js';
 import type { CollectionStore, Doc } from './store.js';
 import type { AnyWhere } from './where.js';
 
@@ -113,14 +113,14 @@ const operations: Record<
 > = {
   async find(call, raw) {
     const { where, sort, limit, after } = parse(call.ops.find.input, raw);
-    const filter = both(where, call.scope);
-    const page = await call.store.find({
-      collection: call.collection.slug,
-      sort: sort ?? defaultSort,
-      limit: limit ?? defaultLimit,
-      ...(filter === undefined ? {} : { where: filter }),
-      ...(after === undefined ? {} : { after }),
-    });
+    const page = await call.store.find(
+      findQuery(call.collection.slug, {
+        where: both(where, call.scope),
+        sort,
+        limit,
+        after,
+      }),
+    );
     return {
       docs: await Promise.all(page.docs.map((doc) => read(call, doc))),
       next: page.next,
@@ -137,13 +137,7 @@ const operations: Record<
   async create(call, raw) {
     const input = parse(call.ops.create.input, raw);
     const data = await change(call, { data: input, operation: 'create' });
-    const now = new Date().toISOString();
-    const doc = {
-      ...data,
-      id: crypto.randomUUID(),
-      createdAt: now,
-      updatedAt: now,
-    };
+    const doc = stamped(data);
     await call.store.insert(call.collection.slug, doc);
     await call.events.publish(
       new call.collection.events.created({
@@ -184,7 +178,7 @@ const operations: Record<
     const updated = await call.store.update(
       call.collection.slug,
       id,
-      { ...changes, updatedAt: new Date().toISOString() },
+      touched(changes),
       call.scope,
     );
     if (updated === null) throw notFound(call, id);

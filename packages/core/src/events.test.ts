@@ -437,9 +437,15 @@ describe('an override', () => {
 
   it('publishes no posts.deleted for ArchivePost, which publishes nothing itself', async () => {
     const { store, events, post } = await seeded();
-    const { app } = framework({ family: AppUseCase, store, events })
-      .collection(Posts, { overrides: { delete: ArchivePost } })
-      .build({ overrides: { posts: { delete: new ArchivePost({ store }) } } });
+    const lattice = framework({ family: AppUseCase, store, events }).collection(
+      Posts,
+      { overrides: { delete: ArchivePost } },
+    );
+    const { app } = lattice.build({
+      overrides: {
+        posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) },
+      },
+    });
     const local = createLocalClient(app, { context: callContext() });
 
     await local.posts.delete({ id: post.id });

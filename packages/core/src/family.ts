@@ -2,7 +2,7 @@ import type { Logger } from '@hexok/logger';
 import { type StandardSchemaV1, UseCase, validate } from 'hexok';
 import type { z } from 'zod';
 import type { AnyCollection } from './collection.js';
-import { LatticeError, parse, refusal } from './errors.js';
+import { invalid, LatticeError, refusal } from './errors.js';
 
 /** The statics every use case in a Lattice family declares. */
 export type FamilySpec = {
@@ -33,23 +33,66 @@ export type Family<Actor> = UseCase.ContextFactory<
 };
 
 /**
- * The errors a family's `onCatch` has logged. The procedure middleware logs
- * the refusals no family saw, such as a guard's, and skips these. A WeakSet
- * keeps the error object as it is and holds it no longer than the caller.
+ * The errors a family has logged: its guards' rejections and what `onCatch`
+ * saw. The procedure middleware logs only the refusals no family saw, such as
+ * ts-pf's own input check, and skips these. A WeakSet keeps the error object
+ * as it is and holds it no longer than the caller.
  */
 const logged = new WeakSet<object>();
 
-/** Whether a family's `onCatch` has logged `error`. */
+/** Whether a family has logged `error`. */
 export function loggedByFamily(error: unknown): boolean {
   return typeof error === 'object' && error !== null && logged.has(error);
 }
 
 /**
+ * The logger of one call: `ctx.logger` with the call's collection, action
+ * and, once the actor has parsed, its id. Every family log line goes
+ * through it, so the fields cannot drift.
+ */
+function callLogger(
+  logger: Logger,
+  spec: FamilySpec,
+  token: string,
+  actorId: string | undefined,
+): Logger {
+  const { slug } = spec.collection;
+  return logger.child({
+    collection: slug,
+    action: token.startsWith(`${slug}.`) ? token.slice(slug.length + 1) : token,
+    ...(actorId === undefined ? {} : { actorId }),
+  });
+}
+
+/**
+ * Logs a thrown value once and records it: info for a refusal, error for
+ * anything else. Returns it, so a guard can throw it.
+ */
+function logThrown(
+  log: Logger,
+  token: string,
+  error: unknown,
+  durationMs?: number,
+): unknown {
+  const timing = durationMs === undefined ? {} : { durationMs };
+  const refused = refusal(error);
+  if (refused !== undefined) {
+    log.info(token, { outcome: 'refused', ...refused, ...timing });
+  } else if (error instanceof Error) {
+    log.error(error, { outcome: 'failed', ...timing });
+  } else {
+    log.error(token, { outcome: 'failed', thrown: error, ...timing });
+  }
+  if (typeof error === 'object' && error !== null) logged.add(error);
+  return error;
+}
+
+/**
  * Builds the app's one use case family on hexok `UseCase.context`. Before
  * any member's `execute` runs, the actor must parse against `actor` and the
- * input against the member's `input` static. Each call that passes them
- * writes one line through a child of `ctx.logger`: info when it returns or
- * refuses, error when it throws anything else.
+ * input against the member's `input` static. Each call writes one line
+ * through a child of `ctx.logger`: info when it returns or a guard or
+ * `execute` refuses it, error when it throws anything else.
  */
 export function family<A extends StandardSchemaV1>(options: {
   actor: A;
@@ -60,52 +103,47 @@ export function family<A extends StandardSchemaV1>(options: {
     FamilyContext<StandardSchemaV1.InferOutput<A>>,
     FamilySpec
   >()
-    .guard(({ ctx }) => {
+    // Guards run outside hexok's hooks, so each logs its own rejection.
+    .guard(({ ctx, spec, token }) => {
       // The issues describe the caller's credentials, so they stay out of
-      // the error.
+      // the error and the log.
       if (!validate(options.actor, ctx.actor).ok) {
-        throw LatticeError.UNAUTHORIZED();
+        const log = callLogger(ctx.logger, spec, token, undefined);
+        throw logThrown(log, token, LatticeError.UNAUTHORIZED());
       }
     })
-    .guard(({ spec, input }) => {
+    .guard(({ ctx, spec, token, input }) => {
       // hexok hands execute the caller's input, not the parsed value. So a
       // method's input schema uses no defaults or transforms; a generated use
       // case parses its own input inside execute to strip unknown keys and
       // apply defaults.
-      if (spec.input !== undefined) parse(spec.input, input);
+      if (spec.input === undefined) return;
+      const result = spec.input.safeParse(input);
+      if (!result.success) {
+        const actorId = options.actorId(ctx.actor);
+        const log = callLogger(ctx.logger, spec, token, actorId);
+        throw logThrown(log, token, invalid(result.error.issues));
+      }
     })
     .hooks({
-      preExecute: ({ ctx, spec, token }) => {
-        const { slug } = spec.collection;
-        const action = token.startsWith(`${slug}.`)
-          ? token.slice(slug.length + 1)
-          : token;
-        return {
-          log: ctx.logger.child({
-            collection: slug,
-            action,
-            actorId: options.actorId(ctx.actor),
-          }),
-          started: performance.now(),
-        };
-      },
+      preExecute: ({ ctx, spec, token }) => ({
+        log: callLogger(ctx.logger, spec, token, options.actorId(ctx.actor)),
+        started: performance.now(),
+      }),
       postExecute: ({ token }, { log, started }) => {
         log.info(token, { outcome: 'ok', durationMs: since(started) });
       },
-      onCatch: ({ ctx, token, error }, state) => {
+      onCatch: ({ ctx, spec, token, error }, state) => {
         // State is undefined only when preExecute itself threw.
-        const log = state?.log ?? ctx.logger;
-        const durationMs =
-          state === undefined ? undefined : since(state.started);
-        const refused = refusal(error);
-        if (refused !== undefined) {
-          log.info(token, { outcome: 'refused', ...refused, durationMs });
-        } else if (error instanceof Error) {
-          log.error(error, { outcome: 'failed', durationMs });
+        if (state === undefined) {
+          logThrown(
+            callLogger(ctx.logger, spec, token, undefined),
+            token,
+            error,
+          );
         } else {
-          log.error(token, { outcome: 'failed', thrown: error, durationMs });
+          logThrown(state.log, token, error, since(state.started));
         }
-        if (typeof error === 'object' && error !== null) logged.add(error);
       },
     });
   // The generated use cases and the procedure middleware read these, so the

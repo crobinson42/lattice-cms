@@ -333,7 +333,7 @@ describe('refusal logging', () => {
     ]);
   });
 
-  it('a guard’s UNAUTHORIZED: one line, from the middleware, with no actorId', async () => {
+  it('a guard’s UNAUTHORIZED: one line, from the family guard, with no actorId', async () => {
     const root = new MemoryLogger();
     const local = createLocalClient(setup().app, {
       // @ts-expect-error userId is missing
@@ -354,7 +354,7 @@ describe('refusal logging', () => {
     expect(root.records[0]?.fields).not.toHaveProperty('actorId');
   });
 
-  it('a guard’s VALIDATION: one line, from the middleware, with the actorId', async () => {
+  it('a guard’s VALIDATION: one line, from the family guard, with the actorId', async () => {
     const root = new MemoryLogger();
     const { local } = setup({ logger: root, checkInput: false });
     // @ts-expect-error id is a string

@@ -130,13 +130,14 @@ const { contract, app, useCases, repos } = lattice.build({
 
 - `.collection(C, { methods, overrides })` declares the classes. Their static schemas type the contract.
 - `build()` takes one instance per declared class, keyed by slug and then name, the same shape as the contract.
+- `lattice.repo(C)` exists before `build()`, so instances can take one. It is a compile error for a collection not added with `.collection()`. A `Repo<C>` has `get`, `getMany`, `find({ where?, sort?, limit?, after? })`, `insert`, `update` and `remove`, typed from `C`. It stamps `id`, `createdAt` and `updatedAt` like the generated operations, and does no validation, hooks, access, tenancy or events: it trusts typed input, like a hexok repository.
 
 | Output | What it is | Used by |
 | --- | --- | --- |
 | `contract` | A ts-pf `router` of every collection | Clients, `@ts-pf/openapi`, `@ts-pf/codegen`, the admin |
 | `app` | The implemented ts-pf router | `FetchHandler`, `createLocalClient`, `@ts-pf/mcp` |
-| `useCases` | hexok `UseCase` instances, such as `useCases.posts.create` | Workers, scripts, tests |
-| `repos` | Typed `CollectionStore` views per collection, no access checks | Hand-written use cases and event handlers |
+| `useCases` | hexok `UseCase` instances, such as `useCases.posts.create`: the generated one, or the override or method instance that serves the procedure, each precisely typed | Workers, scripts, tests |
+| `repos` | `Repo<C>` per collection, the same objects as `lattice.repo(C)` | Hand-written use cases and event handlers |
 
 ### What each collection generates
 
@@ -378,7 +379,7 @@ Every generated operation logs and times itself through the family's hexok `hook
 
 - Logging: the call context carries a `@hexok/logger` `Logger`. The edge passes `rootLogger.child({ requestId })`; workers, scripts and tests pass their own. The family's hooks log each call through a child with `actorId`, `tenantId`, `collection`, `action` and `durationMs`. A context logger, not one given to `framework()` or `family()`, because family hooks are fixed when the family is created and see only the call, and because no module has to import a configured logger at load time. Sentry and New Relic attach through `TeeLogger`, as in `app-template`.
 - One line per call that passes the guards: `info` with `outcome: 'ok'` on return; `info` with `outcome: 'refused'`, `catalog` and `code` for a member of any hexok `Errors` catalog; `error` with the stack for anything else.
-- Guards run outside hexok hooks, so a rejected actor or input is not logged by the family. The edge logs it.
+- The family's guards log their own rejections, since hexok runs guards outside hooks. A refusal is logged exactly once on every path: RPC, in process, or `useCases.*.execute`. Lattice's router middleware logs only ts-pf's own input rejections, which no family sees.
 - Errors: `onCatch` logs unexpected errors once. ts-pf's `onError` is set so the same error is not logged twice.
 - Tracing (Phase 2): one span per procedure (ts-pf server call interceptor), one per use case (`preExecute` / `onFinally`), one per store call (inside the adapter). Spans use `@opentelemetry/api` and follow OpenTelemetry names.
 - Tests: `MemoryLogger` and a no-op tracer, so assertions can read what was logged.

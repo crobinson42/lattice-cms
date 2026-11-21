@@ -314,7 +314,7 @@ describe('family logging', () => {
     expect(root.records.some((record) => record.level === 'error')).toBe(false);
   });
 
-  it('writes nothing for a call its guards reject', async () => {
+  it('logs a guard rejection once, at info, with actorId only once the actor parsed', async () => {
     const { publish } = setup();
     const { root, logger } = requestLogger();
 
@@ -322,7 +322,36 @@ describe('family logging', () => {
       // @ts-expect-error id is a string
       publish.execute(callContext(logger), { id: 1 }),
     ).rejects.toThrow();
+    await expect(
+      // @ts-expect-error userId is a string
+      publish.execute({ actor: { userId: 1 }, logger }, { id: 'p1' }),
+    ).rejects.toThrow();
 
-    expect(root.records).toEqual([]);
+    expect(root.records).toMatchObject([
+      {
+        level: 'info',
+        message: 'posts.publish',
+        fields: {
+          ...callFields,
+          outcome: 'refused',
+          catalog: 'lattice',
+          code: 'VALIDATION',
+        },
+      },
+      {
+        level: 'info',
+        message: 'posts.publish',
+        fields: {
+          requestId: 'r1',
+          collection: 'posts',
+          action: 'publish',
+          outcome: 'refused',
+          catalog: 'lattice',
+          code: 'UNAUTHORIZED',
+        },
+      },
+    ]);
+    expect(root.records[1]?.fields).not.toHaveProperty('actorId');
+    expect(publish.calls).toBe(0);
   });
 });

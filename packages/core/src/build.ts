@@ -30,6 +30,7 @@ import {
   toClientError,
 } from './errors.js';
 import { type Family, type FamilyContext, loggedByFamily } from './family.js';
+import { type Repo, repo } from './repo.js';
 import type { CollectionStore } from './store.js';
 
 const actions = [
@@ -55,12 +56,14 @@ type Ctor<I> = abstract new (...args: never[]) => I;
 
 type Schemas = { readonly input: z.ZodType; readonly output: z.ZodType };
 
-/** A collection and the classes attached to it. */
+/** A collection, the classes attached to it, and its repo. */
 type Entry = {
   readonly collection: AnyCollection;
   readonly methods: Readonly<Record<string, Ctor<unknown> & Schemas>>;
   readonly overrides: Readonly<Record<string, Ctor<unknown>>>;
 };
+
+type Added = Entry & { readonly repo: Repo<AnyCollection> };
 
 type Entries = Record<string, Entry>;
 
@@ -194,10 +197,33 @@ type BuildArgs<E extends Entries, Ctx> = [
   ? [options?: BuildOptions<E, Ctx>]
   : [options: BuildOptions<E, Ctx>];
 
+/**
+ * A generated use case as a direct caller sees it. Its `execute` parses its
+ * own input, so it takes the schema's input type: defaulted fields may be
+ * left out.
+ */
+type GeneratedUseCase<Col extends AnyCollection, A extends Action, Ctx> = {
+  execute(
+    ctx: Ctx,
+    input: z.input<Ops<Col>[A]['input']>,
+  ): Promise<z.output<Ops<Col>[A]['output']>>;
+};
+
+/** The instance that serves each procedure: generated, override or method. */
+type UseCases<E extends Entries, Ctx> = {
+  [S in keyof E]: {
+    [A in Action]: A extends keyof E[S]['overrides']
+      ? Instance<E[S]['overrides'][A]>
+      : GeneratedUseCase<E[S]['collection'], A, Ctx>;
+  } & { [N in keyof E[S]['methods']]: Instance<E[S]['methods'][N]> };
+};
+
 /** What `build()` returns. */
 type Built<E extends Entries, D extends ErrorMap, Ctx> = {
   readonly contract: Contract<E, D>;
   readonly app: ImplementedRouter<Contract<E, D>, Ctx>;
+  readonly useCases: UseCases<E, Ctx>;
+  readonly repos: { [S in keyof E]: Repo<E[S]['collection']> };
 };
 
 type RuntimeProcedure = ContractProcedure<unknown, unknown, ErrorMap>;
@@ -226,7 +252,7 @@ export class Framework<
     private readonly store: CollectionStore,
     private readonly events: P,
     private readonly errors: AppErrors<ErrorMap>,
-    private readonly entries: readonly Entry[],
+    private readonly entries: readonly Added[],
   ) {}
 
   /**
@@ -278,8 +304,24 @@ export class Framework<
       E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
     >(this.family, this.store, this.events, this.errors, [
       ...this.entries,
-      { collection, methods, overrides },
+      { collection, methods, overrides, repo: repo(this.store, collection) },
     ]);
+  }
+
+  /**
+   * The repo of a collection this app added, for the method and override
+   * instances `build()` takes. `build()` returns the same object in `repos`.
+   * The overload types it by the collection; the implementation finds it by
+   * slug, which a mapped type cannot express.
+   */
+  repo<C extends E[keyof E]['collection']>(collection: C): Repo<C>;
+  repo(collection: AnyCollection): Repo<AnyCollection> {
+    const { slug } = collection;
+    const entry = this.entries.find((added) => added.collection.slug === slug);
+    if (entry === undefined) {
+      throw new Error(`Lattice: "${slug}" is not a collection of this app`);
+    }
+    return entry.repo;
   }
 
   /**
@@ -296,6 +338,10 @@ export class Framework<
   }): {
     readonly contract: RuntimeContract;
     readonly app: ImplementedRouter<RuntimeContract, FamilyContext<Actor>>;
+    readonly useCases: Readonly<
+      Record<string, Readonly<Record<string, unknown>>>
+    >;
+    readonly repos: Readonly<Record<string, Repo<AnyCollection>>>;
   } {
     const call = procedure.errors({
       ...declaredErrors,
@@ -374,7 +420,14 @@ export class Framework<
       tree[slug] = sliceTree;
     }
     const errors = clientErrors(this.family, this.errors.map);
-    return { contract, app: impl.use(errors).router(tree) };
+    return {
+      contract,
+      app: impl.use(errors).router(tree),
+      useCases,
+      repos: Object.fromEntries(
+        this.entries.map((entry) => [entry.collection.slug, entry.repo]),
+      ),
+    };
   }
 }
 
