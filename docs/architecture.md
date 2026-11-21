@@ -63,7 +63,7 @@ A collection is a declaration. Lattice turns it into hexok use cases, hexok even
 
 ### Define a collection
 
-This example shows the full design. Phase 0 built `schema` and `.hooks()`, and Phase 1 has added `tenant`; `ref()`, `many()`, `relations`, `indexes` and `entity` arrive in Phase 1, as the [phased build plan](#phased-build-plan) says. [`packages/core/README.md`](../packages/core/README.md) shows what runs today.
+This example shows the full design. Phase 0 built `schema` and `.hooks()`, and Phase 1 has added `tenant` and `indexes`; `ref()`, `many()`, `relations` and `entity` arrive in Phase 1, as the [phased build plan](#phased-build-plan) says. [`packages/core/README.md`](../packages/core/README.md) shows what runs today.
 
 ```ts
 // collections/posts.ts
@@ -140,7 +140,7 @@ const { app, useCases, repos, onError } = lattice.build({
 - The definition (`framework({ family, errors })` and `.collection()`) gives `contract` with no store and no publisher. The wiring (`build({ store, events, access?, methods, overrides })`) needs both ([0018](decisions/0018-methods-and-overrides-attach-in-the-framework.md), [0020](decisions/0020-collection-events-join-the-app-catalog.md)).
 - `.collection(C, { access, methods, overrides })` declares the access functions and the classes. `access` is required ([0021](decisions/0021-access-attaches-at-composition.md)). The classes' static schemas type the contract, so the definition module imports the use case classes; they load with no ports or I/O, and a browser client imports the contract with `import type`.
 - `build()` takes one factory each for methods and overrides. Each receives the typed `repos` and returns one instance per declared class, keyed by slug and then name, the same shape as the contract. Each is required exactly when a collection declared one.
-- A `Repo<C>` has `get(id, scope)`, `getMany(ids, scope)`, `find({ where?, sort?, limit?, after? }, scope)`, `insert(data, scope)`, `update(id, patch, scope)` and `remove(id, scope)`, typed from `C`. It stamps `id`, `createdAt` and `updatedAt` like the generated operations, and does no validation, hooks or events: it trusts typed input, like a hexok repository.
+- A `Repo<C>` has `get(id, scope)`, `getMany(ids, scope)`, `find({ where?, sort?, limit?, after? }, scope)`, `count(where, scope)`, `insert(data, scope)`, `update(id, patch, scope)` and `remove(id, scope)`, typed from `C`. It stamps `id`, `createdAt` and `updatedAt` like the generated operations, and does no validation, hooks or events: it trusts typed input, like a hexok repository.
 - The scope is required: the call's `Scope<C['slug']>` from `ctx.access.scope(C, action)`, `tenancy.scope(C, tenantId)` for server code inside one tenant, or `unscoped` for trusted code that acts for no caller. A row outside the scope acts as missing, and a scope for another collection throws ([0023](decisions/0023-access-reaches-use-cases-through-the-call-context.md)). On a tenanted collection, `insert` stamps the scope's tenant and does not take `unscoped`, and `update` never writes the tenant field ([0024](decisions/0024-tenant-bypass-is-decided-by-tenant-of.md)).
 
 | Output | What it is | Used by |
@@ -150,6 +150,7 @@ const { app, useCases, repos, onError } = lattice.build({
 | `useCases` | hexok `UseCase` instances, such as `useCases.posts.create`: the generated one, or the override or method instance that serves the procedure, each precisely typed | Workers, scripts, tests |
 | `repos` | `Repo<C>` per collection, the same objects the factories received | Hand-written use cases and event handlers |
 | `onError` | `onError(logger)` for `FetchHandler` | The HTTP edge |
+| `ensure` | `ensure()`: creates each collection's declared indexes through the store. Await it after `store.start()`, before serving | The app's startup |
 | `context` | `context({ actor, logger })`: a `FamilyContext` with the call's `access`. Make one per call or per job | Direct `useCases.*.execute` callers |
 
 ### What each collection generates
@@ -218,6 +219,7 @@ type Index = { fields: Record<string, 1 | -1>; unique?: boolean } // key order i
 - `where` on `get`, `update` and `remove` carries the access and tenant filter, so a write never touches a row the caller cannot see.
 - `getMany` exists for relation population. It is one query per collection per request.
 - Adapters use a hexok `Mapper` when the stored shape differs. `MongoStore` maps `id` to a string `_id`.
+- A collection declares `indexes: [{ fields: { stage: 1, createdAt: -1 }, unique? }]`. Fields are the stored document's, including the system and tenant fields, and an unknown one is a compile error. `build().ensure()` passes them to `store.ensure()`. A tenanted collection's indexes usually lead with the tenant field; Lattice does not add it.
 - Field names cannot contain `.`, start with `$`, or be `_id`. Mongo would read them as paths, operators or the id. `collection()` rejects them at compile time and at runtime.
 
 ### MongoStore
@@ -337,7 +339,7 @@ abstract class Access<Actor = unknown> extends Port('Access') {
 type AccessRequest<Actor> = {
   actor: Actor
   collection: string
-  action: 'find' | 'get' | 'create' | 'update' | 'delete' | (string & {})  // custom methods too
+  action: 'find' | 'count' | 'get' | 'create' | 'update' | 'delete' | (string & {})  // custom methods too
   data?: unknown // create only: the parsed input
 }
 
@@ -349,7 +351,7 @@ interface CallAccess {
 
 - Access is a filter in the query ([0005](decisions/0005-access-and-tenancy-are-query-filters.md)).
 - The port spans every collection, so its `Where` is untyped. The default adapter is typed per collection where the functions are declared.
-- The default adapter reads each collection's `access` functions, Payload style. `find` and `get` run `read`. A missing function denies, and `access: {}` denies everything. A declared method with no function is a compile error.
+- The default adapter reads each collection's `access` functions, Payload style. `find`, `count` and `get` run `read`. A missing function denies, and `access: {}` denies everything. A declared method with no function is a compile error.
 - A family guard checks access on every use case: generated, override and method. `false` is `FORBIDDEN`, logged once. Lattice's procedure handler adds `access` to each call's context; a direct caller makes one with `build().context()` ([0023](decisions/0023-access-reaches-use-cases-through-the-call-context.md)).
 - `build({ access })` replaces the default adapter, such as with an adapter for another decision engine.
 - A default filter, such as hiding soft-deleted rows, is a `read` filter: `read: () => ({ archived: { eq: false } })`.

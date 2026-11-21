@@ -91,8 +91,8 @@ Decided at the Checkpoint:
 
 ### 6. Indexes and the `count` operation
 
-- [ ] Indexes declared on a collection. `ensure()` creates missing ones at startup and never drops one.
-- [ ] A generated `<slug>.count({ where? })` returning `{ count: number }`, under `read` access and the tenant clause, and `Repo.count(where, scope)`. There is no `withTotal` ([0026](../decisions/0026-totals-come-from-a-count-procedure.md)).
+- [x] Indexes declared on a collection. `ensure()` creates missing ones at startup and never drops one.
+- [x] A generated `<slug>.count({ where? })` returning `{ count: number }`, under `read` access and the tenant clause, and `Repo.count(where, scope)`. There is no `withTotal` ([0026](../decisions/0026-totals-come-from-a-count-procedure.md)).
 
 ### 7. Migrations runner
 
@@ -159,5 +159,6 @@ Add a line here when the work teaches something the plan did not know. Each line
 - The package-name import of `@latticecms/core/store` gets its permanent test in `packages/store-mongo` (step 5). A core test cannot do it, because core's own tests do not build core first.
 - All 35 `storeCases` passed on `MongoStore` on the first run: Mongo and the matcher never disagreed. Merging filters by spread fails the new where-on-id case. Empty `or` is `{ $expr: false }`.
 - npm 12 skips install scripts, so mongodb-memory-server downloads mongod on the first test run. Turbo's strict env does not pass `MONGOMS_*`. CI should cache `~/.cache/mongodb-binaries`. There is no CI workflow yet.
+- Core type-check has grown from 0.87 s to 1.37 s over steps 1–6 (842k instantiations); crm 0.49 s. The sixth generated operation (`count`) cost about 0.1 s in core.
 - Type-check after access: core check 1.08 s to 1.15 s (with a 500-line test file), crm 0.40 s, unchanged. Asserted overloads: 6.
 - Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.
