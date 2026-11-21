@@ -103,10 +103,10 @@ Decided at the Checkpoint:
 Decided in [0028](../decisions/0028-relations-delete-in-a-store-transaction-as-system-work.md). Built in two parts.
 
 8a. Refs and deleting a parent:
-- [ ] `ref(slug, { onDelete? })` with a check-based marker, arrays of refs, the unknown-slug check at `build()` and on `.contract`, and the `has` operator on arrays.
-- [ ] `CollectionStore.transaction(work)` on MemoryStore and MongoStore, with conformance cases.
-- [ ] `onDelete` in the generated delete: restrict (`REFERENCED`), cascade and nullify, as system work inside the parent's tenant.
-- [ ] Ref indexes in `ensure()`.
+- [x] `ref(slug, { onDelete? })` with a check-based marker, arrays of refs, the unknown-slug check at `build()` and on `.contract`, and the `has` operator on arrays.
+- [x] `CollectionStore.transaction(work)` on MemoryStore and MongoStore, with conformance cases.
+- [x] `onDelete` in the generated delete: restrict (`REFERENCED`), cascade and nullify, as system work inside the parent's tenant.
+- [x] Ref indexes in `ensure()`.
 
 8b. `many()`:
 - [ ] Derived join collections with `list` and `set`, the parent's access, the parent's tenant, events in the catalog, join indexes, and nested overrides.
@@ -168,5 +168,8 @@ Add a line here when the work teaches something the plan did not know. Each line
 - npm 12 skips install scripts, so mongodb-memory-server downloads mongod on the first test run. Turbo's strict env does not pass `MONGOMS_*`. CI should cache `~/.cache/mongodb-binaries`. There is no CI workflow yet.
 - Core type-check has grown from 0.87 s to 1.37 s over steps 1–6 (842k instantiations); crm 0.49 s. The sixth generated operation (`count`) cost about 0.1 s in core.
 - Mongo rejects `$expr` in an upsert's query, so the migrations lease is acquired by a `findOneAndUpdate` pipeline whose fields `$cond` on `$lt: ['$expiresAt', '$$NOW']`; the returned token says who holds it. With `transaction: true`, the driver may retry `up`, which is one more reason `up` must be safe to re-run.
+- Zod's checks (`.min()`, `.trim()`) clone a schema and drop own properties, so a ref marker on the instance was lost. It is a no-op check now. Went to `architecture.md`.
+- A cascade into a collection that overrides `delete` would hard-delete what the app soft-deletes, so it is a compile error. Conformance cases that need transactions carry `needs: ['transactions']`; a standalone MongoStore runs the other 37.
+- After 8a: core type-check 1.76 s (1.60 s without relations.test.ts), crm 0.49 s, store-mongo 0.30 s. Asserted overloads: 7.
 - Type-check after access: core check 1.08 s to 1.15 s (with a 500-line test file), crm 0.40 s, unchanged. Asserted overloads: 6.
 - Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.

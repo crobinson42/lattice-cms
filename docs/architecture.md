@@ -211,6 +211,7 @@ abstract class CollectionStore extends Port('CollectionStore') {
   abstract update(collection: string, id: string, patch: Patch, where?: AnyWhere): Promise<StoredDoc | null> // CONFLICT on a unique index
   abstract remove(collection: string, id: string, where?: AnyWhere): Promise<StoredDoc | null>
   abstract count(collection: string, where?: AnyWhere): Promise<number>
+  abstract transaction<T>(work: (store: CollectionStore) => Promise<T>): Promise<T> // as atomic as the store can be
 }
 
 type Index = { fields: Record<string, 1 | -1>; unique?: boolean } // key order is the index's order
@@ -270,7 +271,8 @@ describe('MongoStore conformance', () => {
 | string | `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `contains`, `exists` |
 | number | `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `exists` |
 | boolean, enum (string or number literals) | `eq`, `ne`, `in`, `nin`, `exists` |
-| array, object, anything else | `exists` |
+| array of strings, numbers or enums | `has` (an element equals the value), `exists` |
+| object, other arrays, anything else | `exists` |
 
 - Several fields, or several operators on one field, all have to match. `and` and `or` take one or more filters and nest.
 - Null and missing follow MongoDB's query semantics: `eq: null` matches null or missing, `ne` and `nin` match missing, and a comparison with null or missing is false. `exists` asks whether a field has a value, so null does not exist.
@@ -297,7 +299,7 @@ Relations are IDs plus explicit join collections ([0004](decisions/0004-no-datab
 
 | Kind | Declared with | Stored as |
 | --- | --- | --- |
-| Belongs to one | `authorId: ref('users')` | An ID field on the child |
+| Belongs to one | `authorId: ref('users', { onDelete? })` | An ID field on the child |
 | Many to many, or one to many with metadata | `many('categories', { through, fields })` | A join collection, such as `post_categories`, with `postsId`, `categoriesId` and the `fields` |
 | A short ordered list with no metadata | `tagIds: z.array(ref('tags'))` | An ID array on the parent, capped by the schema's `max()` |
 
@@ -310,12 +312,22 @@ Join collections are real collections. They get generated use cases, access, ten
 - A populated document the caller may not read comes back as `{ id }` only.
 - Output types follow `populate`: `authorId` is a `string`, or `User | Withheld` when populated, where `Withheld` is `{ id }`. A caller narrows with `'email' in post.authorId`. ts-pf types this through expandable outputs, so every client gets it without a wrapper ([0022](decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)).
 
+- `ref(slug)` takes a slug, so two collections can refer to each other. A slug that is not in the framework fails `build()` and `.contract`, in its type and at runtime. The ref marker is a Zod check, so `.min()`, `.optional()` and `z.array()` keep it.
+- A write does not check that the referenced id exists: it would cost a query per write, cannot work across stores, and still races a delete. `onDelete` keeps refs from dangling, and population shows a missing target as `Withheld`.
+- `ensure()` adds an index for each ref field, led by the tenant field.
+
 ### Deleting a parent
 
-Each `ref()` and `many()` declares `onDelete`: `restrict` (default), `cascade` or `nullify`.
+Each `ref()` and `many()` declares `onDelete`: `restrict` (default), `cascade` or `nullify` ([0028](decisions/0028-relations-delete-in-a-store-transaction-as-system-work.md)).
 
-- Same store: the generated delete use case does the work in one Mongo transaction when the deployment is a replica set, otherwise in order with the parent last.
-- Different stores: `restrict` is checked before the delete; `cascade` and `nullify` run in an event handler on `<parent>.deleted`. They are eventually consistent and must be idempotent.
+- The generated delete runs inside `store.transaction()`. MongoStore uses a transaction on a replica set, and otherwise runs in order with the parent last.
+- It plans first: every `restrict` child, however deep, is counted before any write, and one blocks the delete with `REFERENCED`. Then it nullifies, then deletes cascaded children deepest first, then the parent.
+- `nullify` unsets an optional ref, nulls a nullable one, or pulls the id from an array. It is a compile error on a required ref. Arrays of refs cannot cascade.
+- Cascade recurses and stops at cycles. Each child emits its own `deleted` or `updated` event. All events publish after the transaction commits.
+- The child steps are system work: they skip the caller's access functions, but always carry the parent's tenant clause, so another tenant's row neither blocks nor is touched. A global parent's children are found across tenants.
+- A cascade never bypasses a soft delete: a collection that overrides `delete` cannot have a `cascade` ref.
+- An override of `delete`, and `Repo.remove`, do not run `onDelete`.
+- Different stores (later phases): `restrict` is checked before the delete; `cascade` and `nullify` run in an event handler on `<parent>.deleted`. They are eventually consistent and must be idempotent.
 
 ## Auth, access and tenancy
 
@@ -443,7 +455,7 @@ await local.posts.find({ where: { status: { eq: 'published' } }, limit: 20 })
 | TypeScript clients | `@ts-pf/client` + `client-http`, `@ts-pf/swr`, `@ts-pf/mvc-kit` | Import `contract` only, never server code |
 | Split repos | `@ts-pf/codegen` | `.d.ts` from the catalog, plus a breaking-change check in CI |
 
-Errors are a hexok `Errors` catalog mapped once to ts-pf errors, as `app-template`'s `rpc/errors.ts` does. Procedures declare `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404) and `CONFLICT` (409). `VALIDATION` is not declared: it is a ts-pf protocol code, and a `LatticeError` or hexok `CodedError` `VALIDATION` is sent as it, with `{ path, message }[]` issues.
+Errors are a hexok `Errors` catalog mapped once to ts-pf errors, as `app-template`'s `rpc/errors.ts` does. Procedures declare `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404), `CONFLICT` (409) and `REFERENCED` (409, `{ collection, id, by: { collection, field } }`: a `restrict` child blocks a delete). `VALIDATION` is not declared: it is a ts-pf protocol code, and a `LatticeError` or hexok `CodedError` `VALIDATION` is sent as it, with `{ path, message }[]` issues.
 
 - `framework({ errors: { declared, map } })` takes the app's own client error map and mapper, the ones app-template keeps in `servers/rpc/errors.ts`, unchanged. Every procedure, generated or not, declares Lattice's codes plus the app's, so an override or method can throw an app domain error and a client narrows on it.
 - Overrides and methods throw `LatticeError` (exported) for Lattice's own codes, so an override answers a missing id with the same `NOT_FOUND` as the operation it replaces. Hand-written use cases name the document type as `Doc<typeof Deals>`.
