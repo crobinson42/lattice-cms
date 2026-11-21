@@ -4,7 +4,6 @@ import { DomainError, domainErrorDefs } from '../../domain/errors/domain.js';
 /** The status of each domain error. `null` would keep one from clients. */
 const statuses = {
   AlreadyClosed: 409,
-  DealNotFound: 404,
 } as const satisfies Record<keyof typeof domainErrorDefs, number | null>;
 
 /** Every client-facing domain error, with its status. Every procedure declares them. */
@@ -12,10 +11,6 @@ export const clientErrors = {
   AlreadyClosed: {
     ...domainErrorDefs.AlreadyClosed,
     status: statuses.AlreadyClosed,
-  },
-  DealNotFound: {
-    ...domainErrorDefs.DealNotFound,
-    status: statuses.DealNotFound,
   },
 };
 

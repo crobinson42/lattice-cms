@@ -14,7 +14,7 @@ import { operations } from './collection.js';
 import { AppUseCase, callContext } from './fixtures/context.js';
 import { noSubscribers } from './fixtures/events.js';
 import { collection, framework, MemoryStore } from './index.js';
-import type { Doc, FindQuery, Patch } from './store.js';
+import type { FindQuery, Patch, StoredDoc } from './store.js';
 import type { AnyWhere } from './where.js';
 
 /** Every call the generated use cases make, in order. */
@@ -48,7 +48,7 @@ class RecordingStore extends MemoryStore {
     calls.push('read');
     return super.get(collection, id, where);
   }
-  override async insert(collection: string, doc: Doc) {
+  override async insert(collection: string, doc: StoredDoc) {
     calls.push('write');
     return super.insert(collection, doc);
   }

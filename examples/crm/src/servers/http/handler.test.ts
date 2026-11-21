@@ -68,7 +68,7 @@ describe('POST /rpc/deals/close', () => {
     ]);
   });
 
-  it('answers a declared app error with its status and data', async () => {
+  it('answers a missing deal with Lattice’s NOT_FOUND, its status and data', async () => {
     const { fetch } = setup();
 
     const response = await fetch(
@@ -79,9 +79,9 @@ describe('POST /rpc/deals/close', () => {
     expect(await response.json()).toEqual({
       ok: false,
       error: {
-        code: 'DealNotFound',
-        message: 'No deal with this id',
-        data: { id: 'nope' },
+        code: 'NOT_FOUND',
+        message: 'No document with this id',
+        data: { collection: 'deals', id: 'nope' },
       },
     });
   });

@@ -12,7 +12,7 @@ import type {
 import { LatticeError, parse } from './errors.js';
 import type { Family, FamilyContext } from './family.js';
 import { findQuery, stamped, touched } from './repo.js';
-import type { CollectionStore, Doc } from './store.js';
+import type { CollectionStore, StoredDoc } from './store.js';
 import type { AnyWhere } from './where.js';
 
 type AnyShape = z.core.$ZodShape;
@@ -73,7 +73,7 @@ function notFound(call: Call, id: string) {
 }
 
 /** A stored doc as the collection's document type: it has its timestamps. */
-function documentOf(call: Call, doc: Doc): Document<AnyShape> {
+function documentOf(call: Call, doc: StoredDoc): Document<AnyShape> {
   const { createdAt, updatedAt } = doc;
   if (typeof createdAt !== 'string' || typeof updatedAt !== 'string') {
     throw new Error(
@@ -83,7 +83,7 @@ function documentOf(call: Call, doc: Doc): Document<AnyShape> {
   return { ...doc, createdAt, updatedAt };
 }
 
-async function read(call: Call, doc: Doc): Promise<Document<AnyShape>> {
+async function read(call: Call, doc: StoredDoc): Promise<Document<AnyShape>> {
   const document = documentOf(call, doc);
   const { afterRead } = call.collection;
   return afterRead === undefined ? document : afterRead({ doc: document });

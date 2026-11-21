@@ -7,10 +7,6 @@ export const domainErrorDefs = {
     message: 'The deal is already closed',
     data: z.object({ id: z.string() }),
   },
-  DealNotFound: {
-    message: 'No deal with this id',
-    data: z.object({ id: z.string() }),
-  },
 };
 
 export class DomainError extends Errors('crm', domainErrorDefs) {}

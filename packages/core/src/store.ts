@@ -4,7 +4,10 @@ import { after, compareDocs, encodeCursor, orderOf } from './sort.js';
 import { type AnyWhere, matches } from './where.js';
 
 /** A stored document. Every collection's documents have an `id`. */
-export type Doc = { readonly id: string; readonly [field: string]: unknown };
+export type StoredDoc = {
+  readonly id: string;
+  readonly [field: string]: unknown;
+};
 
 /** A shallow change to a document. A key set to undefined removes the field. */
 export type Patch = { readonly id?: never; readonly [field: string]: unknown };
@@ -20,7 +23,7 @@ export type FindQuery = {
 };
 
 /** One page of a find. `next` is null on the last page. */
-export type Page = { readonly docs: Doc[]; readonly next: string | null };
+export type Page = { readonly docs: StoredDoc[]; readonly next: string | null };
 
 /**
  * Storage for every collection. `where` on a single-row call is the access
@@ -32,28 +35,28 @@ export abstract class CollectionStore extends Port('CollectionStore') {
     collection: string,
     id: string,
     where?: AnyWhere,
-  ): Promise<Doc | null>;
+  ): Promise<StoredDoc | null>;
   /** The docs that exist and match, in the order of `ids`. */
   abstract getMany(
     collection: string,
     ids: readonly string[],
     where?: AnyWhere,
-  ): Promise<Doc[]>;
+  ): Promise<StoredDoc[]>;
   /** Throws `CONFLICT` when the id exists. */
-  abstract insert(collection: string, doc: Doc): Promise<void>;
+  abstract insert(collection: string, doc: StoredDoc): Promise<void>;
   /** The updated doc, or null when no row matched. */
   abstract update(
     collection: string,
     id: string,
     patch: Patch,
     where?: AnyWhere,
-  ): Promise<Doc | null>;
+  ): Promise<StoredDoc | null>;
   /** The removed doc, or null when no row matched. */
   abstract remove(
     collection: string,
     id: string,
     where?: AnyWhere,
-  ): Promise<Doc | null>;
+  ): Promise<StoredDoc | null>;
 }
 
 /**
@@ -61,12 +64,12 @@ export abstract class CollectionStore extends Port('CollectionStore') {
  * a caller that mutates an argument or a returned doc does not change it.
  */
 export class MemoryStore extends Adapter(CollectionStore) {
-  private readonly collections = new Map<string, Map<string, Doc>>();
+  private readonly collections = new Map<string, Map<string, StoredDoc>>();
 
-  private rows(collection: string): Map<string, Doc> {
+  private rows(collection: string): Map<string, StoredDoc> {
     const existing = this.collections.get(collection);
     if (existing !== undefined) return existing;
-    const rows = new Map<string, Doc>();
+    const rows = new Map<string, StoredDoc>();
     this.collections.set(collection, rows);
     return rows;
   }
@@ -75,7 +78,7 @@ export class MemoryStore extends Adapter(CollectionStore) {
     collection: string,
     id: string,
     where: AnyWhere | undefined,
-  ): Doc | undefined {
+  ): StoredDoc | undefined {
     const doc = this.rows(collection).get(id);
     if (doc === undefined) return undefined;
     return where === undefined || matches(doc, where) ? doc : undefined;
@@ -109,7 +112,7 @@ export class MemoryStore extends Adapter(CollectionStore) {
     collection: string,
     id: string,
     where?: AnyWhere,
-  ): Promise<Doc | null> {
+  ): Promise<StoredDoc | null> {
     const doc = this.visible(collection, id, where);
     return doc === undefined ? null : structuredClone(doc);
   }
@@ -118,14 +121,14 @@ export class MemoryStore extends Adapter(CollectionStore) {
     collection: string,
     ids: readonly string[],
     where?: AnyWhere,
-  ): Promise<Doc[]> {
+  ): Promise<StoredDoc[]> {
     return ids.flatMap((id) => {
       const doc = this.visible(collection, id, where);
       return doc === undefined ? [] : [structuredClone(doc)];
     });
   }
 
-  async insert(collection: string, doc: Doc): Promise<void> {
+  async insert(collection: string, doc: StoredDoc): Promise<void> {
     const rows = this.rows(collection);
     if (rows.has(doc.id)) {
       throw LatticeError.CONFLICT({ collection, id: doc.id });
@@ -138,13 +141,16 @@ export class MemoryStore extends Adapter(CollectionStore) {
     id: string,
     patch: Patch,
     where?: AnyWhere,
-  ): Promise<Doc | null> {
+  ): Promise<StoredDoc | null> {
     const existing = this.visible(collection, id, where);
     if (existing === undefined) return null;
     const fields = Object.entries({ ...existing, ...patch }).filter(
       ([, value]) => value !== undefined,
     );
-    const doc: Doc = structuredClone({ ...Object.fromEntries(fields), id });
+    const doc: StoredDoc = structuredClone({
+      ...Object.fromEntries(fields),
+      id,
+    });
     this.rows(collection).set(id, doc);
     return structuredClone(doc);
   }
@@ -153,7 +159,7 @@ export class MemoryStore extends Adapter(CollectionStore) {
     collection: string,
     id: string,
     where?: AnyWhere,
-  ): Promise<Doc | null> {
+  ): Promise<StoredDoc | null> {
     const doc = this.visible(collection, id, where);
     if (doc === undefined) return null;
     this.rows(collection).delete(id);

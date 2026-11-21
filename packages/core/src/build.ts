@@ -447,16 +447,19 @@ export class Framework<
 
 /**
  * The edge's `onError`, such as `FetchHandler`'s: it logs each unexpected
- * error (ts-pf's `isUnexpectedError`) that no family has logged. A throw
- * inside `execute` reaches the edge unchanged, and the family has logged it
- * once already; a throw the family never saw, such as the context factory's
- * or ts-pf's output check, is logged here. Typed structurally, so core needs
- * no `@ts-pf/server-http`: it fits `FetchHandlerOnError`, which also passes
- * the request.
+ * error (ts-pf's `isUnexpectedError`) that no family logged as a failure. A
+ * throw inside `execute` reaches the edge unchanged, and the family has
+ * logged it once already. Logged here: a throw the family never saw, such as
+ * the context factory's or ts-pf's output check, and a refusal the app's
+ * map keeps from clients, which the family logged only at info. Typed
+ * structurally, so core needs no `@ts-pf/server-http`: it fits
+ * `FetchHandlerOnError`, which also passes the request.
  */
 function unexpectedErrors(logger: Logger): (error: unknown) => void {
   return (error) => {
-    if (!isUnexpectedError(error) || loggedByFamily(error)) return;
+    if (!isUnexpectedError(error) || loggedByFamily(error) === 'failed') {
+      return;
+    }
     if (error instanceof Error) logger.error(error);
     else logger.error('Unexpected error', { thrown: error });
   };
@@ -505,7 +508,7 @@ function clientErrors<Actor>(
       if (
         isPFError(sent) &&
         sent.code !== 'INTERNAL' &&
-        !loggedByFamily(error)
+        loggedByFamily(error) === undefined
       ) {
         const [collection, action] = path;
         // The guards may not have checked the actor yet.

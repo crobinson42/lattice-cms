@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { LatticeError } from './errors.js';
 import { validationPaths } from './fixtures/validation.js';
-import { type Doc, MemoryStore } from './store.js';
+import { MemoryStore, type StoredDoc } from './store.js';
 
-const post = (id: string, fields: Record<string, unknown> = {}): Doc => ({
+const post = (id: string, fields: Record<string, unknown> = {}): StoredDoc => ({
   id,
   title: `Post ${id}`,
   status: 'draft',
   ...fields,
 });
 
-async function seeded(...docs: Doc[]): Promise<MemoryStore> {
+async function seeded(...docs: StoredDoc[]): Promise<MemoryStore> {
   const store = new MemoryStore();
   for (const doc of docs) await store.insert('posts', doc);
   return store;
@@ -144,7 +144,7 @@ describe('MemoryStore', () => {
 
 describe('pagination', () => {
   // Ties on purpose: a has three values and b two across twelve docs.
-  const docs: Doc[] = Array.from({ length: 12 }, (_, i) => ({
+  const docs: StoredDoc[] = Array.from({ length: 12 }, (_, i) => ({
     id: `d${String(i).padStart(2, '0')}`,
     a: i % 3,
     b: ['x', 'y'][i % 2],

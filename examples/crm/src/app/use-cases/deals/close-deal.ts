@@ -1,4 +1,4 @@
-import type { Repo } from '@latticecms/core';
+import { type Doc, LatticeError, type Repo } from '@latticecms/core';
 import { z } from 'zod';
 import { Deals } from '../../../domain/collections/deals.js';
 import { DomainError } from '../../../domain/errors/domain.js';
@@ -24,9 +24,9 @@ export class CloseDeal extends AppUseCase('deals.close', {
   async execute(
     ctx: AppCtx,
     input: { id: string; outcome: 'won' | 'lost' },
-  ): Promise<z.output<typeof Deals.output>> {
+  ): Promise<Doc<typeof Deals>> {
     const deal = await this.deps.deals.get(input.id);
-    if (deal === null) throw DomainError.DealNotFound({ id: input.id });
+    if (deal === null) throw notFound(input.id);
     if (deal.closedAt !== undefined) {
       throw DomainError.AlreadyClosed({ id: input.id });
     }
@@ -34,7 +34,7 @@ export class CloseDeal extends AppUseCase('deals.close', {
       stage: input.outcome,
       closedAt: new Date().toISOString(),
     });
-    if (closed === null) throw DomainError.DealNotFound({ id: input.id });
+    if (closed === null) throw notFound(input.id);
     await this.deps.events.publish(
       new DealClosedEvent({
         dealId: closed.id,
@@ -44,4 +44,8 @@ export class CloseDeal extends AppUseCase('deals.close', {
     );
     return closed;
   }
+}
+
+function notFound(id: string) {
+  return LatticeError.NOT_FOUND({ collection: Deals.slug, id });
 }

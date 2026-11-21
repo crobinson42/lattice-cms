@@ -16,7 +16,7 @@ import {
 } from './fixtures/events.js';
 import { Posts } from './fixtures/posts.js';
 import { type CollectionStore, framework, MemoryStore } from './index.js';
-import type { Doc, Patch } from './store.js';
+import type { Patch, StoredDoc } from './store.js';
 
 type Post = z.output<typeof Posts.output>;
 
@@ -29,7 +29,7 @@ class RecordingStore extends MemoryStore {
     super();
   }
 
-  override async insert(collection: string, doc: Doc): Promise<void> {
+  override async insert(collection: string, doc: StoredDoc): Promise<void> {
     await super.insert(collection, doc);
     this.log.push(`insert ${collection}`);
   }
@@ -38,13 +38,16 @@ class RecordingStore extends MemoryStore {
     collection: string,
     id: string,
     patch: Patch,
-  ): Promise<Doc | null> {
+  ): Promise<StoredDoc | null> {
     const doc = await super.update(collection, id, patch);
     this.log.push(`update ${collection}`);
     return doc;
   }
 
-  override async remove(collection: string, id: string): Promise<Doc | null> {
+  override async remove(
+    collection: string,
+    id: string,
+  ): Promise<StoredDoc | null> {
     const doc = await super.remove(collection, id);
     this.log.push(`remove ${collection}`);
     return doc;
@@ -73,7 +76,7 @@ class DownPublisher extends Adapter(DomainEventPublisher) {
 
 /** A store whose every insert finds the id taken. */
 class TakenStore extends MemoryStore {
-  override async insert(collection: string, doc: Doc): Promise<void> {
+  override async insert(collection: string, doc: StoredDoc): Promise<void> {
     throw LatticeError.CONFLICT({ collection, id: doc.id });
   }
 }

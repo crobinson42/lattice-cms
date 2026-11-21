@@ -119,6 +119,44 @@ describe('deals', () => {
     expect(published(events)).toEqual(['dealsCreated']);
   });
 
+  it('the override answers a missing id as the generated delete does', async () => {
+    const { local } = setup();
+    const { app } = framework({
+      family: AppUseCase,
+      store: new MemoryStore(),
+      events: new MemoryDomainEventPublisher(),
+    })
+      .collection(Deals)
+      .build();
+    const generated = createLocalClient(app, {
+      context: { actor, logger: new NoopLogger() },
+    });
+
+    const fromOverride = await asResult(local.deals.delete({ id: 'nope' }));
+    const fromGenerated = await asResult(
+      generated.deals.delete({ id: 'nope' }),
+    );
+
+    if (fromOverride.ok || fromGenerated.ok)
+      throw new Error('expected NOT_FOUND');
+    if (fromOverride.error.code !== 'NOT_FOUND') {
+      throw new Error(fromOverride.error.code);
+    }
+    expect(fromOverride.error.data).toEqual({
+      collection: 'deals',
+      id: 'nope',
+    });
+    expect({
+      code: fromOverride.error.code,
+      data: fromOverride.error.data,
+      status: fromOverride.error.status,
+    }).toEqual({
+      code: fromGenerated.error.code,
+      data: fromGenerated.error.data,
+      status: fromGenerated.error.status,
+    });
+  });
+
   it('close wins or loses a deal once, publishes DealClosed, and refuses a second close', async () => {
     const { local, events } = setup();
     const deal = await local.deals.create({

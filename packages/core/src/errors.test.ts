@@ -15,7 +15,7 @@ import { AppUseCase, callContext } from './fixtures/context.js';
 import { MemoryEventPublisher } from './fixtures/events.js';
 import { Posts } from './fixtures/posts.js';
 import { type CollectionStore, framework, MemoryStore } from './index.js';
-import type { Doc } from './store.js';
+import type { StoredDoc } from './store.js';
 
 type Post = z.output<typeof Posts.output>;
 
@@ -40,7 +40,7 @@ class LockPost extends AppUseCase('posts.lock', {
 
 /** A store whose every insert finds the id taken. */
 class TakenStore extends MemoryStore {
-  override async insert(collection: string, doc: Doc): Promise<void> {
+  override async insert(collection: string, doc: StoredDoc): Promise<void> {
     throw LatticeError.CONFLICT({ collection, id: doc.id });
   }
 }
@@ -474,6 +474,24 @@ describe('the onError build() returns', () => {
     expect(root.records).toMatchObject([
       { level: 'info', fields: { action: 'create', outcome: 'ok' } },
       { level: 'error', message: 'Internal server error' },
+    ]);
+  });
+
+  it('logs at error a refusal the app keeps from clients, after the family’s info line', async () => {
+    const root = new MemoryLogger();
+    const { local, lock, onError } = setup({ logger: root });
+    lock.throws = DomainError.InternalOnly();
+
+    const error = await local.posts.lock({ id: 'p1' }).catch((e) => e);
+    onError(root)(error);
+
+    expect(toWireError(error).code).toBe('INTERNAL');
+    expect(root.records).toMatchObject([
+      {
+        level: 'info',
+        fields: { action: 'lock', outcome: 'refused', code: 'InternalOnly' },
+      },
+      { level: 'error', message: 'Not for clients' },
     ]);
   });
 

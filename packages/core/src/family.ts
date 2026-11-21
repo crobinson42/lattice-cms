@@ -32,17 +32,23 @@ export type Family<Actor> = UseCase.ContextFactory<
   readonly actorId: (actor: Actor) => string;
 };
 
-/**
- * The errors a family has logged: its guards' rejections and what `onCatch`
- * saw. The procedure middleware logs only the refusals no family saw, such as
- * ts-pf's own input check, and skips these. A WeakSet keeps the error object
- * as it is and holds it no longer than the caller.
- */
-const logged = new WeakSet<object>();
+/** How a family logged an error: at info as a refusal, or at error. */
+export type Logged = 'refused' | 'failed';
 
-/** Whether a family has logged `error`. */
-export function loggedByFamily(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && logged.has(error);
+/**
+ * The errors a family has logged, its guards' rejections and what `onCatch`
+ * saw, with how. The procedure middleware skips both outcomes; the edge's
+ * `onError` skips only failures, so a refusal the client sees as INTERNAL
+ * still reaches it. A WeakMap keeps the error object as it is and holds it
+ * no longer than the caller.
+ */
+const logged = new WeakMap<object, Logged>();
+
+/** How a family logged `error`, or undefined when no family did. */
+export function loggedByFamily(error: unknown): Logged | undefined {
+  return typeof error === 'object' && error !== null
+    ? logged.get(error)
+    : undefined;
 }
 
 /**
@@ -83,7 +89,9 @@ function logThrown(
   } else {
     log.error(token, { outcome: 'failed', thrown: error, ...timing });
   }
-  if (typeof error === 'object' && error !== null) logged.add(error);
+  if (typeof error === 'object' && error !== null) {
+    logged.set(error, refused === undefined ? 'failed' : 'refused');
+  }
   return error;
 }
 

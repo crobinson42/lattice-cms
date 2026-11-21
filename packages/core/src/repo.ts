@@ -1,13 +1,18 @@
 import type { z } from 'zod';
 import type { AnyCollection } from './collection.js';
 import { defaultLimit, defaultSort, type Sort } from './sort.js';
-import type { CollectionStore, Doc, FindQuery, Patch } from './store.js';
+import type { CollectionStore, FindQuery, Patch, StoredDoc } from './store.js';
 import type { AnyWhere, Where } from './where.js';
 
+/** A collection's stored document: its schema plus `id`, `createdAt` and `updatedAt`. */
+export type Doc<C extends { readonly output: z.ZodType }> = z.output<
+  C['output']
+>;
+
 /** A query of `Repo.find`. Each key is optional; the defaults are find's. */
-export type RepoQuery<Doc> = {
-  readonly where?: Where<Doc>;
-  readonly sort?: Sort<Doc>;
+export type RepoQuery<D> = {
+  readonly where?: Where<D>;
+  readonly sort?: Sort<D>;
   readonly limit?: number;
   /** The `next` cursor of the previous page. */
   readonly after?: string;
@@ -20,22 +25,22 @@ export type RepoQuery<Doc> = {
  * events. A use case that needs those calls the generated one instead.
  */
 export interface Repo<C extends AnyCollection> {
-  get(id: string): Promise<z.output<C['output']> | null>;
+  get(id: string): Promise<Doc<C> | null>;
   /** The docs that exist, in the order of `ids`. */
-  getMany(ids: readonly string[]): Promise<z.output<C['output']>[]>;
-  find(query?: RepoQuery<z.output<C['output']>>): Promise<{
-    docs: z.output<C['output']>[];
+  getMany(ids: readonly string[]): Promise<Doc<C>[]>;
+  find(query?: RepoQuery<Doc<C>>): Promise<{
+    docs: Doc<C>[];
     next: string | null;
   }>;
   /** Stores `data` with a new `id`, `createdAt` and `updatedAt`. */
-  insert(data: z.output<C['schema']>): Promise<z.output<C['output']>>;
+  insert(data: z.output<C['schema']>): Promise<Doc<C>>;
   /** Writes the fields in `patch` and bumps `updatedAt`; null when no doc has `id`. */
   update(
     id: string,
     patch: Partial<z.output<C['schema']>>,
-  ): Promise<z.output<C['output']> | null>;
+  ): Promise<Doc<C> | null>;
   /** The removed doc, or null when no doc has `id`. */
-  remove(id: string): Promise<z.output<C['output']> | null>;
+  remove(id: string): Promise<Doc<C> | null>;
 }
 
 /** A new document: `data` with an `id`, `createdAt` and `updatedAt`. */
@@ -70,7 +75,7 @@ export function findQuery(
 }
 
 /**
- * The repo of `collection`. The store holds untyped documents (`Doc`); a
+ * The repo of `collection`. The store holds untyped documents (`StoredDoc`); a
  * repo trusts that each one has its collection's type, as the writes that
  * put it there did. The overload states that type; the implementation is
  * typed for any collection, so no value is cast.
@@ -89,7 +94,7 @@ export function repo(
     getMany: (ids) => store.getMany(slug, ids),
     find: (query = {}) => store.find(findQuery(slug, query)),
     async insert(data) {
-      const doc: Doc = stamped(data);
+      const doc: StoredDoc = stamped(data);
       await store.insert(slug, doc);
       return doc;
     },
