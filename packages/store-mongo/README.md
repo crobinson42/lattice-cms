@@ -20,25 +20,16 @@ const store = new MongoStore({
   url,
   database: process.env.MONGODB_DATABASE ?? 'crm',
 });
-const crm = createApp({
-  store,
-  events: new LoggingDomainEventPublisher({ logger }),
-});
 
-// Start the store, migrate, then create indexes, so a migration can fix
-// data before an index that depends on it is built.
+// examples/crm/src/servers/http/server.ts
+const crm = createApp({ store, events: deps.events });
 await store.start();
 await migrate(store, migrations, { logger });
 await crm.ensure();
 
-// ... serve ...
-
-// Stop taking requests, let those in flight finish, then close the store.
-async function shutdown(signal: string): Promise<void> {
-  logger.info('http stopping', { signal });
-  await server.close();
-  await store.stop();
-}
+// ... serve, then on shutdown, after the server stops taking requests:
+await server.close();
+await store.stop();
 ```
 
 `new MongoStore({ url, database, client? })` (`MongoStoreOptions`) takes a connection string, the database every collection lives in, and `MongoClientOptions` for its client. `serverSelectionTimeoutMS` bounds how long `start()` waits for the server.

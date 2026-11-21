@@ -4,7 +4,12 @@ import { contract, crm } from './contract.js';
 
 describe('the contract module', () => {
   it('gives the contract with no ports', () => {
-    expect(Object.keys(contract)).toEqual(['companies', 'contacts', 'deals']);
+    expect(Object.keys(contract)).toEqual([
+      'companies',
+      'contacts',
+      'deals',
+      'memberships',
+    ]);
     expect(Object.keys(contract.deals)).toEqual([
       'find',
       'count',

@@ -374,6 +374,43 @@ describe.each(backends)('on $name', (backend) => {
     });
   });
 
+  describe('the actor', () => {
+    it('is valid as a member or as support, never both', async () => {
+      const { app } = setup();
+      const logger = new MemoryLogger();
+      const both = createLocalClient(app, {
+        context: {
+          actor: { userId: 'u1', organizationId: 'o1', support: true },
+          logger,
+        },
+      });
+
+      const result = await asResult(both.deals.find({}));
+
+      expect(result.ok ? 'ok' : result.error.code).toBe('UNAUTHORIZED');
+    });
+
+    it('needs no session on a direct call through build().context()', async () => {
+      const crm = setup();
+      await crm.local.companies.create({ name: 'Acme' });
+
+      const page = await crm.useCases.companies.find.execute(
+        crm.context({ actor, logger: new NoopLogger() }),
+        {},
+      );
+      const support = await crm.useCases.companies.find.execute(
+        crm.context({
+          actor: { userId: 'sam', support: true },
+          logger: new NoopLogger(),
+        }),
+        {},
+      );
+
+      expect(page.docs.map((doc) => doc.name)).toEqual(['Acme']);
+      expect(support.docs.map((doc) => doc.organizationId)).toEqual(['o1']);
+    });
+  });
+
   describe('the contract’s types', () => {
     it('a client gets full types with no annotation at the call site', async () => {
       const { local } = setup();

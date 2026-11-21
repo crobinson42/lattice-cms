@@ -1,41 +1,39 @@
-import { MemoryLogger } from '@hexok/logger';
+import { unscoped } from '@latticecms/core';
 import { describe, expect, it } from 'vitest';
-import { MemoryDomainEventPublisher } from '../../infra/events/memory-domain-events.js';
+import { httpSetup, rpcRequest } from '../../test/http.js';
 import { backends, storeOf } from '../../test/stores.js';
-import { createApp } from '../app.js';
-import {
-  createHttpHandler,
-  devOrgHeader,
-  devSupportHeader,
-  devUserHeader,
-} from './handler.js';
 
-/** A caller's headers. */
-type Caller = { readonly org: string; readonly support?: boolean };
+/** Who calls: a user acting in an organization, or a support user. */
+type Caller = { readonly user: string; readonly org?: string };
 
 describe.each(backends)('tenant isolation over HTTP on $name', (backend) => {
   const store = storeOf(backend);
 
-  function setup() {
-    const logger = new MemoryLogger();
-    const crm = createApp({
-      store: store(),
-      events: new MemoryDomainEventPublisher(),
-    });
-    const fetch = createHttpHandler(crm, { logger });
+  /**
+   * The edge with real sessions: each caller signs in once, and members
+   * get their memberships. `sam` is support.
+   */
+  async function setup() {
+    const s = httpSetup(store(), { support: ['sam'] });
+    await s.member('ada', 'org-a');
+    await s.member('bea', 'org-b');
+    // cyd works in both organizations.
+    await s.member('cyd', 'org-a');
+    await s.member('cyd', 'org-b');
+    const tokens = new Map<string, string>();
+    for (const user of ['ada', 'bea', 'cyd', 'sam']) {
+      tokens.set(user, await s.signIn(user));
+    }
     /** Calls `path` as `caller`, and returns the response body. */
     async function rpc(caller: Caller, path: string, input: unknown) {
-      const response = await fetch(
-        new Request(`http://localhost/rpc/${path}`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            [devUserHeader]: `user-of-${caller.org}`,
-            [devOrgHeader]: caller.org,
-            ...(caller.support === true ? { [devSupportHeader]: 'true' } : {}),
-          },
-          body: JSON.stringify({ input }),
-        }),
+      const token = tokens.get(caller.user);
+      if (token === undefined) throw new Error(`${caller.user} has no session`);
+      const response = await s.fetch(
+        rpcRequest(
+          path,
+          input,
+          caller.org === undefined ? { token } : { token, org: caller.org },
+        ),
       );
       const body: unknown = await response.json();
       return body;
@@ -66,15 +64,15 @@ describe.each(backends)('tenant isolation over HTTP on $name', (backend) => {
         ? body.error.code
         : 'ok';
     }
-    return { logger, ok, code };
+    return { ...s, ok, code };
   }
 
-  const a = { org: 'org-a' };
-  const b = { org: 'org-b' };
+  const a = { user: 'ada', org: 'org-a' };
+  const b = { user: 'bea', org: 'org-b' };
 
   /** One company with a contact and two deals in each organization. */
   async function seeded() {
-    const s = setup();
+    const s = await setup();
     const seed = async (caller: Caller, name: string) => {
       const company = await s.ok(caller, 'companies/create', { name });
       const id = idOf(company);
@@ -161,9 +159,46 @@ describe.each(backends)('tenant isolation over HTTP on $name', (backend) => {
     expect(await code(a, 'companies/delete', { id: lone })).toBe('ok');
   });
 
+  it('a member of two organizations switches by the header, with one session', async () => {
+    const { ok } = await seeded();
+
+    expect(
+      names(await ok({ user: 'cyd', org: 'org-a' }, 'companies/find', {})),
+    ).toEqual(['acme']);
+    expect(
+      names(await ok({ user: 'cyd', org: 'org-b' }, 'companies/find', {})),
+    ).toEqual(['bolt']);
+  });
+
+  it('a membership revoked mid-session stops the next call', async () => {
+    const { ok, code, repos } = await seeded();
+    const cyd = { user: 'cyd', org: 'org-b' };
+    expect(names(await ok(cyd, 'companies/find', {}))).toEqual(['bolt']);
+
+    const { docs } = await repos.memberships.find(
+      { where: { userId: { eq: 'cyd' }, organizationId: { eq: 'org-b' } } },
+      unscoped,
+    );
+    for (const doc of docs) await repos.memberships.remove(doc.id, unscoped);
+
+    expect(await code(cyd, 'companies/find', {})).toBe('FORBIDDEN');
+    // The session itself is still good in the organization cyd kept.
+    expect(
+      names(await ok({ user: 'cyd', org: 'org-a' }, 'companies/find', {})),
+    ).toEqual(['acme']);
+  });
+
+  it('a member cannot name another organization to reach its rows', async () => {
+    const { code } = await seeded();
+
+    expect(
+      await code({ user: 'ada', org: 'org-b' }, 'companies/find', {}),
+    ).toBe('FORBIDDEN');
+  });
+
   it('support reads every organization, cannot write, and each bypass is logged', async () => {
     const { ok, code, logger, acme } = await seeded();
-    const support = { org: 'org-support', support: true };
+    const support = { user: 'sam' };
 
     expect(
       names(await ok(support, 'companies/find', { sort: ['name'] })),
@@ -177,7 +212,7 @@ describe.each(backends)('tenant isolation over HTTP on $name', (backend) => {
         .map((record) => record.fields),
     ).toMatchObject([
       {
-        actorId: 'user-of-org-support',
+        actorId: 'sam',
         collection: 'companies',
         action: 'find',
         tenancy: 'bypass',

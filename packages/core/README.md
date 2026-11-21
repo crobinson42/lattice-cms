@@ -14,7 +14,7 @@ npm install @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server
 
 ## Example
 
-From [`examples/crm`](../../examples/crm): three tenanted collections on MongoDB, one override, one custom method and one app error, served at `/rpc`.
+From [`examples/crm`](../../examples/crm): three tenanted collections and a global one on MongoDB, one override, one custom method and one app error, served at `/rpc` to signed-in members of an organization.
 
 A collection is a slug and a `z.object()` schema. Hooks transform data and nothing else.
 
@@ -37,7 +37,7 @@ export const Contacts = collection('contacts', {
 });
 ```
 
-The app has one use case family. Generated and hand-written use cases extend it, and share its guards and logging. `tenantOf` gives each call its organization.
+The app has one use case family. Generated and hand-written use cases extend it, and share its guards and logging. `tenantOf` gives each call its organization, or a read-only bypass for support staff.
 
 ```ts
 // examples/crm/src/app/use-cases/context.ts
@@ -45,20 +45,37 @@ import { family, tenancy } from '@latticecms/core';
 import type { UseCase } from 'hexok';
 import { z } from 'zod';
 
-/** Who is calling. The edge builds it; real auth arrives in Phase 2. */
-export const actorSchema = z.object({
+/** A member acting in one organization, which the edge checked. */
+const memberSchema = z.strictObject({
   userId: z.string().min(1),
   organizationId: z.string().min(1),
-  /** Support staff read every organization's rows, and change none. */
-  support: z.boolean().optional(),
 });
+
+/**
+ * Support staff: they read every organization's rows and change none. The
+ * edge sets this from server config, never from the request, and a support
+ * actor has no organization.
+ */
+const supportSchema = z.strictObject({
+  userId: z.string().min(1),
+  support: z.literal(true),
+});
+
+/**
+ * Who is calling. The edge builds it from the session and the
+ * organization header. Strict, so an actor with both an organization and
+ * the support flag is invalid rather than read as either.
+ */
+export const actorSchema = z.union([memberSchema, supportSchema]);
+
+export type Actor = z.output<typeof actorSchema>;
 
 /** The app's one use case family. Generated and hand-written use cases share it. */
 export const AppUseCase = family({
   actor: actorSchema,
   actorId: (actor) => actor.userId,
   tenantOf: (actor) =>
-    actor.support === true ? tenancy.bypass : actor.organizationId,
+    'support' in actor ? tenancy.bypass : actor.organizationId,
 });
 
 export type AppCtx = UseCase.Ctx<typeof AppUseCase>;
@@ -75,6 +92,7 @@ import { CloseDeal } from '../../app/use-cases/deals/close-deal.js';
 import { Companies } from '../../domain/collections/companies.js';
 import { Contacts } from '../../domain/collections/contacts.js';
 import { Deals } from '../../domain/collections/deals.js';
+import { Memberships } from '../../domain/collections/memberships.js';
 import { clientErrors, toRpcError } from './errors.js';
 
 /** Any signed-in caller may do this. The edge has already checked the actor. */
@@ -83,7 +101,7 @@ const anyone = () => true;
 // An archived deal is hidden from every read and can no longer change.
 const live = () => ({ archived: { eq: false } });
 
-/** The CRM's API: three collections, one override and one method. No ports. */
+/** The CRM's API: four collections, one override and one method. No ports. */
 export const crm = framework({
   family: AppUseCase,
   errors: { declared: clientErrors, map: toRpcError },
@@ -104,12 +122,17 @@ export const crm = framework({
     },
     methods: { close: CloseDeal },
     overrides: { delete: ArchiveDeal },
+  })
+  .collection(Memberships, {
+    // A caller lists its own memberships, such as for an organization
+    // switcher. No create, update or delete: only trusted code writes them.
+    access: { read: ({ actor }) => ({ userId: { eq: actor.userId } }) },
   });
 
 /** What clients and codegen import. */
 export const contract = crm.contract;
 
-export { AppUseCase, Companies, Contacts, Deals };
+export { AppUseCase, Companies, Contacts, Deals, Memberships };
 ```
 
 `build()` wires the definition to a store and a publisher. The method and override instances get the typed repos.
@@ -147,32 +170,60 @@ export type CrmApp = ReturnType<typeof createApp>;
 The server starts the store, runs the migrations, creates the indexes, then serves:
 
 ```ts
-// examples/crm/src/servers/http/main.ts
-const store = new MongoStore({ url, database: process.env.MONGODB_DATABASE ?? 'crm' });
-const crm = createApp({ store, events: new LoggingDomainEventPublisher({ logger }) });
-
+// examples/crm/src/servers/http/server.ts
+const crm = createApp({ store, events: deps.events });
 await store.start();
 await migrate(store, migrations, { logger });
 await crm.ensure();
 ```
 
-ts-pf's `FetchHandler` serves the app. `onError` from `build()` logs what the family did not.
+ts-pf's `FetchHandler` serves the app at `/rpc`, and `onError` from `build()` logs what the family did not. The edge builds the actor before Lattice sees it: a `@hexok/auth` session proves the user, and a membership lookup checks the organization the request names. Lattice never imports `@hexok/auth`.
 
 ```ts
 // examples/crm/src/servers/http/handler.ts
-export function createHttpHandler(
-  crm: Pick<CrmApp, 'app' | 'onError'>,
-  options: { logger: Logger },
-): (request: Request) => Promise<Response> {
-  // Logs what no family logged: a family logs its own unexpected errors.
-  const handler = new FetchHandler(crm.app, {
-    onError: crm.onError(options.logger),
-  });
-  const context = contextOf(options.logger);
-  return async (request) => {
-    const result = await handler.handle(request, { prefix: '/rpc', context });
-    if (result.matched) return result.response;
-    return new Response('Not Found', { status: 404 });
+function contextOf(deps: HttpDeps) {
+  const memberships = deps.crm.repos.memberships;
+  return async (request: Request): Promise<CallContext<Actor>> => {
+    const logger = deps.logger.child({
+      requestId: request.headers.get('x-request-id') ?? crypto.randomUUID(),
+    });
+    const found = await deps.sessions.authenticate(
+      bearerToken(request.headers.get('authorization')),
+    );
+    if (!found.ok) {
+      logger.info('rpc', {
+        outcome: 'refused',
+        code: 'UNAUTHORIZED',
+        reason: found.code,
+      });
+      throw refusal('UNAUTHORIZED');
+    }
+    const { userId } = found.value;
+    if (deps.support.has(userId)) {
+      return { actor: { userId, support: true }, logger };
+    }
+    const organizationId = request.headers.get(organizationHeader);
+    // Trusted edge code: it decides who the actor is, so no actor's access
+    // applies yet. A missing organization and one that does not exist look
+    // the same as one the user is not a member of.
+    const member =
+      organizationId !== null &&
+      (await memberships.count(
+        {
+          userId: { eq: userId },
+          organizationId: { eq: organizationId },
+        },
+        unscoped,
+      )) > 0;
+    if (organizationId === null || !member) {
+      logger.info('rpc', {
+        outcome: 'refused',
+        code: 'FORBIDDEN',
+        reason: organizationId === null ? 'no-organization' : 'not-a-member',
+      });
+      throw refusal('FORBIDDEN');
+    }
+    return { actor: { userId, organizationId }, logger };
   };
 }
 ```
@@ -353,7 +404,7 @@ Builds the app's one hexok `UseCase.context` family. A caller passes `{ actor, l
 - `access` replaces the functions given at `.collection()` with another `Access` adapter.
 - `app` adds a fresh `access` to each call's context. A direct caller gets one from `context()`. Access answers are kept on the context, so make one per call or per job.
 - `events` must take every collection's events. One that cannot is a compile error that names each refused token.
-- Await `ensure()` after the store has started and before serving, as the CRM's [`main.ts`](#example) does.
+- Await `ensure()` after the store has started and before serving, as the CRM's [`server.ts`](#example) does.
 - `Framework<Actor, D, E, Tenanted>` is the definition's type.
 
 ### Access
@@ -573,7 +624,7 @@ The tests prove each of these.
 
 These are not built. See the [phase table](../../docs/architecture.md#phased-build-plan).
 
-- Auth. The app builds the actor at its edge; the CRM reads it from dev headers. An `@hexok/auth` recipe and an `@hexok/authz` adapter for `Access` come next.
+- An `@hexok/authz` adapter for `Access`. Authentication is the app's, at its edge, with `@hexok/auth`; the CRM shows the recipe.
 - Field-level read masking.
 - `entity`: a collection backed by a hexok `Entity` instead of a schema.
 - A store per collection. One `build({ store })` serves every collection.

@@ -2,13 +2,28 @@ import { family, tenancy } from '@latticecms/core';
 import type { UseCase } from 'hexok';
 import { z } from 'zod';
 
-/** Who is calling. The edge builds it; real auth arrives in Phase 2. */
-export const actorSchema = z.object({
+/** A member acting in one organization, which the edge checked. */
+const memberSchema = z.strictObject({
   userId: z.string().min(1),
   organizationId: z.string().min(1),
-  /** Support staff read every organization's rows, and change none. */
-  support: z.boolean().optional(),
 });
+
+/**
+ * Support staff: they read every organization's rows and change none. The
+ * edge sets this from server config, never from the request, and a support
+ * actor has no organization.
+ */
+const supportSchema = z.strictObject({
+  userId: z.string().min(1),
+  support: z.literal(true),
+});
+
+/**
+ * Who is calling. The edge builds it from the session and the
+ * organization header. Strict, so an actor with both an organization and
+ * the support flag is invalid rather than read as either.
+ */
+export const actorSchema = z.union([memberSchema, supportSchema]);
 
 export type Actor = z.output<typeof actorSchema>;
 
@@ -17,7 +32,7 @@ export const AppUseCase = family({
   actor: actorSchema,
   actorId: (actor) => actor.userId,
   tenantOf: (actor) =>
-    actor.support === true ? tenancy.bypass : actor.organizationId,
+    'support' in actor ? tenancy.bypass : actor.organizationId,
 });
 
 export type AppCtx = UseCase.Ctx<typeof AppUseCase>;
