@@ -6,10 +6,10 @@ This plan is a working document. It is deleted when the exit holds, after anythi
 
 ## Exit
 
-- [ ] `examples/crm` defines three collections, serves them at `/rpc` with `@ts-pf/server-http`, and its tests pass on `MemoryStore`.
-- [ ] A TypeScript client of the generated `contract` gets full types for every operation with no casts and no type annotations at the call site.
+- [x] `examples/crm` defines three collections, serves them at `/rpc` with `@ts-pf/server-http`, and its tests pass on `MemoryStore`.
+- [x] A TypeScript client of the generated `contract` gets full types for every operation with no casts and no type annotations at the call site.
 - [x] One operation is replaced with an override and one custom method is added, and both keep the contract's types.
-- [ ] `npm run lint`, `type-check`, `test` and `build` pass at the root.
+- [x] `npm run lint`, `type-check`, `test` and `build` pass at the root.
 
 ## In scope
 
@@ -123,9 +123,9 @@ The maintainer approved option A: `build({ store, events, methods: ({ repos }) =
 
 ### 10. Docs
 
-- [ ] `packages/core/README.md` states what the package does, requires and guarantees, with one example from `examples/crm`.
-- [ ] `docs/architecture.md` matches what was built. Record any difference and why.
-- [ ] A changeset for `@latticecms/core`.
+- [x] `packages/core/README.md` states what the package does, requires and guarantees, with one example from `examples/crm`.
+- [x] `docs/architecture.md` matches what was built. Record any difference and why.
+- [x] A changeset for `@latticecms/core`.
 
 ## Discoveries
 

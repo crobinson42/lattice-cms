@@ -83,6 +83,24 @@ describe('contacts', () => {
   });
 });
 
+describe('the contacts hook', () => {
+  it('stores the email in lower case, on create and on update', async () => {
+    const { local } = setup();
+    const ada = await local.contacts.create({
+      name: 'Ada',
+      email: 'Ada@Acme.Test',
+      companyId: 'c1',
+    });
+    expect(ada.email).toBe('ada@acme.test');
+
+    const moved = await local.contacts.update({
+      id: ada.id,
+      email: 'ADA@New.Test',
+    });
+    expect(moved.email).toBe('ada@new.test');
+  });
+});
+
 describe('deals', () => {
   it('create applies the defaults the client may leave out', async () => {
     const { local } = setup();

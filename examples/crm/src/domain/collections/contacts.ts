@@ -8,4 +8,7 @@ export const Contacts = collection('contacts', {
     // A plain id until ref() arrives in Phase 1.
     companyId: z.string(),
   }),
+}).hooks({
+  // One spelling per address, so a where on email finds it.
+  beforeChange: ({ data }) => ({ ...data, email: data.email.toLowerCase() }),
 });
