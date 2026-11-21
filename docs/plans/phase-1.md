@@ -131,7 +131,7 @@ Uses ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-p
 
 - [x] `contacts.companyId` and `deals.companyId` become `ref('companies')`. The example runs on `MongoStore` and keeps its `MemoryStore` tests.
 - [x] Tenant isolation tests on Mongo.
-- [ ] Decide whether `Repo.insert` should apply schema defaults like `create` does. Today it takes output data, so defaulted fields are required.
+- [x] `Repo.insert` takes the schema's input type and parses it like `create`: defaults apply and checks run. `Repo.update` writes its patch as given; matching generated update would cost a read and a race.
 
 ### 11. Docs
 
