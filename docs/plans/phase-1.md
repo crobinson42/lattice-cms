@@ -129,8 +129,8 @@ Uses ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-p
 
 ### 10. `examples/crm` on Mongo
 
-- [ ] `contacts.companyId` and `deals.companyId` become `ref('companies')`. The example runs on `MongoStore` and keeps its `MemoryStore` tests.
-- [ ] Tenant isolation tests on Mongo.
+- [x] `contacts.companyId` and `deals.companyId` become `ref('companies')`. The example runs on `MongoStore` and keeps its `MemoryStore` tests.
+- [x] Tenant isolation tests on Mongo.
 - [ ] Decide whether `Repo.insert` should apply schema defaults like `create` does. Today it takes output data, so defaulted fields are required.
 
 ### 11. Docs
@@ -179,5 +179,6 @@ Add a line here when the work teaches something the plan did not know. Each line
 - `ReadUseCase` is an exported interface only because `@ts-pf/contract` does not export `ExpandResult`, so a `.d.ts` cannot name a populating read (TS2883). Exporting it from ts-pf would let Lattice drop the interface.
 - `many()` without `fields` inferred its type parameters from the `relations` constraint, so the Link type got an index signature. `NoInfer` on its return type fixes it, with a regression test.
 - After step 9: core type-check 2.41 s (1.49M instantiations, mostly tests), crm 0.51 s, store-mongo 0.51 s. Asserted overloads: 8.
+- examples/crm is tenanted by organization, refs companies with restrict, and runs on MongoStore (start → migrate → ensure). Its app, handler and tenancy tests run on MemoryStore and MongoStore: 50 tests. An archived deal still blocks deleting its company, because restrict counts every row. crm type-check: 0.55 s with tests, 0.44 s sources only.
 - Type-check after access: core check 1.08 s to 1.15 s (with a 500-line test file), crm 0.40 s, unchanged. Asserted overloads: 6.
 - Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.
