@@ -114,21 +114,18 @@ Decided in [0028](../decisions/0028-relations-delete-in-a-store-transaction-as-s
 
 ### 9. Population
 
-- [ ] Remove `rootRouter()` in `build.ts` if ts-pf offers a typed `router()` for an erased tree that mixes procedures and nested routers Read ts-pf 0.6.0's router typing first; the ts-pf session is closed. If there is no typed path, write the exact ts-pf change and ask the maintainer, and keep `rootRouter()` with a comment saying why.
-- [ ] A link field named like a ref field, a reserved name or the tenant is a compile error, not only a throw.
+Uses ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)), released in `@ts-pf/*` 0.6.0 (ts-pf PR #66). Bump every `@ts-pf/*` package together, then run `npx skills experimental_sync -y`.
 
-Uses ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)), released in `@ts-pf/*` 0.6.0 on 2026-11-21. Bump all `@ts-pf/*` packages together, then run `npx skills experimental_sync -y`:
-- `.output(Wide).expand({ key: 'populate', at: ['docs'], fields })`, where the output schema is the wide type the server sends.
-- The plain type is derived by removing `fields`.
-- A `populate` variable typed `K[]` gets the wide type.
-- Implemented in ts-pf PR #66 (`crobinson42/ts-pf#66`). It ships as 0.6.0 after the maintainer merges it and the release PR.
-- `Fields` holds output types. A hand-written procedure type is `ContractProcedure<I, O, E, M, I, Expansion<'populate', ['docs'], { authorId: User | Withheld }>>`. `.expand()` takes schemas at runtime, after `.input()` and `.output()`.
+- `.output(Wide).expand({ key: 'populate', at: ['docs'], fields })`. The output schema is the wide type the server sends, and `.expand()` comes after `.input()` and `.output()`.
+- ts-pf derives the plain type by removing `fields`. A `populate` variable typed `K[]` gets the wide type.
+- `Fields` holds output types. A hand-written procedure type is `ContractProcedure<I, O, E, M, I, Expansion<'populate', ['docs'], { authorId: User | Withheld }>>`.
 - `useSWR` narrows when its fetcher calls the procedure: `useSWR(swr.posts.get.key({ input }), () => swr.posts.get(input))`. `InferExpandedOutput<typeof contract.posts.get, ['authorId']>` names the type elsewhere.
+- Drop the spike's `GetClient`, `FindClient` and `LatticeClient`, and delete both spike files once population covers them.
 
-Lattice drops the spike's `GetClient`, `FindClient` and `LatticeClient`. Bump `@ts-pf/*` when it ships. If ts-pf declines, stop and ask the maintainer before falling back to the spike's typed client.
-
-- [ ] `populate` on reads, one level deep. Ids are collected per target collection, and `getMany` is called once each.
-- [ ] Access and tenancy apply to populated documents. A populated document the caller may not read comes back as `{ id }` only.
+- [ ] `populate` on reads (`get`, `find`, and a relation's `list`), one level deep. Ids are collected per target collection, and `getMany` is called once each.
+- [ ] Access and tenancy apply to populated documents. A populated document the caller may not read, or one that no longer exists, comes back as `{ id }` only.
+- [ ] Remove `rootRouter()` in `build.ts` if ts-pf 0.6.0 offers a typed `router()` for an erased tree that mixes procedures and nested routers. Read ts-pf's router typing first; the ts-pf session is closed. If there is no typed path, write the exact ts-pf change for the maintainer, and keep `rootRouter()` with a comment saying why.
+- [ ] A link field named like a ref field, a reserved name or the tenant is a compile error, not only a throw.
 
 ### 10. `examples/crm` on Mongo
 
