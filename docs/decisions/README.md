@@ -33,5 +33,6 @@ These are not decided yet. Treat them as context, not rules.
 | ID | Decision | Strength | Revisit when |
 | --- | --- | --- | --- |
 | [0018](0018-methods-and-overrides-attach-in-the-framework.md) | Methods and overrides attach in the framework, not on the collection | default | hexok use case instances carry their class statics in their type, or TypeScript resolves a class whose base expression refers back to the value that names it. |
+| [0019](0019-hooks-are-before-change-and-after-read.md) | Collection hooks are `beforeChange` and `afterRead`, and only transform data | default | ts-pf can skip input validation per procedure, or a real case needs to reshape input that would fail the schema. |
 
 0 superseded records are history and not listed. Do not follow them.

@@ -44,7 +44,7 @@ Lattice owns only the rows marked **Lattice** ([0001](decisions/0001-build-on-he
 | Cross-product events | `@hexok/integration-events` | The app maps a collection event to a versioned contract at the edge |
 | Outbound webhooks | `@hexok/webhooks` | An event handler publishes a webhook; no Lattice code |
 | Jobs, schedules | `@hexok/queue` + `@hexok/schedule-coordinator` | Scheduled use cases, as in hexok's `app-template` |
-| Logger, error capture | `@hexok/logger`, `-sentry`, `-newrelic` | Passed to `framework()` |
+| Logger, error capture | `@hexok/logger`, `-sentry`, `-newrelic` | On the call context: `ctx.logger`, built at the edge |
 | Tracing | `@opentelemetry/api`, called directly (Phase 2) | ts-pf call interceptors + use case hooks |
 | Custom methods | `hexok` `UseCase` | `.collection(Posts, { methods: { publish: PublishPost } })` adds it to the collection's router slice |
 | HTTP | `@ts-pf/server-http` `FetchHandler` | Mount on srvx, Hono, Bun, Next or Astro |
@@ -115,7 +115,6 @@ const lattice = framework({
   family: AppUseCase,
   store: new MongoStore({ db }), // CollectionStore adapter
   events: domainEvents,          // hexok Port over @hexok/queue
-  logger,                        // @hexok/logger
 })
   .collection(Users)
   .collection(Posts, { methods: { publish: PublishPost }, overrides: { delete: ArchivePost } })
@@ -172,7 +171,7 @@ export class PublishPost extends AppUseCase('posts.publish', {
 
 ### Hooks
 
-Collection hooks transform data and nothing else: `beforeValidate`, `beforeChange`, `afterRead` ([0012](decisions/0012-hooks-only-transform-data.md)). They run inside the generated use cases. Business rules belong in an entity method or an override. Side-effects after a change are event handlers. Cross-cutting behavior (tracing, logging, timing) and error handling use the family's hexok `hooks()` and `onCatch`.
+Collection hooks transform data and nothing else: `beforeChange` and `afterRead` ([0019](decisions/0019-hooks-are-before-change-and-after-read.md), proposed). They run inside the generated use cases, in this order: validate input, `beforeChange`, store write, `afterRead` on every returned document. There is no `beforeValidate`: ts-pf validates input at the edge before any Lattice code runs. Business rules belong in an entity method or an override. Side-effects after a change are event handlers. Cross-cutting behavior (tracing, logging, timing) and error handling use the family's hexok `hooks()` and `onCatch`.
 
 ## Storage
 
@@ -323,10 +322,16 @@ The write goes to Mongo and the event goes to Redis. A crash between the two los
 One generated contract serves every surface. Lattice writes no transport code.
 
 ```ts
-const handler = new FetchHandler(app, { prefix: '/rpc', context: (req) => edgeContext(req) })
+const handler = new FetchHandler(app, {
+  prefix: '/rpc',
+  context: async (req) => ({
+    actor: await actorFrom(req),                       // @hexok/auth at the edge
+    logger: logger.child({ requestId: req.headers.get('x-request-id') }),
+  }),
+})
 serve({ fetch: handler.fetch })                       // srvx; or Hono, Bun, Next, Astro
 
-const local = createLocalClient(app, { context })     // in-process, same guards and errors
+const local = createLocalClient(app, { context: { actor, logger } }) // in-process, same guards and errors
 await local.posts.find({ where: { status: { eq: 'published' } }, limit: 20 })
 ```
 
@@ -348,7 +353,7 @@ REST with path parameters is not offered. If an outside partner needs it, it is 
 
 Every generated operation logs and times itself through the family's hexok `hooks()`, with no code in the collection.
 
-- Logging: the `@hexok/logger` instance passed to `framework()`. Each call gets a child logger with `requestId`, `actorId`, `tenantId`, `collection`, `action` and `durationMs`. Sentry and New Relic attach through `TeeLogger`, as in `app-template`.
+- Logging: the call context carries a `@hexok/logger` `Logger`. The edge passes `rootLogger.child({ requestId })`; workers, scripts and tests pass their own. The family's hooks log each call through a child with `actorId`, `tenantId`, `collection`, `action` and `durationMs`. A context logger, not one given to `framework()` or `family()`, because family hooks are fixed when the family is created and see only the call, and because no module has to import a configured logger at load time. Sentry and New Relic attach through `TeeLogger`, as in `app-template`.
 - Errors: `onCatch` logs unexpected errors once. ts-pf's `onError` is set so the same error is not logged twice.
 - Tracing (Phase 2): one span per procedure (ts-pf server call interceptor), one per use case (`preExecute` / `onFinally`), one per store call (inside the adapter). Spans use `@opentelemetry/api` and follow OpenTelemetry names.
 - Tests: `MemoryLogger` and a no-op tracer, so assertions can read what was logged.

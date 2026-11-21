@@ -12,6 +12,7 @@ export class LatticeError extends Errors('lattice', {
     message: 'Validation failed',
     data: z.object({ issues: z.array(issue) }),
   },
+  UNAUTHORIZED: { message: 'The actor is missing or invalid' },
   CONFLICT: {
     message: 'A document with this id already exists',
     data: z.object({ collection: z.string(), id: z.string() }),

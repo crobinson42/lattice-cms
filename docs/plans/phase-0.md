@@ -65,10 +65,10 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 
 ### 4. `family()`
 
-- [ ] `family({ actor })` returns a hexok `UseCase.context` factory. Its context is `{ actor }`, typed from the actor schema.
-- [ ] Guards: the actor parses against its schema; the input parses against the use case's `input` schema. Both throw `LatticeError` codes that map to ts-pf `UNAUTHORIZED` and `VALIDATION`.
-- [ ] Hooks: one child logger per call with `collection`, `action`, `actorId` and `durationMs`; `onCatch` logs unexpected errors once.
-- [ ] A hand-written use case can extend the same family, as `PublishPost` does in the architecture doc.
+- [ ] `family({ actor })` returns a hexok `UseCase.context` factory. Its context is `{ actor, logger }`: the actor typed from the actor schema, the logger a `@hexok/logger` `Logger`.
+- [x] Guards: the actor parses against its schema; the input parses against the use case's `input` schema. Both throw `LatticeError` codes that map to ts-pf `UNAUTHORIZED` and `VALIDATION`.
+- [ ] Hooks: one child of `ctx.logger` per call with `collection`, `action`, `actorId` and `durationMs`; `onCatch` logs unexpected errors once.
+- [x] A hand-written use case can extend the same family, as `PublishPost` does in the architecture doc.
 
 ### 5. Generated CRUD use cases and hooks
 
@@ -77,7 +77,7 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 - [ ] `delete` returns the deleted document.
 - [ ] `find` applies `defaultSort` and `defaultLimit` (`sort.ts`) when the caller gives none, and validates `where` and `sort` before the store sees them.
 - [ ] `get`, `update` and `delete` on a missing id throw `NOT_FOUND`.
-- [ ] Hooks run in this order: `beforeValidate`, input validation, `beforeChange`, store write, `afterRead` on every returned document.
+- [ ] Hooks run in this order: input validation, `beforeChange`, store write, `afterRead` on every returned document. There is no `beforeValidate` ([0019](../decisions/0019-hooks-are-before-change-and-after-read.md)).
 
 ### 6. Event catalogs
 
@@ -90,7 +90,7 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 - [ ] `build()` returns `contract`, a ts-pf `router` with one slice per collection, and `app`, the implemented router. Each procedure calls one use case.
 - [ ] Every procedure declares the same errors: `UNAUTHORIZED`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `VALIDATION`. `errors.ts` maps `LatticeError` to them once, the way hexok's `app-template` does in `servers/rpc/errors.ts`.
 - [ ] A `VALIDATION` from ts-pf's own input check and one from `LatticeError` reach the client with the same issue shape, one issue per path.
-- [ ] The ts-pf context is `{ actor }`. The app builds it at the edge.
+- [ ] The ts-pf context is `{ actor, logger }`. The app builds it at the edge.
 
 ### 8. Overrides and custom methods
 
@@ -125,6 +125,9 @@ Add a line here when the work teaches something the plan did not know: a type li
 - Step 1: type-check of the spike is 0.70 s and 189k instantiations for two collections. Re-measure at step 9.
 - Step 1: TS2883 (a type that cannot be named) only fires for a consumer outside `packages/core`; inside, TypeScript names types by relative path. The public types are `Collection`, `Framework`, `Contract`, `Family` and `FamilyContext` because a consumer's declarations need them. Went to step 9.
 - Step 1: hexok's `#brand` is a structural key in declarations, so `build()` tells instances of two use cases with the same `execute` types apart only by private members. `build()` also checks `instanceof` the declared class at runtime. Nowhere else yet.
+- Step 4: the logger lives on the call context (`{ actor, logger }`), not `framework()`: family hooks are fixed at `family()` and see only the call. Maintainer's choice. Went to `architecture.md` and steps 4 and 7.
+- Step 4: `beforeValidate` is dropped, because ts-pf validates input at the edge and can only skip that per server. Maintainer's choice. Went to [0019](../decisions/0019-hooks-are-before-change-and-after-read.md) (proposed, supersedes 0012) and step 5.
+- **Follow up:** the maintainer is fixing ts-pf's client input typing (below) in a ts-pf session named `ts-pf-lattice-bug`. Before step 9, check with that session for the released version, bump `@ts-pf/*`, and add a test that a defaulted collection field is optional in `create`'s client input.
 - Step 3: ts-pf types a procedure's client input as the schema's *output* (`ContractBuilder.input` → `InferSchemaOutput`), so a Zod `.default()` makes the field required for clients. This contradicts ts-pf's own `docs/evolution.md`. `find` applies its defaults in the use case. It also makes every defaulted collection field required in `create`. Taken to the maintainer.
 - Step 3: `MongoStore` will need `orderOf`, `after`, `encodeCursor` and the port types. Recommended: a subpath export `@latticecms/core/store`, not the root. Phase 1.
 - Step 3: `Sort` cannot forbid a repeated field at the type level; the runtime rejects it, as with an empty `and`. Nowhere else.
