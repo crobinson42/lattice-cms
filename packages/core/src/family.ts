@@ -1,6 +1,7 @@
 import type { Logger } from '@hexok/logger';
 import { type StandardSchemaV1, UseCase, validate } from 'hexok';
 import type { z } from 'zod';
+import type { CallAccess } from './access.js';
 import type { AnyCollection } from './collection.js';
 import { invalid, LatticeError, refusal } from './errors.js';
 
@@ -12,12 +13,21 @@ export type FamilySpec = {
 };
 
 /**
- * The per-call context of a Lattice family. The edge passes
+ * What a caller gives each call: the edge's context function, a
+ * `createLocalClient` context, or `build().context()`. The edge passes
  * `rootLogger.child({ requestId })`; workers and tests pass their own.
  */
-export type FamilyContext<Actor> = {
+export type CallContext<Actor> = {
   readonly actor: Actor;
   readonly logger: Logger;
+};
+
+/**
+ * The per-call context of a Lattice family: the caller's, plus the call's
+ * access, which Lattice adds (0023).
+ */
+export type FamilyContext<Actor> = CallContext<Actor> & {
+  readonly access: CallAccess;
 };
 
 /**
@@ -51,6 +61,12 @@ export function loggedByFamily(error: unknown): Logged | undefined {
     : undefined;
 }
 
+/** The action of `token`: a generated operation's or a method's name. */
+function actionOf(spec: FamilySpec, token: string): string {
+  const { slug } = spec.collection;
+  return token.startsWith(`${slug}.`) ? token.slice(slug.length + 1) : token;
+}
+
 /**
  * The logger of one call: `ctx.logger` with the call's collection, action
  * and, once the actor has parsed, its id. Every family log line goes
@@ -62,10 +78,9 @@ function callLogger(
   token: string,
   actorId: string | undefined,
 ): Logger {
-  const { slug } = spec.collection;
   return logger.child({
-    collection: slug,
-    action: token.startsWith(`${slug}.`) ? token.slice(slug.length + 1) : token,
+    collection: spec.collection.slug,
+    action: actionOf(spec, token),
     ...(actorId === undefined ? {} : { actorId }),
   });
 }
@@ -97,8 +112,9 @@ function logThrown(
 
 /**
  * Builds the app's one use case family on hexok `UseCase.context`. Before
- * any member's `execute` runs, the actor must parse against `actor` and the
- * input against the member's `input` static. Each call writes one line
+ * any member's `execute` runs, the actor must parse against `actor`, the
+ * input against the member's `input` static, and `ctx.access` must allow
+ * the member's action. Each call writes one line
  * through a child of `ctx.logger`: info when it returns or a guard or
  * `execute` refuses it, error when it throws anything else.
  */
@@ -131,6 +147,26 @@ export function family<A extends StandardSchemaV1>(options: {
         const actorId = options.actorId(ctx.actor);
         const log = callLogger(ctx.logger, spec, token, actorId);
         throw logThrown(log, token, invalid(result.error.issues));
+      }
+    })
+    // Access, after the actor and the input are known good. Generated
+    // operations, overrides and methods all pass here, so none can skip the
+    // FORBIDDEN check. The answer stays on ctx.access for execute's scope.
+    .guard(async ({ ctx, spec, token, input }) => {
+      const action = actionOf(spec, token);
+      // Create's function receives the parsed input, as execute will see it.
+      const data =
+        action !== 'create'
+          ? undefined
+          : spec.input === undefined
+            ? input
+            : spec.input.parse(input);
+      try {
+        await ctx.access.scope(spec.collection, action, data);
+      } catch (error) {
+        const actorId = options.actorId(ctx.actor);
+        const log = callLogger(ctx.logger, spec, token, actorId);
+        throw logThrown(log, token, error);
       }
     })
     .hooks({

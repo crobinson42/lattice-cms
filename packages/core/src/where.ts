@@ -314,6 +314,16 @@ type FieldOps = {
   readonly exists?: boolean;
 };
 
+/** Both filters: undefined when neither is set. */
+export function both(
+  a: AnyWhere | undefined,
+  b: AnyWhere | undefined,
+): AnyWhere | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return { and: [a, b] };
+}
+
 /** Any parsed `Where`, as `matches` reads it. */
 export type AnyWhere = {
   readonly and?: readonly AnyWhere[];

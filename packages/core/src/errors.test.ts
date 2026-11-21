@@ -11,7 +11,7 @@ import {
   DomainError,
   toRpcError,
 } from './fixtures/app-errors.js';
-import { AppUseCase, callContext } from './fixtures/context.js';
+import { AppUseCase, allowAll, callContext } from './fixtures/context.js';
 import { MemoryEventPublisher } from './fixtures/events.js';
 import { Posts } from './fixtures/posts.js';
 import { type CollectionStore, framework, MemoryStore } from './index.js';
@@ -57,7 +57,10 @@ function setup(
   const definition = framework({
     family: AppUseCase,
     errors: { declared: clientErrors, map: toRpcError },
-  }).collection(Posts, { methods: { lock: LockPost } });
+  }).collection(Posts, {
+    access: { ...allowAll, lock: () => true },
+    methods: { lock: LockPost },
+  });
   const { app, onError } = definition.build({
     store: options.store ?? new MemoryStore(),
     events: new MemoryEventPublisher(),
@@ -145,7 +148,9 @@ describe('declared errors', () => {
   });
 
   it('is optional: an app with no domain errors declares Lattice’s', async () => {
-    const definition = framework({ family: AppUseCase }).collection(Posts);
+    const definition = framework({ family: AppUseCase }).collection(Posts, {
+      access: allowAll,
+    });
     const { contract } = definition;
     const { app } = definition.build({
       store: new MemoryStore(),
@@ -453,6 +458,7 @@ describe('the onError build() returns', () => {
       // An afterRead that breaks the output schema: title is min(1).
       .collection(
         Posts.hooks({ afterRead: ({ doc }) => ({ ...doc, title: '' }) }),
+        { access: allowAll },
       )
       .build({ store: new MemoryStore(), events: new MemoryEventPublisher() });
     const local = createLocalClient(app, {

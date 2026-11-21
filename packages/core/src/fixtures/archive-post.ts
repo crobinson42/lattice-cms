@@ -14,10 +14,13 @@ export class ArchivePost extends AppUseCase('posts.delete', {
   }
 
   async execute(
-    _ctx: UseCase.Ctx<typeof AppUseCase>,
+    ctx: UseCase.Ctx<typeof AppUseCase>,
     input: { id: string },
   ): Promise<z.output<typeof Posts.output>> {
-    const post = await this.deps.posts.get(input.id);
+    const post = await this.deps.posts.get(
+      input.id,
+      await ctx.access.scope(Posts, 'delete'),
+    );
     if (post === null) {
       throw LatticeError.NOT_FOUND({ collection: Posts.slug, id: input.id });
     }

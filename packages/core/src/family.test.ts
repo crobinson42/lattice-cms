@@ -5,7 +5,12 @@ import { Errors, type UseCase } from 'hexok';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { LatticeError } from './errors.js';
-import { AppUseCase, actor, callContext } from './fixtures/context.js';
+import {
+  AppUseCase,
+  actor,
+  allowAll,
+  callContext,
+} from './fixtures/context.js';
 import { MemoryEventPublisher } from './fixtures/events.js';
 import { Posts } from './fixtures/posts.js';
 import { validationPaths } from './fixtures/validation.js';
@@ -61,7 +66,10 @@ function setup() {
   const { app } = framework({
     family: AppUseCase,
   })
-    .collection(Posts, { methods: { publish: CountingPublish } })
+    .collection(Posts, {
+      access: { ...allowAll, publish: () => true },
+      methods: { publish: CountingPublish },
+    })
     .build({
       store: new MemoryStore(),
       events: new MemoryEventPublisher(),

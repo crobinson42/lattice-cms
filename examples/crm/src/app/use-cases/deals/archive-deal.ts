@@ -11,10 +11,14 @@ export class ArchiveDeal extends AppUseCase('deals.delete', {
   }
 
   async execute(
-    _ctx: AppCtx,
+    ctx: AppCtx,
     input: { id: string },
   ): Promise<Doc<typeof Deals>> {
-    const deal = await this.deps.deals.update(input.id, { archived: true });
+    const deal = await this.deps.deals.update(
+      input.id,
+      { archived: true },
+      await ctx.access.scope(Deals, 'delete'),
+    );
     // The same refusal the generated delete gives for a missing id.
     if (deal === null) {
       throw LatticeError.NOT_FOUND({ collection: Deals.slug, id: input.id });

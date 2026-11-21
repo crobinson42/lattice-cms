@@ -4,7 +4,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
 import { ArchivePost } from './fixtures/archive-post.js';
 import { Comments } from './fixtures/comments.js';
-import { AppUseCase, callContext } from './fixtures/context.js';
+import { AppUseCase, allowAll, callContext } from './fixtures/context.js';
 import { MemoryEventPublisher } from './fixtures/events.js';
 import { Posts } from './fixtures/posts.js';
 import { PublishPost } from './fixtures/publish-post.js';
@@ -32,10 +32,11 @@ const lattice = framework({
   family: AppUseCase,
 })
   .collection(Posts, {
+    access: { ...allowAll, publish: () => true },
     methods: { publish: PublishPost },
     overrides: { delete: ArchivePost },
   })
-  .collection(Comments);
+  .collection(Comments, { access: allowAll });
 
 const { app } = lattice.build({
   store: new MemoryStore(),
@@ -221,22 +222,27 @@ describe('method checks', () => {
     });
     typeOnly(() => {
       app.collection(Posts, {
+        access: { ...allowAll, publish: () => true },
         // @ts-expect-error execute takes { id: number }; the input schema says string
         methods: { publish: InputMismatch },
       });
       app.collection(Posts, {
+        access: { ...allowAll, publish: () => true },
         // @ts-expect-error execute returns { id }; the output schema says a post
         methods: { publish: OutputMismatch },
       });
       app.collection(Posts, {
+        access: { ...allowAll, publish: () => true },
         // @ts-expect-error its collection static is Comments
         methods: { publish: OtherCollection },
       });
       app.collection(Posts, {
+        access: { ...allowAll, publish: () => true },
         // @ts-expect-error its token is posts.publsh
         methods: { publish: Misspelled },
       });
       app.collection(Posts, {
+        access: { ...allowAll, publish: () => true },
         // @ts-expect-error a use case from another family
         methods: { publish: OtherFamily },
       });
@@ -248,6 +254,7 @@ describe('method checks', () => {
       framework({
         family: AppUseCase,
       }).collection(Posts, {
+        access: { ...allowAll, use: () => true },
         // @ts-expect-error use is a ts-pf implementer key
         methods: { use: UseMethod },
       }),
@@ -256,6 +263,7 @@ describe('method checks', () => {
       framework({
         family: AppUseCase,
       }).collection(Posts, {
+        access: { ...allowAll, get: () => true },
         // @ts-expect-error get is a generated operation
         methods: { get: PublishPost },
       }),
@@ -307,26 +315,32 @@ describe('override checks', () => {
     });
     typeOnly(() => {
       app.collection(Posts, {
+        access: allowAll,
         // @ts-expect-error input id is a number
         overrides: { delete: WrongInput },
       });
       app.collection(Posts, {
+        access: allowAll,
         // @ts-expect-error input needs a field the operation does not send
         overrides: { delete: NarrowerInput },
       });
       app.collection(Posts, {
+        access: allowAll,
         // @ts-expect-error delete returns the document, not { id }
         overrides: { delete: WrongOutput },
       });
       app.collection(Posts, {
+        access: allowAll,
         // @ts-expect-error its collection static is Comments
         overrides: { delete: OtherCollection },
       });
       app.collection(Posts, {
+        access: allowAll,
         // @ts-expect-error its token is posts.delete, not posts.get
         overrides: { get: ArchivePost },
       });
       app.collection(Posts, {
+        access: allowAll,
         // @ts-expect-error publish is not a generated operation
         overrides: { publish: ArchivePost },
       });
@@ -336,7 +350,10 @@ describe('override checks', () => {
   it('accepts an override that matches', () => {
     const app = framework({
       family: AppUseCase,
-    }).collection(Posts, { overrides: { delete: ArchivePost } });
+    }).collection(Posts, {
+      access: allowAll,
+      overrides: { delete: ArchivePost },
+    });
     app.build({
       ...ports(),
       overrides: ({ repos }) => ({
@@ -357,9 +374,9 @@ describe('collection checks', () => {
   it('rejects a slug added twice, at compile time and at runtime', () => {
     const app = framework({
       family: AppUseCase,
-    }).collection(Posts);
+    }).collection(Posts, { access: allowAll });
     // @ts-expect-error posts is already a collection
-    expect(() => app.collection(Posts)).toThrow(
+    expect(() => app.collection(Posts, { access: allowAll })).toThrow(
       '"posts" is already a collection',
     );
   });
@@ -372,7 +389,7 @@ describe('collection checks', () => {
       family: AppUseCase,
     });
     // @ts-expect-error router is a ts-pf implementer key
-    expect(() => app.collection(Routers)).toThrow(
+    expect(() => app.collection(Routers, { access: allowAll })).toThrow(
       '"router" is a ts-pf implementer key',
     );
   });
@@ -382,6 +399,7 @@ describe('build checks', () => {
   const withBoth = framework({
     family: AppUseCase,
   }).collection(Posts, {
+    access: { ...allowAll, publish: () => true },
     methods: { publish: PublishPost },
     overrides: { delete: ArchivePost },
   });
@@ -451,6 +469,7 @@ describe('build checks', () => {
       framework({
         family: AppUseCase,
       }).collection(Posts, {
+        access: allowAll,
         // @ts-expect-error publish is not a generated operation
         overrides: { publish: ArchivePost },
       }),
@@ -482,7 +501,10 @@ describe('build checks', () => {
       framework({
         family: AppUseCase,
       })
-        .collection(Posts, { overrides: { delete: SoftDelete } })
+        .collection(Posts, {
+          access: allowAll,
+          overrides: { delete: SoftDelete },
+        })
         .build({
           store: new MemoryStore(),
           events: new MemoryEventPublisher(),
@@ -507,7 +529,9 @@ describe('build checks', () => {
   });
 
   it('needs no options when nothing is attached', () => {
-    const app = framework({ family: AppUseCase }).collection(Comments);
+    const app = framework({ family: AppUseCase }).collection(Comments, {
+      access: allowAll,
+    });
     expect(() => app.build(ports())).not.toThrow();
     expect(Object.keys(app.contract.comments)).toEqual([
       'find',

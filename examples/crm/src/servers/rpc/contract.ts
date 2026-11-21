@@ -7,14 +7,31 @@ import { Contacts } from '../../domain/collections/contacts.js';
 import { Deals } from '../../domain/collections/deals.js';
 import { clientErrors, toRpcError } from './errors.js';
 
+/** Any signed-in caller may do this. The edge has already checked the actor. */
+const anyone = () => true;
+
+// An archived deal is hidden from every read and can no longer change.
+const live = () => ({ archived: { eq: false } });
+
 /** The CRM's API: three collections, one override and one method. No ports. */
 export const crm = framework({
   family: AppUseCase,
   errors: { declared: clientErrors, map: toRpcError },
 })
-  .collection(Companies)
-  .collection(Contacts)
+  .collection(Companies, {
+    access: { read: anyone, create: anyone, update: anyone, delete: anyone },
+  })
+  .collection(Contacts, {
+    access: { read: anyone, create: anyone, update: anyone, delete: anyone },
+  })
   .collection(Deals, {
+    access: {
+      read: live,
+      create: anyone,
+      update: live,
+      delete: live,
+      close: live,
+    },
     methods: { close: CloseDeal },
     overrides: { delete: ArchiveDeal },
   });

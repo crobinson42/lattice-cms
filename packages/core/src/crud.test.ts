@@ -11,7 +11,7 @@ import {
 } from 'vitest';
 import { z } from 'zod';
 import { operations } from './collection.js';
-import { AppUseCase, callContext } from './fixtures/context.js';
+import { AppUseCase, allowAll, callContext } from './fixtures/context.js';
 import { noSubscribers } from './fixtures/events.js';
 import { collection, framework, MemoryStore } from './index.js';
 import type { FindQuery, Patch, StoredDoc } from './store.js';
@@ -73,7 +73,7 @@ function setup(notes = Notes) {
   const { app } = framework({
     family: AppUseCase,
   })
-    .collection(notes)
+    .collection(notes, { access: allowAll })
     .build({ store, events: noSubscribers });
   const local = createLocalClient(app, { context: callContext() });
   return { store, local };
@@ -402,7 +402,7 @@ describe('update validates the merged document', () => {
     const { app } = framework({
       family: AppUseCase,
     })
-      .collection(Deals)
+      .collection(Deals, { access: allowAll })
       .build({ store, events: noSubscribers });
     return { store, local: createLocalClient(app, { context: callContext() }) };
   }
@@ -480,7 +480,7 @@ describe('a patch never applies a default', () => {
       const { app } = framework({
         family: AppUseCase,
       })
-        .collection(Wrapped)
+        .collection(Wrapped, { access: allowAll })
         .build({ store: new MemoryStore(), events: noSubscribers });
       const local = createLocalClient(app, { context: callContext() });
       const created = await local.wrapped.create({
@@ -504,7 +504,7 @@ describe('caller input types', () => {
     return framework({
       family: AppUseCase,
     })
-      .collection(Notes)
+      .collection(Notes, { access: allowAll })
       .build({ store: new MemoryStore(), events: noSubscribers });
   }
 

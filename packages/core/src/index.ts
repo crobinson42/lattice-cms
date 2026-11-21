@@ -1,7 +1,19 @@
+export {
+  Access,
+  type AccessRequest,
+  type CallAccess,
+  type Scope,
+  unscoped,
+} from './access.js';
 export { type Contract, type Framework, framework } from './build.js';
 export { type Collection, collection } from './collection.js';
 export { LatticeError } from './errors.js';
-export { type Family, type FamilyContext, family } from './family.js';
+export {
+  type CallContext,
+  type Family,
+  type FamilyContext,
+  family,
+} from './family.js';
 export type { Doc, Repo } from './repo.js';
 export type { Sort } from './sort.js';
 export { CollectionStore, MemoryStore } from './store.js';

@@ -1,5 +1,5 @@
 import { MemoryLogger, NoopLogger } from '@hexok/logger';
-import { framework, MemoryStore } from '@latticecms/core';
+import { framework, MemoryStore, unscoped } from '@latticecms/core';
 import { asResult } from '@ts-pf/client';
 import { createLocalClient } from '@ts-pf/server';
 import { describe, expect, expectTypeOf, it } from 'vitest';
@@ -8,6 +8,14 @@ import { createApp } from './app.js';
 import { AppUseCase, Companies, Contacts, Deals } from './rpc/contract.js';
 
 const actor = { userId: 'u1' };
+
+/** Access that allows every generated operation. */
+const open = {
+  read: () => true,
+  create: () => true,
+  update: () => true,
+  delete: () => true,
+};
 
 function setup() {
   const events = new MemoryDomainEventPublisher();
@@ -132,10 +140,35 @@ describe('deals', () => {
     const archived = await local.deals.delete({ id: deal.id });
 
     expect(archived).toMatchObject({ id: deal.id, archived: true });
-    expect(await repos.deals.get(deal.id)).toEqual(archived);
-    expect((await local.deals.find({})).docs).toEqual([archived]);
+    expect(await repos.deals.get(deal.id, unscoped)).toEqual(archived);
     // The override publishes nothing, and Lattice publishes nothing for it.
     expect(published(events)).toEqual(['dealsCreated']);
+  });
+
+  it('hides an archived deal from find and get, through the read filter', async () => {
+    const { local } = setup();
+    const kept = await local.deals.create({
+      title: 'Kept',
+      companyId: 'c1',
+      amount: 1,
+    });
+    const gone = await local.deals.create({
+      title: 'Gone',
+      companyId: 'c1',
+      amount: 2,
+    });
+
+    await local.deals.delete({ id: gone.id });
+
+    expect((await local.deals.find({})).docs).toEqual([kept]);
+    expect(await asResult(local.deals.get({ id: gone.id }))).toMatchObject({
+      ok: false,
+      error: { code: 'NOT_FOUND' },
+    });
+    expect(await asResult(local.deals.delete({ id: gone.id }))).toMatchObject({
+      ok: false,
+      error: { code: 'NOT_FOUND' },
+    });
   });
 
   it('the override answers a missing id as the generated delete does', async () => {
@@ -143,7 +176,7 @@ describe('deals', () => {
     const { app } = framework({
       family: AppUseCase,
     })
-      .collection(Deals)
+      .collection(Deals, { access: open })
       .build({
         store: new MemoryStore(),
         events: new MemoryDomainEventPublisher(),
@@ -288,9 +321,9 @@ describe('the contract’s types', () => {
     const { app } = framework({
       family: AppUseCase,
     })
-      .collection(Companies)
-      .collection(Contacts)
-      .collection(Deals)
+      .collection(Companies, { access: open })
+      .collection(Contacts, { access: open })
+      .collection(Deals, { access: open })
       .build({
         store: new MemoryStore(),
         events: new MemoryDomainEventPublisher(),

@@ -1,5 +1,5 @@
 import { MemoryLogger } from '@hexok/logger';
-import { MemoryStore } from '@latticecms/core';
+import { MemoryStore, unscoped } from '@latticecms/core';
 import { describe, expect, it } from 'vitest';
 import { MemoryDomainEventPublisher } from '../../infra/events/memory-domain-events.js';
 import { createApp } from '../app.js';
@@ -32,13 +32,16 @@ function call(path: string, input: unknown, user?: string): Request {
 describe('POST /rpc/deals/close', () => {
   it('closes the deal for a caller named by the dev header', async () => {
     const { fetch, repos } = setup();
-    const deal = await repos.deals.insert({
-      title: 'Big one',
-      companyId: 'c1',
-      amount: 1,
-      stage: 'lead',
-      archived: false,
-    });
+    const deal = await repos.deals.insert(
+      {
+        title: 'Big one',
+        companyId: 'c1',
+        amount: 1,
+        stage: 'lead',
+        archived: false,
+      },
+      unscoped,
+    );
 
     const response = await fetch(
       call('deals/close', { id: deal.id, outcome: 'won' }, 'u1'),

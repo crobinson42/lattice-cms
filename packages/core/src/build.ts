@@ -18,6 +18,15 @@ import {
 import { validate } from 'hexok';
 import type { z } from 'zod';
 import {
+  type Access,
+  type AccessCheck,
+  type AccessFns,
+  type AccessMap,
+  type AccessReturns,
+  CollectionAccess,
+  callAccess,
+} from './access.js';
+import {
   type Action,
   type AnyCollection,
   type Operations,
@@ -31,7 +40,12 @@ import {
   refusal,
   toClientError,
 } from './errors.js';
-import { type Family, type FamilyContext, loggedByFamily } from './family.js';
+import {
+  type CallContext,
+  type Family,
+  type FamilyContext,
+  loggedByFamily,
+} from './family.js';
 import { type Repo, repo } from './repo.js';
 import type { CollectionStore } from './store.js';
 
@@ -58,9 +72,10 @@ type Ctor<I> = abstract new (...args: never[]) => I;
 
 type Schemas = { readonly input: z.ZodType; readonly output: z.ZodType };
 
-/** A collection and the classes attached to it. */
+/** A collection, its access functions, and the classes attached to it. */
 type Entry = {
   readonly collection: AnyCollection;
+  readonly access: AccessMap;
   readonly methods: Readonly<Record<string, Ctor<unknown> & Schemas>>;
   readonly overrides: Readonly<Record<string, Ctor<unknown>>>;
 };
@@ -78,10 +93,11 @@ type Ops<Col extends AnyCollection> = Operations<Col['schema']['shape']>;
  */
 type MethodCheck<C, Col extends AnyCollection, N, Ctx> = N extends
   | Action
+  | 'read'
   | Reserved
   ? Ctor<unknown> &
       Schemas & {
-        readonly '~error': `"${N & string}" is a generated operation or a ts-pf implementer key`;
+        readonly '~error': `"${N & string}" is a generated operation, an access key or a ts-pf implementer key`;
       }
   : C extends {
         readonly input: infer I extends z.ZodType;
@@ -216,9 +232,14 @@ type Factory<E extends Entries, Kind extends 'methods' | 'overrides', Ctx> = [
     };
 
 /** What `build()` takes: the ports, and the method and override instances. */
-type BuildOptions<E extends Entries, P extends EventPublisher, Ctx> = {
+type BuildOptions<E extends Entries, P extends EventPublisher, Actor, Ctx> = {
   /** Where every collection's documents live. */
   readonly store: CollectionStore;
+  /**
+   * Decides access instead of the functions given at `.collection()`, such
+   * as an adapter of another decision engine.
+   */
+  readonly access?: Access<Actor>;
   /**
    * The app's domain event publisher. Generated writes publish each
    * collection's events through it. An app with no subscribers passes one
@@ -250,11 +271,17 @@ type UseCases<E extends Entries, Ctx> = {
 };
 
 /** What `build()` returns. */
-type Built<E extends Entries, D extends ErrorMap, Ctx> = {
-  readonly app: ImplementedRouter<Contract<E, D>, Ctx>;
-  readonly useCases: UseCases<E, Ctx>;
+type Built<E extends Entries, D extends ErrorMap, Actor> = {
+  readonly app: ImplementedRouter<Contract<E, D>, CallContext<Actor>>;
+  readonly useCases: UseCases<E, FamilyContext<Actor>>;
   readonly repos: Repos<E>;
   readonly onError: typeof unexpectedErrors;
+  /**
+   * The context for a direct `useCases.*.execute` call: the caller's, plus
+   * the call's access. Access answers are kept on it, so make one per call
+   * or per job.
+   */
+  readonly context: (base: CallContext<Actor>) => FamilyContext<Actor>;
 };
 
 type RuntimeProcedure = ContractProcedure<unknown, unknown, ErrorMap>;
@@ -296,6 +323,7 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
    */
   collection<
     C extends AnyCollection,
+    const R extends AccessReturns<R, C>,
     M extends {
       [N in keyof M]: MethodCheck<M[N], C, N, FamilyContext<Actor>>;
     } = Record<never, never>,
@@ -304,7 +332,15 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
     } = Record<never, never>,
   >(
     collection: C & SlugCheck<C, E>,
-    options?: { readonly methods?: M; readonly overrides?: O },
+    options: {
+      /**
+       * Who may do what (0021): `read` (find and get), `create`, `update`,
+       * `delete`, and one per method. A missing function denies.
+       */
+      readonly access: AccessFns<Actor, R, C>;
+      readonly methods?: M;
+      readonly overrides?: O;
+    } & AccessCheck<R, M, C>,
   ): Framework<
     Actor,
     D,
@@ -317,13 +353,14 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
     if (this.entries.some((entry) => entry.collection.slug === slug)) {
       throw new Error(`Lattice: "${slug}" is already a collection`);
     }
-    const methods: Entry['methods'] = options?.methods ?? {};
+    const methods: Entry['methods'] = options.methods ?? {};
     for (const name of Object.keys(methods)) {
-      if ([...reserved, ...actions].some((key) => key === name)) {
+      if ([...reserved, ...actions, 'read'].some((key) => key === name)) {
         throw new Error(`Lattice: "${slug}.${name}" cannot be a method name`);
       }
     }
-    const overrides: Entry['overrides'] = options?.overrides ?? {};
+    const overrides: Entry['overrides'] = options.overrides ?? {};
+    const access: AccessMap = options.access;
     for (const action of Object.keys(overrides)) {
       if (!actions.some((key) => key === action)) {
         throw new Error(
@@ -337,7 +374,7 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
       E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
     >(this.family, this.errors, [
       ...this.entries,
-      { collection, methods, overrides },
+      { collection, access, methods, overrides },
     ]);
   }
 
@@ -358,11 +395,12 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
    * loop over collections cannot express as a mapped type.
    */
   build<P extends EventPublisher>(
-    options: BuildOptions<E, P, FamilyContext<Actor>>,
-  ): Built<E, D, FamilyContext<Actor>>;
+    options: BuildOptions<E, P, Actor, FamilyContext<Actor>>,
+  ): Built<E, D, Actor>;
   build(options: {
     readonly store: CollectionStore;
     readonly events: EventPublisher;
+    readonly access?: Access<Actor>;
     readonly methods?: (
       wiring: RuntimeWiring,
     ) => RuntimeInstances<FamilyContext<Actor>>;
@@ -370,14 +408,26 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
       wiring: RuntimeWiring,
     ) => RuntimeInstances<FamilyContext<Actor>>;
   }): {
-    readonly app: ImplementedRouter<RuntimeContract, FamilyContext<Actor>>;
+    readonly app: ImplementedRouter<RuntimeContract, CallContext<Actor>>;
     readonly useCases: Readonly<
       Record<string, Readonly<Record<string, unknown>>>
     >;
     readonly repos: RuntimeWiring['repos'];
     readonly onError: typeof unexpectedErrors;
+    readonly context: (base: CallContext<Actor>) => FamilyContext<Actor>;
   } {
     const { store, events } = options;
+    const access =
+      options.access ??
+      new CollectionAccess(
+        new Map(
+          this.entries.map((entry) => [entry.collection.slug, entry.access]),
+        ),
+      );
+    const context = (base: CallContext<Actor>): FamilyContext<Actor> => ({
+      ...base,
+      access: callAccess(access, base.actor),
+    });
     const repos = Object.fromEntries(
       this.entries.map(({ collection }) => [
         collection.slug,
@@ -417,13 +467,10 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
     }
 
     const contract: RuntimeContract = this.contract;
-    const impl = createImplementer(contract).$context<FamilyContext<Actor>>();
+    const impl = createImplementer(contract).$context<CallContext<Actor>>();
     const tree: Record<
       string,
-      Record<
-        string,
-        ImplementedProcedure<RuntimeProcedure, FamilyContext<Actor>>
-      >
+      Record<string, ImplementedProcedure<RuntimeProcedure, CallContext<Actor>>>
     > = {};
     for (const [slug, sliceUseCases] of Object.entries(useCases)) {
       const sliceImpl = impl[slug];
@@ -433,8 +480,10 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
         if (builder === undefined) {
           throw new Error(`Lattice: no procedure "${slug}.${name}"`);
         }
-        sliceTree[name] = builder.handler(({ input, context }) =>
-          useCase.execute(context, input),
+        // A fresh context per call: a createLocalClient context object is
+        // shared by every call, and access answers are kept on the context.
+        sliceTree[name] = builder.handler(({ input, context: base }) =>
+          useCase.execute(context(base), input),
         );
       }
       tree[slug] = sliceTree;
@@ -445,6 +494,7 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
       useCases,
       repos,
       onError: unexpectedErrors,
+      context,
     };
   }
 }
@@ -533,7 +583,7 @@ function instanceOf<Ctx>(
 function clientErrors<Actor>(
   family: Family<Actor>,
   map: (error: unknown) => unknown,
-): MiddlewareFn<FamilyContext<Actor>> {
+): MiddlewareFn<CallContext<Actor>> {
   return async ({ context, next, path }) => {
     try {
       return await next();

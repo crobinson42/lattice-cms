@@ -16,12 +16,15 @@ export class PublishPost extends AppUseCase('posts.publish', {
   }
 
   async execute(
-    _ctx: UseCase.Ctx<typeof AppUseCase>,
+    ctx: UseCase.Ctx<typeof AppUseCase>,
     input: { id: string },
   ): Promise<z.output<typeof Posts.output>> {
-    const post = await this.deps.posts.update(input.id, {
-      status: 'published',
-    });
+    const scope = await ctx.access.scope(Posts, 'publish');
+    const post = await this.deps.posts.update(
+      input.id,
+      { status: 'published' },
+      scope,
+    );
     if (post === null) {
       throw LatticeError.NOT_FOUND({ collection: Posts.slug, id: input.id });
     }

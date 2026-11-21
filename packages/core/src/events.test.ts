@@ -7,7 +7,7 @@ import type { z } from 'zod';
 import { LatticeError } from './errors.js';
 import { ArchivePost } from './fixtures/archive-post.js';
 import { Comments } from './fixtures/comments.js';
-import { AppUseCase, callContext } from './fixtures/context.js';
+import { AppUseCase, allowAll, callContext } from './fixtures/context.js';
 import {
   AppEvents,
   DomainEventPublisher,
@@ -87,8 +87,8 @@ function setup(
   logger?: Logger,
 ) {
   const { app } = framework({ family: AppUseCase })
-    .collection(Posts)
-    .collection(Comments)
+    .collection(Posts, { access: allowAll })
+    .collection(Comments, { access: allowAll })
     .build({ store, events });
   // Without ts-pf's own input check, bad input reaches Lattice's guard.
   return createLocalClient(app, {
@@ -175,7 +175,9 @@ describe('the events publisher', () => {
   }
 
   it('is required', () => {
-    const app = framework({ family: AppUseCase }).collection(Posts);
+    const app = framework({ family: AppUseCase }).collection(Posts, {
+      access: allowAll,
+    });
     typeOnly(() => {
       // @ts-expect-error events is required
       app.build({ store: new MemoryStore() });
@@ -189,8 +191,8 @@ describe('the events publisher', () => {
 
   it('fits when it is typed by a catalog that lists the collection events', () => {
     const app = framework({ family: AppUseCase })
-      .collection(Posts)
-      .collection(Comments);
+      .collection(Posts, { access: allowAll })
+      .collection(Comments, { access: allowAll });
     expect(() =>
       app.build({
         store: new MemoryStore(),
@@ -200,8 +202,10 @@ describe('the events publisher', () => {
   });
 
   it('is a type error on build() when the publisher cannot take every collection’s events', () => {
-    const posts = framework({ family: AppUseCase }).collection(Posts);
-    const both = posts.collection(Comments);
+    const posts = framework({ family: AppUseCase }).collection(Posts, {
+      access: allowAll,
+    });
+    const both = posts.collection(Comments, { access: allowAll });
     typeOnly(() => {
       posts.build({
         store: new MemoryStore(),
@@ -218,11 +222,13 @@ describe('the events publisher', () => {
 
   it('throws at runtime for an event its catalog lacks, as app-template’s adapter does', async () => {
     const events = new OtherPublisher();
-    const { app } = framework({ family: AppUseCase }).collection(Posts).build({
-      store: new MemoryStore(),
-      // @ts-expect-error the publisher takes posts.created only
-      events,
-    });
+    const { app } = framework({ family: AppUseCase })
+      .collection(Posts, { access: allowAll })
+      .build({
+        store: new MemoryStore(),
+        // @ts-expect-error the publisher takes posts.created only
+        events,
+      });
     const local = createLocalClient(app, { context: callContext() });
 
     const post = await local.posts.create({
@@ -268,7 +274,7 @@ describe('generated writes', () => {
     const { app } = framework({
       family: AppUseCase,
     })
-      .collection(Comments)
+      .collection(Comments, { access: allowAll })
       .build({ store: new MemoryStore(), events });
     const local = createLocalClient(app, {
       context: { ...callContext(), actor: { userId: 'u2', roles: [] } },
@@ -290,6 +296,7 @@ describe('generated writes', () => {
         Posts.hooks({
           afterRead: ({ doc }) => ({ ...doc, title: doc.title.toUpperCase() }),
         }),
+        { access: allowAll },
       )
       .build({ store: new MemoryStore(), events });
     const local = createLocalClient(app, { context: callContext() });
@@ -443,7 +450,10 @@ describe('an override', () => {
   it('publishes no posts.deleted for ArchivePost, which publishes nothing itself', async () => {
     const { store, events, post } = await seeded();
     const { app } = framework({ family: AppUseCase })
-      .collection(Posts, { overrides: { delete: ArchivePost } })
+      .collection(Posts, {
+        access: allowAll,
+        overrides: { delete: ArchivePost },
+      })
       .build({
         store,
         events,
@@ -462,7 +472,10 @@ describe('an override', () => {
   it('publishes only the events the override publishes itself', async () => {
     const { store, events, post } = await seeded();
     const { app } = framework({ family: AppUseCase })
-      .collection(Posts, { overrides: { delete: AnnouncedArchive } })
+      .collection(Posts, {
+        access: allowAll,
+        overrides: { delete: AnnouncedArchive },
+      })
       .build({
         store,
         events,

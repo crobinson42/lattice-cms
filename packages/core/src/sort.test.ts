@@ -1,7 +1,7 @@
 import { createLocalClient } from '@ts-pf/server';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
-import { AppUseCase, callContext } from './fixtures/context.js';
+import { AppUseCase, allowAll, callContext } from './fixtures/context.js';
 import { noSubscribers } from './fixtures/events.js';
 import { type Forms, forms } from './fixtures/forms.js';
 import { validationPaths } from './fixtures/validation.js';
@@ -25,7 +25,7 @@ type Thing = z.output<typeof Things.output>;
 const { app } = framework({
   family: AppUseCase,
 })
-  .collection(Things)
+  .collection(Things, { access: allowAll })
   .build({ store: new MemoryStore(), events: noSubscribers });
 const local = createLocalClient(app, {
   context: callContext(),

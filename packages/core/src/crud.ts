@@ -13,7 +13,7 @@ import { LatticeError, parse } from './errors.js';
 import type { Family, FamilyContext } from './family.js';
 import { findQuery, stamped, touched } from './repo.js';
 import type { CollectionStore, StoredDoc } from './store.js';
-import type { AnyWhere } from './where.js';
+import { type AnyWhere, both } from './where.js';
 
 type AnyShape = z.core.$ZodShape;
 
@@ -48,24 +48,18 @@ type Call = {
 };
 
 /**
- * The filter that limits what a call may see and change. Phase 1's Access
- * port and the tenant clause fill it, here and nowhere else (0005). Until
- * then every call sees every row.
+ * The filter that limits what a call may see and change (0005): the call's
+ * access scope. The family's access guard has already asked, so this reads
+ * its kept answer. Create has no row to filter, and its answer is not kept,
+ * so it does not ask again.
  */
-function scopeOf(
-  _ctx: unknown,
-  _collection: AnyCollection,
-): AnyWhere | undefined {
-  return undefined;
-}
-
-function both(
-  a: AnyWhere | undefined,
-  b: AnyWhere | undefined,
-): AnyWhere | undefined {
-  if (a === undefined) return b;
-  if (b === undefined) return a;
-  return { and: [a, b] };
+async function scopeOf(
+  ctx: FamilyContext<unknown>,
+  collection: AnyCollection,
+  action: Action,
+): Promise<AnyWhere | undefined> {
+  if (action === 'create') return undefined;
+  return (await ctx.access.scope(collection, action)).where;
 }
 
 function notFound(call: Call, id: string) {
@@ -241,7 +235,7 @@ export function generated<Actor>(
           ...this.deps,
           collection,
           ops,
-          scope: scopeOf(ctx, collection),
+          scope: await scopeOf(ctx, collection, action),
           actorId: family.actorId(ctx.actor),
         },
         raw,

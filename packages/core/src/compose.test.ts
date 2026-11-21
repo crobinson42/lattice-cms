@@ -6,11 +6,16 @@ import type { z } from 'zod';
 import { LatticeError } from './errors.js';
 import { ArchivePost } from './fixtures/archive-post.js';
 import { Comments } from './fixtures/comments.js';
-import { AppUseCase, actor, callContext } from './fixtures/context.js';
+import {
+  AppUseCase,
+  actor,
+  allowAll,
+  callContext,
+} from './fixtures/context.js';
 import { AppEvents, MemoryEventPublisher } from './fixtures/events.js';
 import { Posts } from './fixtures/posts.js';
 import { PublishPost } from './fixtures/publish-post.js';
-import { framework, MemoryStore, type Repo } from './index.js';
+import { framework, MemoryStore, type Repo, unscoped } from './index.js';
 
 type Post = z.output<typeof Posts.output>;
 
@@ -22,10 +27,11 @@ const draft = { title: 't', body: 'b', status: 'draft' } as const;
 /** The definition of architecture.md: one override, one method, two collections. */
 const definition = framework({ family: AppUseCase })
   .collection(Posts, {
+    access: { ...allowAll, publish: () => true },
     methods: { publish: PublishPost },
     overrides: { delete: ArchivePost },
   })
-  .collection(Comments);
+  .collection(Comments, { access: allowAll });
 
 /** The definition wired to a store and a publisher. */
 function setup(store = new MemoryStore()) {
@@ -62,7 +68,9 @@ afterEach(() => {
 
 describe('the definition', () => {
   it('has a contract with no store or publisher, the same object on every read', () => {
-    const plain = framework({ family: AppUseCase }).collection(Posts);
+    const plain = framework({ family: AppUseCase }).collection(Posts, {
+      access: allowAll,
+    });
     expect(plain.contract).toBe(plain.contract);
     expect(Object.keys(definition.contract)).toEqual(['posts', 'comments']);
     expect(Object.keys(definition.contract.posts)).toEqual([
@@ -98,7 +106,7 @@ describe('the repos build() gives the factories', () => {
 
   it('hold only the collections the app added', () => {
     const { repos } = framework({ family: AppUseCase })
-      .collection(Posts)
+      .collection(Posts, { access: allowAll })
       .build({ store: new MemoryStore(), events: new MemoryEventPublisher() });
     expect(Object.keys(repos)).toEqual(['posts']);
     typeOnly(() => {
@@ -114,7 +122,7 @@ describe('a repo', () => {
     vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
     const { repos } = setup();
 
-    const post = await repos.posts.insert(draft);
+    const post = await repos.posts.insert(draft, unscoped);
 
     expect(post).toEqual({
       ...draft,
@@ -122,8 +130,8 @@ describe('a repo', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
     });
-    expect(await repos.posts.get(post.id)).toEqual(post);
-    expect(await repos.posts.get('nope')).toBeNull();
+    expect(await repos.posts.get(post.id, unscoped)).toEqual(post);
+    expect(await repos.posts.get('nope', unscoped)).toBeNull();
     expectTypeOf(repos.posts.get).returns.resolves.toEqualTypeOf<Post | null>();
     expectTypeOf(repos.posts.insert).parameter(0).toEqualTypeOf<{
       title: string;
@@ -136,32 +144,37 @@ describe('a repo', () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
     const { repos } = setup();
-    const post = await repos.posts.insert(draft);
+    const post = await repos.posts.insert(draft, unscoped);
 
     vi.setSystemTime(new Date('2026-01-02T00:00:00.000Z'));
-    const updated = await repos.posts.update(post.id, { title: 'u' });
+    const updated = await repos.posts.update(post.id, { title: 'u' }, unscoped);
 
     expect(updated).toEqual({
       ...post,
       title: 'u',
       updatedAt: '2026-01-02T00:00:00.000Z',
     });
-    expect(await repos.posts.update('nope', { title: 'u' })).toBeNull();
-    expect(await repos.posts.remove(post.id)).toEqual(updated);
-    expect(await repos.posts.remove(post.id)).toBeNull();
+    expect(
+      await repos.posts.update('nope', { title: 'u' }, unscoped),
+    ).toBeNull();
+    expect(await repos.posts.remove(post.id, unscoped)).toEqual(updated);
+    expect(await repos.posts.remove(post.id, unscoped)).toBeNull();
     typeOnly(() => {
       // @ts-expect-error status is draft or published
-      repos.posts.update(post.id, { status: 'archived' });
+      repos.posts.update(post.id, { status: 'archived' }, unscoped);
       // @ts-expect-error id is not a field of the data
-      repos.posts.update(post.id, { id: 'x' });
+      repos.posts.update(post.id, { id: 'x' }, unscoped);
     });
   });
 
   it('getMany returns the docs that exist, in the order of the ids', async () => {
     const { repos } = setup();
-    const a = await repos.posts.insert({ ...draft, title: 'a' });
-    const b = await repos.posts.insert({ ...draft, title: 'b' });
-    expect(await repos.posts.getMany([b.id, 'nope', a.id])).toEqual([b, a]);
+    const a = await repos.posts.insert({ ...draft, title: 'a' }, unscoped);
+    const b = await repos.posts.insert({ ...draft, title: 'b' }, unscoped);
+    expect(await repos.posts.getMany([b.id, 'nope', a.id], unscoped)).toEqual([
+      b,
+      a,
+    ]);
   });
 
   it('find applies find’s defaults: newest first, 20 per page', async () => {
@@ -169,14 +182,14 @@ describe('a repo', () => {
     const { repos } = setup();
     for (let day = 1; day <= 25; day += 1) {
       vi.setSystemTime(new Date(Date.UTC(2026, 0, day)));
-      await repos.posts.insert({ ...draft, title: `p${day}` });
+      await repos.posts.insert({ ...draft, title: `p${day}` }, unscoped);
     }
 
-    const first = await repos.posts.find();
+    const first = await repos.posts.find({}, unscoped);
     expect(first.docs.map((doc) => doc.title)).toEqual(
       Array.from({ length: 20 }, (_, i) => `p${25 - i}`),
     );
-    const rest = await repos.posts.find({ after: first.next ?? '' });
+    const rest = await repos.posts.find({ after: first.next ?? '' }, unscoped);
     expect(rest.docs.map((doc) => doc.title)).toEqual([
       'p5',
       'p4',
@@ -186,17 +199,20 @@ describe('a repo', () => {
     ]);
     expect(rest.next).toBeNull();
 
-    const titled = await repos.posts.find({
-      where: { title: { in: ['p1', 'p2'] } },
-      sort: ['title'],
-      limit: 1,
-    });
+    const titled = await repos.posts.find(
+      {
+        where: { title: { in: ['p1', 'p2'] } },
+        sort: ['title'],
+        limit: 1,
+      },
+      unscoped,
+    );
     expect(titled.docs.map((doc) => doc.title)).toEqual(['p1']);
     typeOnly(() => {
       // @ts-expect-error colour is not a field
-      repos.posts.find({ where: { colour: { eq: 'x' } } });
+      repos.posts.find({ where: { colour: { eq: 'x' } } }, unscoped);
       // @ts-expect-error status is an enum, so it has no contains
-      repos.posts.find({ where: { status: { contains: 'd' } } });
+      repos.posts.find({ where: { status: { contains: 'd' } } }, unscoped);
     });
   });
 
@@ -208,14 +224,15 @@ describe('a repo', () => {
           beforeChange: ({ data }) => ({ ...data, body: 'hooked' }),
           afterRead: ({ doc }) => ({ ...doc, title: 'read' }),
         }),
+        { access: allowAll },
       )
       .build({ store: new MemoryStore(), events });
     const posts = repos.posts;
 
     // An empty title breaks the schema's min(1); the repo trusts its input.
-    const post = await posts.insert({ ...draft, title: '' });
-    await posts.update(post.id, { body: 'b2' });
-    await posts.remove(post.id);
+    const post = await posts.insert({ ...draft, title: '' }, unscoped);
+    await posts.update(post.id, { body: 'b2' }, unscoped);
+    await posts.remove(post.id, unscoped);
 
     expect(post).toMatchObject({ title: '', body: 'b' });
     expect(events.messages).toEqual([]);
@@ -282,7 +299,7 @@ describe('useCases', () => {
         useCases.posts.create.execute(callContext(), { ...draft, title: 1 }),
       ),
     ).toBe('VALIDATION');
-    expect((await repos.posts.find()).docs).toEqual([]);
+    expect((await repos.posts.find({}, unscoped)).docs).toEqual([]);
   });
 });
 
@@ -359,7 +376,7 @@ describe('a refusal is logged once on every path', () => {
 
     await codeOf(
       setup().useCases.posts.get.execute(
-        { actor, logger: direct },
+        { ...callContext(direct), actor },
         {
           id: 'nope',
         },
@@ -382,9 +399,9 @@ describe('a method and an override', () => {
 
     const published = await local.posts.publish({ id: post.id });
     expect(published).toMatchObject({ id: post.id, status: 'published' });
-    expect(await repos.posts.get(post.id)).toEqual(published);
+    expect(await repos.posts.get(post.id, unscoped)).toEqual(published);
 
-    await repos.posts.update(post.id, { status: 'draft' });
+    await repos.posts.update(post.id, { status: 'draft' }, unscoped);
     const again = await useCases.posts.publish.execute(callContext(), {
       id: post.id,
     });
@@ -396,7 +413,7 @@ describe('a method and an override', () => {
     const post = await local.posts.create(draft);
 
     expect(await local.posts.delete({ id: post.id })).toEqual(post);
-    expect(await repos.posts.get(post.id)).toEqual(post);
+    expect(await repos.posts.get(post.id, unscoped)).toEqual(post);
     expect((await local.posts.find({})).docs).toEqual([post]);
   });
 
@@ -405,8 +422,8 @@ describe('a method and an override', () => {
     const { app } = framework({
       family: AppUseCase,
     })
-      .collection(Posts)
-      .collection(Comments)
+      .collection(Posts, { access: allowAll })
+      .collection(Comments, { access: allowAll })
       .build({ store: new MemoryStore(), events: new MemoryEventPublisher() });
     const plain = createLocalClient(app, { context: callContext() });
 
@@ -428,7 +445,7 @@ describe('an event handler', () => {
     posts: Repo<typeof Posts>,
   ): Promise<void> {
     const { doc } = event.payload;
-    await posts.update(doc.id, { body: `${doc.body} (indexed)` });
+    await posts.update(doc.id, { body: `${doc.body} (indexed)` }, unscoped);
   }
 
   it('reads the event and writes through repos', async () => {
@@ -444,7 +461,7 @@ describe('an event handler', () => {
     }
     await onPostCreated(event, repos.posts);
 
-    expect(await repos.posts.get(post.id)).toMatchObject({
+    expect(await repos.posts.get(post.id, unscoped)).toMatchObject({
       body: 'b (indexed)',
     });
   });

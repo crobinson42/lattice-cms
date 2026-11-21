@@ -69,14 +69,31 @@ import { Contacts } from '../../domain/collections/contacts.js';
 import { Deals } from '../../domain/collections/deals.js';
 import { clientErrors, toRpcError } from './errors.js';
 
+/** Any signed-in caller may do this. The edge has already checked the actor. */
+const anyone = () => true;
+
+// An archived deal is hidden from every read and can no longer change.
+const live = () => ({ archived: { eq: false } });
+
 /** The CRM's API: three collections, one override and one method. No ports. */
 export const crm = framework({
   family: AppUseCase,
   errors: { declared: clientErrors, map: toRpcError },
 })
-  .collection(Companies)
-  .collection(Contacts)
+  .collection(Companies, {
+    access: { read: anyone, create: anyone, update: anyone, delete: anyone },
+  })
+  .collection(Contacts, {
+    access: { read: anyone, create: anyone, update: anyone, delete: anyone },
+  })
   .collection(Deals, {
+    access: {
+      read: live,
+      create: anyone,
+      update: live,
+      delete: live,
+      close: live,
+    },
     methods: { close: CloseDeal },
     overrides: { delete: ArchiveDeal },
   });
@@ -183,27 +200,27 @@ Returns a `Collection` with `slug`, `schema`, `output`, `events` and `hooks()`. 
 
 ### `family({ actor, actorId })`
 
-Builds the app's one hexok `UseCase.context` family. Its context is `{ actor, logger }`: the actor, and a `@hexok/logger` `Logger` for the call.
+Builds the app's one hexok `UseCase.context` family. A caller passes `{ actor, logger }` (`CallContext<Actor>`): the actor, and a `@hexok/logger` `Logger` for the call. Lattice adds `access`, the call's access, so a use case receives `{ actor, logger, access }` (`FamilyContext<Actor>`).
 
-- Before `execute`, the actor must parse against `actor` and the input against the use case's `input` static. A bad actor is `UNAUTHORIZED`; bad input is `VALIDATION`.
+- Before `execute`, the actor must parse against `actor`, the input against the use case's `input` static, and access must allow the use case's action. A bad actor is `UNAUTHORIZED`, bad input is `VALIDATION`, and a refusal is `FORBIDDEN`.
 - `actorId` names the id that log lines and collection events carry. The family exposes `actor` and `actorId`, so hand-written code calls `AppUseCase.actorId(ctx.actor)`.
 - Every call writes one line through a child of `ctx.logger` with `collection`, `action`, `actorId` and `durationMs`.
 - A hand-written use case extends the family with a `collection` static, and `input` and `output` schemas for a method. Its token is `<slug>.<name>`.
 
-`FamilyContext<Actor>` is the context type. `Family<Actor>` is the family's type.
+`FamilyContext<Actor>` is the context type a use case receives, and `CallContext<Actor>` the one a caller passes. `Family<Actor>` is the family's type.
 
 ### `framework()`, `.collection()` and `build()`
 
 `framework({ family, errors? })` starts a definition. `errors` is the app's `{ declared, map }`; an app with no domain errors leaves it out.
 
-`.collection(C, { methods?, overrides? })` adds a collection. Its slug becomes a contract slice with `find`, `get`, `create`, `update` and `delete`.
+`.collection(C, { access, methods?, overrides? })` adds a collection. Its slug becomes a contract slice with `find`, `get`, `create`, `update` and `delete`. `access` is required; see [Access](#access).
 
 - `methods: { name: Class }` adds a procedure. `overrides: { action: Class }` replaces a generated one.
 - Each class must name `C` and its token, and its `execute` must take and return the procedure's types. A mismatch, a reserved name, or a slug added twice is a compile error and a runtime throw.
 
 `.contract` is the ts-pf contract, built once on first read. `Contract<E, D>` is its type.
 
-`build({ store, events, methods?, overrides? })` wires the definition and returns:
+`build({ store, events, access?, methods?, overrides? })` wires the definition and returns:
 
 | Output | What it is |
 | --- | --- |
@@ -211,10 +228,40 @@ Builds the app's one hexok `UseCase.context` family. Its context is `{ actor, lo
 | `useCases` | The hexok instance that serves each procedure: generated, override or method, each typed precisely |
 | `repos` | A `Repo<C>` per collection: the objects the factories received |
 | `onError` | `onError(logger)` for `FetchHandler` |
+| `context` | `context({ actor, logger })`: the context for a direct `useCases.*.execute` call |
 
 - `methods` and `overrides` are factories, `({ repos }) => instances`, keyed by slug and then name. Each is required exactly when a collection declared one.
+- `access` replaces the functions given at `.collection()` with another `Access` adapter.
+- `app` adds a fresh `access` to each call's context. A direct caller gets one from `context()`. Access answers are kept on the context, so make one per call or per job.
 - `events` must take every collection's events. One that cannot is a compile error that names each refused token.
 - `Framework<Actor, D, E>` is the definition's type.
+
+### Access
+
+Access decides what a call may see and change. It is a filter in the query: Lattice never loads a row and then decides whether the caller may see it.
+
+`.collection(C, { access })` takes one function per action: `read` (find and get), `create`, `update`, `delete`, and one per method.
+
+- Each function receives `{ actor }`, typed by the family's actor schema. `create` also receives `data`, its parsed input.
+- `read`, `update`, `delete` and a method return `boolean` or a `Where` on `C`'s documents, or a promise of one. `create` returns `boolean`.
+- `true` allows every row. `false` refuses the call with `FORBIDDEN`. A `Where` limits the call to the rows that match: a row outside it is `NOT_FOUND` on get, update and delete, and `find` never returns it.
+- A missing function denies. `access: {}` denies everything. An override uses the function of the action it replaces.
+- A `Where` on a field `C` lacks, a key that is not an action or a method, and a method with no function are compile errors.
+- An access `Where` is ANDed with the caller's `where`, so a caller can only narrow it.
+
+A family guard checks access before every `execute`: generated operations, overrides and methods. The refusal is logged once. Each function runs once per call.
+
+A hand-written use case gets its filter with `ctx.access.scope(C, action)`, and passes the `Scope` to its repo calls. It may ask for another collection's scope too, such as `ctx.access.scope(Posts, 'find')`.
+
+```ts
+// examples/crm/src/app/use-cases/deals/close-deal.ts
+const scope = await ctx.access.scope(Deals, 'close');
+const deal = await this.deps.deals.get(input.id, scope);
+```
+
+Hide rows with a `read` filter, such as soft-deleted ones. The CRM's `live` filter above hides an archived deal from `find` and `get`, and keeps it from changing.
+
+`Access` is the hexok port behind this. `build({ access })` takes another adapter of it. Its `check({ actor, collection, action, data? })` returns `boolean` or a `Where`; `action` is `find`, `get`, `create`, `update`, `delete` or a method's name, and `data` is passed for `create` only.
 
 ### `Where` and `Sort`
 
@@ -269,6 +316,8 @@ Generated writes publish through `build({ events })` after the store write succe
 
 `Repo<C>` is a typed view of the store for one collection: `get`, `getMany`, `find`, `insert`, `update` and `remove`. `insert` stamps `id`, `createdAt` and `updatedAt`; `update` bumps `updatedAt`. It runs no validation, no hooks and no events. Use it in hand-written use cases and event handlers.
 
+Every call takes a scope as its last argument: the call's `Scope` from `ctx.access.scope()`, or `unscoped`. A row outside the scope acts as missing. `unscoped` reads and writes every row; trusted code that acts for no caller passes it, such as an event handler or a script. A `Scope` for another collection throws.
+
 `Doc<C>` is the collection's stored document type.
 
 ```ts
@@ -281,10 +330,14 @@ export class ArchiveDeal extends AppUseCase('deals.delete', {
   }
 
   async execute(
-    _ctx: AppCtx,
+    ctx: AppCtx,
     input: { id: string },
   ): Promise<Doc<typeof Deals>> {
-    const deal = await this.deps.deals.update(input.id, { archived: true });
+    const deal = await this.deps.deals.update(
+      input.id,
+      { archived: true },
+      await ctx.access.scope(Deals, 'delete'),
+    );
     // The same refusal the generated delete gives for a missing id.
     if (deal === null) {
       throw LatticeError.NOT_FOUND({ collection: Deals.slug, id: input.id });
@@ -305,10 +358,12 @@ The tests prove each of these.
 - A client of the contract needs no type annotations at the call site.
 - An override keeps the contract's types, and a method adds a typed procedure.
 - Each call writes one log line. Each refusal is logged once, whether the call came over RPC, in process, or through `useCases`.
+- No use case runs when access says `false`, and no row outside an access `Where` is read, changed or returned.
+- Each access function runs once per call.
 - Events publish only after a successful write.
 - An update patch never resets a field to its default.
 - On update, the merged document is validated with the whole schema.
 
 ## Not yet
 
-MongoDB, relations, access rules, tenancy and auth arrive in later phases. See the [phase table](../../docs/architecture.md#phased-build-plan).
+MongoDB, relations, tenancy and auth arrive in later phases. See the [phase table](../../docs/architecture.md#phased-build-plan).
