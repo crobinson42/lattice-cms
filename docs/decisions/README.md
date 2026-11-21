@@ -39,5 +39,6 @@ These are not decided yet. Treat them as context, not rules.
 | ID | Decision | Strength | Revisit when |
 | --- | --- | --- | --- |
 | [0025](0025-mongo-store-owns-its-client.md) | `MongoStore` owns its client, and its tests run on mongodb-memory-server | default | Apps routinely need to share one MongoClient pool with other libraries in the same process, or mongodb-memory-server stops shipping a mongod for a platform the team develops on. |
+| [0026](0026-totals-come-from-a-count-procedure.md) | Totals come from a generated `count` procedure, not `find({ withTotal })` | default | ts-pf can make an output field required only when an input flag is set, or a client cannot afford a second call per page. |
 
 1 superseded record is history and not listed. Do not follow them.

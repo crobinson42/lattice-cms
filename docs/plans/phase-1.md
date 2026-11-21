@@ -14,7 +14,7 @@ This plan is a working document. It is deleted when the exit holds, after anythi
 
 ## In scope
 
-The `Access` port and its default adapter, `tenant` and `tenantOf`, `tenancy.bypass`, `ref()`, `many()` and join collections, `populate`, `onDelete`, `withTotal` and `count()`, `ensure()` and declared indexes, the migrations runner, the store adapter surface of `@latticecms/core`, and `@latticecms/store-mongo` with `MongoStore`, its `Where` translation and its client lifecycle.
+The `Access` port and its default adapter, `tenant` and `tenantOf`, `tenancy.bypass`, `ref()`, `many()` and join collections, `populate`, `onDelete`, the `count` operation, `ensure()` and declared indexes, the migrations runner, the store adapter surface of `@latticecms/core`, and `@latticecms/store-mongo` with `MongoStore`, its `Where` translation and its client lifecycle.
 
 ## Out of scope
 
@@ -89,10 +89,10 @@ Decided at the Checkpoint:
 - [x] `MongoStore` passes the conformance suite. `Where` translates one to one, because the matcher already follows Mongo's null and missing rules. The keyset is a `Where`, so it needs no code of its own. A duplicate key is `CONFLICT`. A `Mapper` maps `id` to `_id`.
 - [x] The Mongo client lifecycle lives in this package (`architecture.md`, proposed changes table).
 
-### 6. Indexes, `count()` and `withTotal`
+### 6. Indexes and the `count` operation
 
 - [ ] Indexes declared on a collection. `ensure()` creates missing ones at startup and never drops one.
-- [ ] `find({ withTotal: true })` adds `total` from a second `count` query.
+- [ ] A generated `<slug>.count({ where? })` returning `{ count: number }`, under `read` access and the tenant clause, and `Repo.count(where, scope)`. There is no `withTotal` ([0026](../decisions/0026-totals-come-from-a-count-procedure.md)).
 
 ### 7. Migrations runner
 

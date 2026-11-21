@@ -161,8 +161,8 @@ Every write returns the document: `create` and `update` the stored one, `delete`
 - `get`, `update` and `delete` on a missing or out-of-scope id throw `NOT_FOUND`.
 - Each generated use case parses its own input, because hexok passes `execute` the raw value. The family guard has already rejected bad input.
 
-- Use cases, in the app's one family: `posts.find`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, plus `posts.categories.list` and `posts.categories.set` for each `many()` relation (Phase 1).
-- A contract slice: `posts.find`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, `posts.publish`, and `posts.categories.*` in Phase 1.
+- Use cases, in the app's one family: `posts.find`, `posts.count`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, plus `posts.categories.list` and `posts.categories.set` for each `many()` relation (Phase 1).
+- A contract slice: `posts.find`, `posts.count`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, `posts.publish`, and `posts.categories.*` in Phase 1.
 - Event classes: `posts.created`, `posts.updated`, `posts.deleted`, for the app's catalog.
 
 ### Custom methods and overrides
@@ -281,7 +281,7 @@ Pagination is cursor-based ([0008](decisions/0008-cursor-pagination.md)): `limit
 - `sort` is an array such as `['-createdAt', 'title']`, not an object, because Zod rebuilds object keys in shape order and would reorder the priority. Only required, non-null string, number and enum fields sort, so a cursor never meets null. The default is `['-createdAt']`; `id` is always the last tiebreak.
 - `limit` is 1 to 100, default 20. Both defaults are Zod defaults in `find`'s contract input, so the catalog and OpenAPI show them; `Repo.find` reads the same constants.
 - A cursor is opaque base64url JSON of the sort and the last document's sort values. A cursor from another sort, or a malformed one, is `VALIDATION`. It is not signed: a forged cursor only moves the page start, and `where` still applies.
-- The keyset predicate is itself a `Where` (`or` of `eq`/`gt`/`lt` clauses), so a store applies it as it applies any filter and has no pagination code of its own. In Phase 1, pass `withTotal: true` to also get `total`; it costs a second `count` query, so admin tables ask for it and APIs usually don't. Page numbers are not offered, because skip-based pages slow down on large Mongo collections.
+- The keyset predicate is itself a `Where` (`or` of `eq`/`gt`/`lt` clauses), so a store applies it as it applies any filter and has no pagination code of its own. A total comes from the generated `count` operation, `posts.count({ where })`, which a client calls beside `find` ([0026](decisions/0026-totals-come-from-a-count-procedure.md)). It costs a second query, so admin tables call it and APIs usually don't. Page numbers are not offered, because skip-based pages slow down on large Mongo collections.
 
 ### Indexes and migrations
 
@@ -513,7 +513,7 @@ Each phase ends at a gate; the next starts when its exit holds. Phase 0 builds t
 | Phase | Scope | Exit |
 | --- | --- | --- |
 | 0. Kernel, in memory (done) | `collection()`, `family()`, `framework()`, `build()`, `MemoryStore`; generated CRUD use cases, contract slice, event classes; overrides, custom methods, family guards, logging | A three-collection example serves `/rpc` and all tests pass on `MemoryStore` |
-| 1. Mongo, relations, access, tenancy ([plan](plans/phase-1.md)) | `MongoStore`, `Where` translation, indexes, migrations runner; `ref()`, `many()`, join collections, batched population; `Access` port with default functions, row-level tenancy, `withTotal` | `examples/crm` runs on Mongo; tenant isolation tests pass |
+| 1. Mongo, relations, access, tenancy ([plan](plans/phase-1.md)) | `MongoStore`, `Where` translation, indexes, migrations runner; `ref()`, `many()`, join collections, batched population; `Access` port with default functions, row-level tenancy, `count` | `examples/crm` runs on Mongo; tenant isolation tests pass |
 | 2. Production wiring | `@hexok/auth` recipe, `@hexok/authz` adapter, field masking; integration-events and webhooks recipes, MCP, OpenAPI; OpenTelemetry spans | One internal tool runs in production on Lattice |
 | 3. Admin and CLI | Admin SPA from `catalog()` and `.meta()`, on `@shadalaya`; CLI scaffolding and migrations; uploads through `@ts-pf/file` and a blob port | A new tool reaches CRUD, auth and admin in under one day |
 | 4. Hardening | Outbox relay, versions and drafts, Postgres store, index and performance tooling, security review | Ongoing; picked up as products need it |
