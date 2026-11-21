@@ -7,7 +7,7 @@ import { Comments } from './fixtures/comments.js';
 import { AppUseCase } from './fixtures/context.js';
 import { Posts } from './fixtures/posts.js';
 import { PublishPost } from './fixtures/publish-post.js';
-import { collection, family, framework } from './index.js';
+import { collection, family, framework, type Where } from './index.js';
 
 type Post = {
   title: string;
@@ -74,8 +74,9 @@ describe('type flow', () => {
     });
   });
 
-  it('find takes limit and after and returns a page', () => {
+  it('find takes where, limit and after and returns a page', () => {
     expectTypeOf(local.posts.find).parameter(0).toEqualTypeOf<{
+      where?: Where<Post> | undefined;
       limit?: number | undefined;
       after?: string | undefined;
     }>();
@@ -410,7 +411,7 @@ describe('build checks', () => {
       framework({ family: AppUseCase })
         .collection(Posts, { overrides: { delete: ArchivePost } })
         .build({ overrides: { posts: { delete: new SoftDelete() } } }),
-    ).toThrow('"posts.delete" instance is not a ArchivePost');
+    ).toThrow('"posts.delete" instance is not an instance of ArchivePost');
   });
 
   it('throws when a method instance is of another class', () => {
@@ -420,7 +421,7 @@ describe('build checks', () => {
         methods: { posts: { publish: new ArchivePost() } },
         overrides: { posts: { delete: new ArchivePost() } },
       }),
-    ).toThrow('"posts.publish" instance is not a PublishPost');
+    ).toThrow('"posts.publish" instance is not an instance of PublishPost');
   });
 
   it('needs no options when nothing is attached', () => {

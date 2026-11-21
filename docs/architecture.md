@@ -96,6 +96,8 @@ export const Posts = collection('posts', {
 - A collection may pass `entity: Post` instead of `schema`, where `Post extends Entity('Post', schema)`. Then domain rules live on the entity, the hexok way.
 - `ref()` and `many()` are the only field helpers. Everything else is plain Zod.
 - Only `z.object()`. Unknown keys are stripped. A loose object's index signature would reach every client type.
+- `id`, `createdAt`, `updatedAt`, `and` and `or` are reserved field names.
+- No `z.date()` and no transforms (`.transform()`, `.pipe()`, `z.preprocess`, codecs), anywhere in the schema. A Date reaches an HTTP client as a string, and a transform hides the field's kind from `Where`. Normalizing belongs in a `beforeChange` hook. `collection()` throws at definition time and, for top-level Dates, fails to compile.
 - `createdAt` and `updatedAt` are ISO 8601 strings, not `Date`. ts-pf sends JSON, so a `Date` would reach an HTTP client as a string while its type said `Date`.
 - A collection names no use case classes. Methods and overrides attach where the app composes ([0018](decisions/0018-methods-and-overrides-attach-in-the-framework.md)).
 
@@ -196,7 +198,20 @@ abstract class CollectionStore extends Port('CollectionStore') {
 
 ### Where filter
 
-`Where<T>` is typed from the collection schema. v1 supports `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `exists`, `contains` (string), `and` and `or`. Each store translates it; nothing else reaches the database. A query on a field the schema does not have is a type error and a `VALIDATION` error at runtime.
+`Where<Doc>` is typed from the collection's document, system fields included. Each store translates it; nothing else reaches the database. A query on a field the schema does not have is a type error and a `VALIDATION` error at runtime.
+
+| Field kind | Operators |
+| --- | --- |
+| string | `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `contains`, `exists` |
+| number | `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `exists` |
+| boolean, enum (string or number literals) | `eq`, `ne`, `in`, `nin`, `exists` |
+| array, object, anything else | `exists` |
+
+- Several fields, or several operators on one field, all have to match. `and` and `or` take one or more filters and nest.
+- Null and missing follow MongoDB's query semantics: `eq: null` matches null or missing, `ne` and `nin` match missing, and a comparison with null or missing is false. `exists` asks whether a field has a value, so null does not exist.
+- Strings compare by code unit, so ISO timestamps order correctly. `contains` is a case-insensitive literal substring, never a regex.
+- One operator table drives the type and the validator. A field's kind is decided from the values it accepts, the same way on both sides, and a table test checks every Zod field form.
+- The generated `find` takes `where`, and ts-pf validates it with the same schema.
 
 Pagination is cursor-based ([0008](decisions/0008-cursor-pagination.md)): `limit` + `after`, ordered by the `sort` fields plus `id`. Pass `withTotal: true` to also get `total`; it costs a second `count` query, so admin tables ask for it and APIs usually don't. Page numbers are not offered, because skip-based pages slow down on large Mongo collections.
 

@@ -51,9 +51,9 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 
 ### 2. `Where<T>` and the matcher
 
-- [ ] `Where<T>` keyed by the collection's fields, with `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `exists`, `contains` (string fields), `and` and `or`. A field the schema does not have is a type error.
-- [ ] Runtime validation of a `Where` against the schema: an unknown field is a `VALIDATION` error.
-- [ ] `matches(doc, where)` for `MemoryStore`, tested per operator.
+- [x] `Where<T>` keyed by the collection's fields, with `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `exists`, `contains` (string fields), `and` and `or`. A field the schema does not have is a type error.
+- [x] Runtime validation of a `Where` against the schema: an unknown field is a `VALIDATION` error.
+- [x] `matches(doc, where)` for `MemoryStore`, tested per operator.
 
 ### 3. `CollectionStore` and `MemoryStore`
 
@@ -88,6 +88,7 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 
 - [ ] `build()` returns `contract`, a ts-pf `router` with one slice per collection, and `app`, the implemented router. Each procedure calls one use case.
 - [ ] Every procedure declares the same errors: `UNAUTHORIZED`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `VALIDATION`. `errors.ts` maps `LatticeError` to them once, the way hexok's `app-template` does in `servers/rpc/errors.ts`.
+- [ ] A `VALIDATION` from ts-pf's own input check and one from `LatticeError` reach the client with the same issue shape, one issue per path.
 - [ ] The ts-pf context is `{ actor }`. The app builds it at the edge.
 
 ### 8. Overrides and custom methods
@@ -123,6 +124,12 @@ Add a line here when the work teaches something the plan did not know: a type li
 - Step 1: type-check of the spike is 0.70 s and 189k instantiations for two collections. Re-measure at step 9.
 - Step 1: TS2883 (a type that cannot be named) only fires for a consumer outside `packages/core`; inside, TypeScript names types by relative path. The public types are `Collection`, `Framework`, `Contract`, `Family` and `FamilyContext` because a consumer's declarations need them. Went to step 9.
 - Step 1: hexok's `#brand` is a structural key in declarations, so `build()` tells instances of two use cases with the same `execute` types apart only by private members. `build()` also checks `instanceof` the declared class at runtime. Nowhere else yet.
+- Step 2: `Where<Doc>` is a hand-written mapped type for hover readability, so `whereSchema` states its static type in one overload, the second asserted boundary after `build()`. Paired type and runtime tests back it. Nowhere else yet.
+- Step 2: `KindOf` (type) and `kindOf` (schema) are two implementations of one rule; a 29-row table test checks both. `z.lazy` is not unwrapped, so a lazy scalar field could disagree. Nowhere yet; revisit if a collection needs `z.lazy`.
+- Step 2: Zod brands are type-only, and `z.email()` / `z.iso.datetime()` are not `instanceof` classic `ZodString`; kind detection reads `def.type`. Nowhere else.
+- Step 2: ts-pf validates `find` input with the same where schema, so a bad filter over RPC is a ts-pf `VALIDATION` with Zod's object path, until step 7 maps errors. Went to step 7.
+- Step 2: type-check is 0.92 s and 311k instantiations, from 0.30 s before Phase 0. Re-measure at step 9.
+- Step 2: `collection()` rejects `z.date()` and transforms anywhere in a schema. Went to `architecture.md`.
 - Step 1: a ts-pf `Implementer` has its own keys (`$context`, `use`, `useAfter`, `middleware`, `router`), so a slug or method with one of those names would shadow them. They are reserved. Went to `architecture.md`.
 
 - None yet.

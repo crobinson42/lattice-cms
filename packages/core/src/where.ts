@@ -1,0 +1,372 @@
+import { z } from 'zod';
+import { type Issue, LatticeError } from './errors.js';
+
+export type Kind = 'string' | 'number' | 'boolean' | 'enum' | 'other';
+
+const equality = ['string', 'number', 'boolean', 'enum'] as const;
+const ordered = ['string', 'number'] as const;
+
+/** The field kinds each operator applies to. `Where` and the validator both read it. */
+const operators = {
+  eq: equality,
+  ne: equality,
+  in: equality,
+  nin: equality,
+  gt: ordered,
+  gte: ordered,
+  lt: ordered,
+  lte: ordered,
+  contains: ['string'],
+  exists: ['string', 'number', 'boolean', 'enum', 'other'],
+} as const satisfies Record<string, readonly Kind[]>;
+
+type Operator = keyof typeof operators;
+
+/** A brand is type-only: a branded string is a string at runtime. */
+type Unbrand<T> =
+  T extends z.core.$brand<infer Brand>
+    ? T extends infer U & z.core.$brand<Brand>
+      ? U
+      : T
+    : T;
+
+/**
+ * A field's kind, from its value type. `kindOf` below makes the same
+ * decision from the schema: all strings, with an open `string` among them,
+ * is 'string'; only string or only number literals is 'enum'; and so on.
+ * The table test in where.test.ts checks both sides on every field form.
+ */
+export type KindOf<V> = [Unbrand<Exclude<V, null | undefined>>] extends [
+  infer B,
+]
+  ? [B] extends [never]
+    ? 'other'
+    : [B] extends [boolean]
+      ? 'boolean'
+      : [B] extends [string]
+        ? string extends B
+          ? 'string'
+          : 'enum'
+        : [B] extends [number]
+          ? number extends B
+            ? 'number'
+            : 'enum'
+          : 'other'
+  : never;
+
+type Operand<Op extends Operator, B> = Op extends 'eq' | 'ne'
+  ? B | null
+  : Op extends 'in' | 'nin'
+    ? readonly (B | null)[]
+    : Op extends 'contains'
+      ? string
+      : Op extends 'exists'
+        ? boolean
+        : B;
+
+/** The operators one field allows, typed from its value. */
+export type FieldWhere<V> = {
+  readonly [Op in Operator as KindOf<V> extends (typeof operators)[Op][number]
+    ? Op
+    : never]?: Operand<Op, Exclude<V, null | undefined>>;
+};
+
+/**
+ * A filter on a collection's documents. Several fields, or several operators
+ * on one field, all have to match. `and` and `or` take one or more filters.
+ */
+export type Where<Doc> = {
+  readonly [K in keyof Doc]?: FieldWhere<Doc[K]>;
+} & {
+  readonly and?: readonly Where<Doc>[];
+  readonly or?: readonly Where<Doc>[];
+};
+
+/** The schema a wrapper keeps the values of, or undefined for any other schema. */
+export function innerOf(schema: z.core.$ZodType): z.core.$ZodType | undefined {
+  if (
+    schema instanceof z.core.$ZodOptional ||
+    schema instanceof z.core.$ZodNullable ||
+    schema instanceof z.core.$ZodDefault ||
+    schema instanceof z.core.$ZodPrefault ||
+    schema instanceof z.core.$ZodNonOptional ||
+    schema instanceof z.core.$ZodReadonly ||
+    schema instanceof z.core.$ZodCatch
+  ) {
+    return schema._zod.def.innerType;
+  }
+  return undefined;
+}
+
+function unwrap(schema: z.core.$ZodType): z.core.$ZodType {
+  const inner = innerOf(schema);
+  return inner === undefined ? schema : unwrap(inner);
+}
+
+type Atom =
+  | 'string'
+  | 'stringLiteral'
+  | 'number'
+  | 'numberLiteral'
+  | 'boolean'
+  | 'other';
+
+function valueAtoms(value: unknown): Atom[] {
+  switch (typeof value) {
+    case 'string':
+      return ['stringLiteral'];
+    case 'number':
+      return ['numberLiteral'];
+    case 'boolean':
+      return ['boolean'];
+    case 'undefined':
+      return [];
+    default:
+      return value === null ? [] : ['other'];
+  }
+}
+
+/** The kinds of value a schema accepts, without null and undefined. */
+function atoms(schema: z.core.$ZodType): Atom[] {
+  const leaf = unwrap(schema);
+  if (leaf instanceof z.core.$ZodUnion) {
+    return leaf._zod.def.options.flatMap(atoms);
+  }
+  switch (leaf._zod.def.type) {
+    case 'string':
+      return ['string'];
+    case 'number':
+      return ['number'];
+    case 'boolean':
+      return ['boolean'];
+    case 'template_literal':
+      return ['stringLiteral'];
+    case 'enum':
+    case 'literal':
+      return [...(leaf._zod.values ?? [])].flatMap(valueAtoms);
+    case 'null':
+    case 'undefined':
+    case 'void':
+      return [];
+    default:
+      return ['other'];
+  }
+}
+
+/** A field's kind, from its schema. Mirrors `KindOf` above. */
+export function kindOf(schema: z.core.$ZodType): Kind {
+  const found = atoms(schema);
+  const only = (...allowed: Atom[]) =>
+    found.every((atom) => allowed.includes(atom));
+  if (found.length === 0) return 'other';
+  if (only('boolean')) return 'boolean';
+  if (only('string', 'stringLiteral')) {
+    return found.includes('string') ? 'string' : 'enum';
+  }
+  if (only('number', 'numberLiteral')) {
+    return found.includes('number') ? 'number' : 'enum';
+  }
+  return 'other';
+}
+
+/** The schema of a single value an operator compares against. */
+function valueSchema(kind: Kind, leaf: z.core.$ZodType): z.core.$ZodType {
+  switch (kind) {
+    case 'string':
+      return z.string();
+    case 'number':
+      return z.number();
+    case 'boolean':
+      return z.boolean();
+    case 'enum':
+      return leaf;
+    default:
+      // 'other' fields only take `exists`, which reads no value.
+      return z.never();
+  }
+}
+
+function operandSchema(op: string, value: z.core.$ZodType): z.core.$ZodType {
+  switch (op) {
+    case 'eq':
+    case 'ne':
+      return z.nullable(value);
+    case 'in':
+    case 'nin':
+      return z.array(z.nullable(value));
+    case 'contains':
+      return z.string();
+    case 'exists':
+      return z.boolean();
+    default:
+      return value;
+  }
+}
+
+function fieldSchema(field: z.core.$ZodType): z.core.$ZodType {
+  const kind = kindOf(field);
+  // An enum's values are checked by its own schema, without wrappers such as
+  // catch, which would accept anything.
+  const value = valueSchema(kind, unwrap(field));
+  return z.strictObject(
+    Object.fromEntries(
+      Object.entries(operators)
+        .filter(([, kinds]) => kinds.some((k) => k === kind))
+        .map(([op]) => [op, z.optional(operandSchema(op, value))]),
+    ),
+  );
+}
+
+/**
+ * The validator of a `Where` on documents of `schema`. The overload states
+ * its static type; the implementation builds the schema from the shape at
+ * runtime, which a loop cannot express as a mapped type.
+ */
+export function whereSchema<S extends z.ZodObject>(
+  schema: S,
+): z.ZodType<Where<z.output<S>>>;
+export function whereSchema(schema: z.ZodObject): z.ZodType {
+  const fields = Object.fromEntries(
+    Object.entries(schema.shape).map(([name, field]) => [
+      name,
+      z.optional(fieldSchema(field)),
+    ]),
+  );
+  const clauses = z.optional(z.array(z.lazy(() => where)).min(1));
+  const where: z.ZodType = z.strictObject({
+    ...fields,
+    and: clauses,
+    or: clauses,
+  });
+  return where;
+}
+
+function issuesOf(issues: readonly z.core.$ZodIssue[]): Issue[] {
+  return issues.flatMap((issue) => {
+    const path = issue.path.map((key) =>
+      typeof key === 'symbol' ? String(key) : key,
+    );
+    // Zod reports every unknown key of one object as one issue. Split them
+    // so each path names the field or operator that is not allowed.
+    if (issue.code === 'unrecognized_keys') {
+      return issue.keys.map((key) => ({
+        path: [...path, key],
+        message: `"${key}" is not a field or not allowed on this field`,
+      }));
+    }
+    return [{ path, message: issue.message }];
+  });
+}
+
+/** Parses a `Where` on documents of `schema`, or throws `VALIDATION` naming each path. */
+export function parseWhere<S extends z.ZodObject>(
+  schema: S,
+  value: unknown,
+): Where<z.output<S>> {
+  const result = whereSchema(schema).safeParse(value);
+  if (result.success) return result.data;
+  throw LatticeError.VALIDATION({ issues: issuesOf(result.error.issues) });
+}
+
+type FieldOps = {
+  readonly eq?: unknown;
+  readonly ne?: unknown;
+  readonly in?: readonly unknown[];
+  readonly nin?: readonly unknown[];
+  readonly gt?: unknown;
+  readonly gte?: unknown;
+  readonly lt?: unknown;
+  readonly lte?: unknown;
+  readonly contains?: string;
+  readonly exists?: boolean;
+};
+
+/** Any parsed `Where`, as `matches` reads it. */
+export type AnyWhere = {
+  readonly and?: readonly AnyWhere[];
+  readonly or?: readonly AnyWhere[];
+  readonly [field: string]: FieldOps | readonly AnyWhere[] | undefined;
+};
+
+// Null and missing follow MongoDB's query semantics, so MongoStore can pass a
+// Where through unchanged. `eq: null` matches null or missing; `ne` and `nin`
+// match a missing field; a comparison with null or missing is false. The one
+// difference is `exists`: it asks whether the field has a value, so null does
+// not exist (Mongo `{ $ne: null }` and `{ $eq: null }`).
+function present(value: unknown): boolean {
+  return value !== undefined && value !== null;
+}
+
+function equals(value: unknown, target: unknown): boolean {
+  return target === null ? !present(value) : value === target;
+}
+
+/** Strings compare by code unit, so ISO timestamps order correctly. */
+function compare(value: unknown, target: unknown): number | undefined {
+  if (typeof value === 'number' && typeof target === 'number') {
+    return value - target;
+  }
+  if (typeof value === 'string' && typeof target === 'string') {
+    return value < target ? -1 : value > target ? 1 : 0;
+  }
+  return undefined;
+}
+
+function compares(
+  value: unknown,
+  target: unknown,
+  test: (order: number) => boolean,
+): boolean {
+  if (target === undefined) return true;
+  const order = compare(value, target);
+  return order !== undefined && test(order);
+}
+
+function matchesField(value: unknown, ops: FieldOps): boolean {
+  if (ops.eq !== undefined && !equals(value, ops.eq)) return false;
+  if (ops.ne !== undefined && equals(value, ops.ne)) return false;
+  if (ops.in !== undefined && !ops.in.some((t) => equals(value, t))) {
+    return false;
+  }
+  if (ops.nin?.some((t) => equals(value, t))) return false;
+  if (!compares(value, ops.gt, (order) => order > 0)) return false;
+  if (!compares(value, ops.gte, (order) => order >= 0)) return false;
+  if (!compares(value, ops.lt, (order) => order < 0)) return false;
+  if (!compares(value, ops.lte, (order) => order <= 0)) return false;
+  if (ops.contains !== undefined) {
+    // A literal, case-insensitive substring. Never a regex.
+    const needle = ops.contains.toLowerCase();
+    if (typeof value !== 'string' || !value.toLowerCase().includes(needle)) {
+      return false;
+    }
+  }
+  if (ops.exists !== undefined && present(value) !== ops.exists) return false;
+  return true;
+}
+
+function isClauses(
+  condition: FieldOps | readonly AnyWhere[],
+): condition is readonly AnyWhere[] {
+  return Array.isArray(condition);
+}
+
+/** Whether `doc` matches a parsed `where`. The in-memory store's filter. */
+export function matches(
+  doc: Readonly<Record<string, unknown>>,
+  where: AnyWhere,
+): boolean {
+  for (const [field, condition] of Object.entries(where)) {
+    if (condition === undefined) continue;
+    if (isClauses(condition)) {
+      // collection() rejects fields named `and` and `or`, so only they hold arrays.
+      const holds =
+        field === 'and'
+          ? condition.every((clause) => matches(doc, clause))
+          : condition.some((clause) => matches(doc, clause));
+      if (!holds) return false;
+      continue;
+    }
+    if (!matchesField(doc[field], condition)) return false;
+  }
+  return true;
+}

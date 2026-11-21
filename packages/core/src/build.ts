@@ -344,7 +344,7 @@ function instanceOf<Ctx>(
   }
   if (!(instance instanceof declared)) {
     throw new Error(
-      `Lattice: "${slug}.${name}" instance is not a ${declared.name}`,
+      `Lattice: "${slug}.${name}" instance is not an instance of ${declared.name}`,
     );
   }
   return instance;
