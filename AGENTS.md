@@ -98,7 +98,7 @@ When a phase exits, move anything durable from its plan into `docs/architecture.
 
 ## Adding a package
 
-Copy `package.json` scripts, `tsconfig.json`, `tsconfig.check.json` and `vitest.config.ts` from `packages/core`. Add the package to the root `tsconfig.json` references. A package that will publish needs a changeset and a `README.md`, which is its docs page.
+Copy `package.json`'s scripts and its `files`, `license` and `publishConfig` fields, `tsconfig.json`, `tsconfig.check.json`, `tsconfig.dist.json`, `dist-check/`, `vitest.config.ts` and `LICENSE` from `packages/core`. `dist-check/` type-checks the built declarations as an app sees them, with `skipLibCheck` off. Add the package to the root `tsconfig.json` references. A package that will publish needs a changeset and a `README.md`, which is its docs page.
 
 ## Changesets and commits
 

@@ -35,13 +35,12 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 | [0026](0026-totals-come-from-a-count-procedure.md) | Totals come from a generated `count` procedure, not `find({ withTotal })` | default | ts-pf can make an output field required only when an input flag is set, or a client cannot afford a second call per page. |
 | [0027](0027-migrations-lock-in-the-database-they-migrate.md) | Migrations run forward only, from an explicit list, under a lease lock in their own database | default | hexok ships a general Lock port, or migrations must coordinate across more than one database. |
 | [0028](0028-relations-delete-in-a-store-transaction-as-system-work.md) | Relations: derived join collections, and `onDelete` as system work inside the parent's tenant and a store transaction | default | A collection lives in a different store from a relation's other side, an app needs per-relation access rules, or a relation outgrows a 1000-link set. |
+| [0029](0029-hexok-and-ts-pf-are-peers.md) | hexok and ts-pf are peers of every `@latticecms/*` package | default | npm or Node gains a reliable way to share one copy of a regular dependency with the app, or hexok and ts-pf stop exposing classes and branded types that must be the app's own. |
 
 ## Proposed
 
 These are not decided yet. Treat them as context, not rules.
 
-| ID | Decision | Strength | Revisit when |
-| --- | --- | --- | --- |
-| [0029](0029-hexok-and-ts-pf-are-peers.md) | hexok and ts-pf are peers of every `@latticecms/*` package | default | npm or Node gains a reliable way to share one copy of a regular dependency with the app, or hexok and ts-pf stop exposing classes and branded types that must be the app's own. |
+None.
 
 1 superseded record is history and not listed. Do not follow them.

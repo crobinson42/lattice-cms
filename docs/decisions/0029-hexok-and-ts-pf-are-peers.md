@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: npm or Node gains a reliable way to share one copy of a regular dependency with the app, or hexok and ts-pf stop exposing classes and branded types that must be the app's own.
