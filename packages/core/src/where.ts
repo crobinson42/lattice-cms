@@ -268,12 +268,13 @@ function fieldSchema(field: z.core.$ZodType): z.core.$ZodType {
 
 /**
  * The validator of a `Where` on documents of `schema`. The overload states
- * its static type; the implementation builds the schema from the shape at
+ * its static type, as input and output alike: a `Where` has no defaults or
+ * transforms. The implementation builds the schema from the shape at
  * runtime, which a loop cannot express as a mapped type.
  */
 export function whereSchema<S extends z.ZodObject>(
   schema: S,
-): z.ZodType<Where<z.output<S>>>;
+): z.ZodType<Where<z.output<S>>, Where<z.output<S>>>;
 export function whereSchema(schema: z.ZodObject): z.ZodType {
   const fields = Object.fromEntries(
     Object.entries(schema.shape).map(([name, field]) => [

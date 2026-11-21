@@ -49,13 +49,16 @@ export type SortKey<Doc> = SortableField<Doc> | `-${SortableField<Doc>}`;
 export type Sort<Doc> = readonly SortKey<Doc>[];
 
 /**
- * The validator of a `Sort` on documents of `schema`. The overload states its
- * static type; the implementation checks field names it reads from the shape
- * at runtime, which a loop cannot express as a mapped type.
+ * The validator of find's `Sort` on documents of `schema`, which gives
+ * `defaultSort` when the caller sends none. The overload states its static
+ * type, and that `defaultSort` is a valid `Sort` for every collection: it
+ * names a system field, which a generic shape cannot show. The
+ * implementation checks field names it reads from the shape at runtime,
+ * which a loop cannot express as a mapped type.
  */
 export function sortSchema<S extends z.ZodObject>(
   schema: S,
-): z.ZodType<Sort<z.output<S>>>;
+): z.ZodDefault<z.ZodType<Sort<z.output<S>>, Sort<z.output<S>>>>;
 export function sortSchema(schema: z.ZodObject): z.ZodType {
   const fields = new Map(
     Object.entries(schema.shape).map(([name, field]) => [
@@ -63,34 +66,37 @@ export function sortSchema(schema: z.ZodObject): z.ZodType {
       sortable(field),
     ]),
   );
-  return z.array(z.string()).superRefine((keys, ctx) => {
-    const seen = new Set<string>();
-    keys.forEach((key, index) => {
-      const { field } = keyOf(key);
-      const canSort = fields.get(field);
-      if (canSort === undefined) {
-        ctx.addIssue({
-          code: 'custom',
-          path: [index],
-          message: `"${field}" is not a field`,
-        });
-      } else if (!canSort) {
-        ctx.addIssue({
-          code: 'custom',
-          path: [index],
-          message: `"${field}" cannot be sorted: it is optional, nullable, or not a string, number or enum`,
-        });
-      }
-      if (seen.has(field)) {
-        ctx.addIssue({
-          code: 'custom',
-          path: [index],
-          message: `"${field}" is sorted twice`,
-        });
-      }
-      seen.add(field);
-    });
-  });
+  return z
+    .array(z.string())
+    .superRefine((keys, ctx) => {
+      const seen = new Set<string>();
+      keys.forEach((key, index) => {
+        const { field } = keyOf(key);
+        const canSort = fields.get(field);
+        if (canSort === undefined) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [index],
+            message: `"${field}" is not a field`,
+          });
+        } else if (!canSort) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [index],
+            message: `"${field}" cannot be sorted: it is optional, nullable, or not a string, number or enum`,
+          });
+        }
+        if (seen.has(field)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [index],
+            message: `"${field}" is sorted twice`,
+          });
+        }
+        seen.add(field);
+      });
+    })
+    .default(() => [...defaultSort]);
 }
 
 /** Parses a `Sort` on documents of `schema`, or throws `VALIDATION` naming each path. */

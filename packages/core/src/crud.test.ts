@@ -10,6 +10,7 @@ import {
   vi,
 } from 'vitest';
 import { z } from 'zod';
+import { operations } from './collection.js';
 import { AppUseCase, callContext } from './fixtures/context.js';
 import { noSubscribers } from './fixtures/events.js';
 import { collection, framework, MemoryStore } from './index.js';
@@ -120,12 +121,29 @@ describe('generated operations on MemoryStore', () => {
     expect(await local.notes.get({ id: created.id })).toEqual(created);
   });
 
-  it('create applies the schema defaults', async () => {
-    const { local } = setup();
-    // ts-pf types input by the schema's output, so a defaulted field is
-    // required in the client type until the ts-pf fix lands.
-    // @ts-expect-error body, status and views have defaults
+  it('create takes a defaulted field as optional, and the handler gets its default', async () => {
+    const seen: unknown[] = [];
+    const { local } = setup(
+      Notes.hooks({
+        beforeChange: ({ data }) => {
+          seen.push(data);
+          return data;
+        },
+      }),
+    );
+
+    expectTypeOf(local.notes.create).parameter(0).toEqualTypeOf<{
+      title: string;
+      body?: string | undefined;
+      status?: 'draft' | 'published' | undefined;
+      views?: number | undefined;
+      pinned?: boolean | undefined;
+    }>();
     const created = await local.notes.create({ title: 'Hello' });
+
+    expect(seen).toEqual([
+      { title: 'Hello', body: '', status: 'draft', views: 0 },
+    ]);
     expect(created).toMatchObject({ body: '', status: 'draft', views: 0 });
   });
 
@@ -485,4 +503,47 @@ describe('a patch never applies a default', () => {
       expect(updated[field]).toBe(created[field]);
     },
   );
+});
+
+describe('caller input types', () => {
+  function built() {
+    return framework({
+      family: AppUseCase,
+      store: new MemoryStore(),
+      events: noSubscribers,
+    })
+      .collection(Notes)
+      .build();
+  }
+
+  it('find’s input schema carries the default sort and limit', () => {
+    const first = operations(Notes.schema).find.input.parse({});
+    const second = operations(Notes.schema).find.input.parse({});
+    expect(first).toEqual({ sort: ['-createdAt'], limit: 20 });
+    // Each parse gets its own array, so a caller that mutates one changes no other.
+    expect(first.sort).not.toBe(second.sort);
+  });
+
+  it('a client and a direct useCases call take the same input type', () => {
+    const { app, useCases } = built();
+    const local = createLocalClient(app, { context: callContext() });
+    type Client = typeof local.notes;
+    type Direct = typeof useCases.notes;
+
+    expectTypeOf<Parameters<Direct['find']['execute']>[1]>().toEqualTypeOf<
+      Parameters<Client['find']>[0]
+    >();
+    expectTypeOf<Parameters<Direct['get']['execute']>[1]>().toEqualTypeOf<
+      Parameters<Client['get']>[0]
+    >();
+    expectTypeOf<Parameters<Direct['create']['execute']>[1]>().toEqualTypeOf<
+      Parameters<Client['create']>[0]
+    >();
+    expectTypeOf<Parameters<Direct['update']['execute']>[1]>().toEqualTypeOf<
+      Parameters<Client['update']>[0]
+    >();
+    expectTypeOf<Parameters<Direct['delete']['execute']>[1]>().toEqualTypeOf<
+      Parameters<Client['delete']>[0]
+    >();
+  });
 });

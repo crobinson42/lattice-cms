@@ -2,6 +2,7 @@ import {
   type ContractProcedure,
   type ContractRouterBrand,
   type ErrorMap,
+  type InferSchemaInput,
   type InferSchemaOutput,
   procedure,
   router,
@@ -153,19 +154,28 @@ type DeclaredCheck<D> = [keyof D & LatticeCode] extends [never]
 /** The errors every procedure declares: Lattice's, then the app's. */
 type Declared<D extends ErrorMap> = typeof declaredErrors & D;
 
+/**
+ * A procedure as ts-pf's `procedure.input(In).output(Out)` types it: a
+ * caller sends the input schema's input type, so a defaulted field is
+ * optional, and the handler receives its output type.
+ */
+type Procedure<In, Out, D extends ErrorMap> = ContractProcedure<
+  InferSchemaInput<In>,
+  InferSchemaOutput<Out>,
+  Declared<D>,
+  Record<never, never>,
+  InferSchemaOutput<In>
+>;
+
 /** One collection's contract slice: the generated operations plus its methods. */
 type Slice<E extends Entry, D extends ErrorMap> = {
   [K in Action | (keyof E['methods'] & string)]: K extends Action
-    ? ContractProcedure<
-        InferSchemaOutput<Ops<E['collection']>[K]['input']>,
-        InferSchemaOutput<Ops<E['collection']>[K]['output']>,
-        Declared<D>
+    ? Procedure<
+        Ops<E['collection']>[K]['input'],
+        Ops<E['collection']>[K]['output'],
+        D
       >
-    : ContractProcedure<
-        InferSchemaOutput<E['methods'][K]['input']>,
-        InferSchemaOutput<E['methods'][K]['output']>,
-        Declared<D>
-      >;
+    : Procedure<E['methods'][K]['input'], E['methods'][K]['output'], D>;
 };
 
 /** The generated ts-pf contract: one slice per collection. */

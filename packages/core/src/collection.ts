@@ -1,6 +1,6 @@
 import { Event, type EventCatalog } from 'hexok';
 import { z } from 'zod';
-import { maxLimit, sortSchema } from './sort.js';
+import { defaultLimit, maxLimit, sortSchema } from './sort.js';
 import { innerOf, whereSchema, wrapperOf } from './where.js';
 
 /** The operations Lattice generates for every collection. */
@@ -72,11 +72,8 @@ export function operations<Shape extends z.core.$ZodShape>(
     find: {
       input: z.object({
         where: whereSchema(output).optional(),
-        sort: sortSchema(output).optional(),
-        // No Zod default: ts-pf types input by the schema's output, so a
-        // default would make limit required for every client. The generated
-        // find applies defaultSort and defaultLimit.
-        limit: z.number().int().min(1).max(maxLimit).optional(),
+        sort: sortSchema(output),
+        limit: z.number().int().min(1).max(maxLimit).default(defaultLimit),
         after: z.string().optional(),
       }),
       output: z.object({ docs: z.array(output), next: z.string().nullable() }),

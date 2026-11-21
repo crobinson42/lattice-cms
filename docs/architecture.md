@@ -222,7 +222,7 @@ abstract class CollectionStore extends Port('CollectionStore') {
 Pagination is cursor-based ([0008](decisions/0008-cursor-pagination.md)): `limit` + `after`, ordered by the `sort` fields plus `id`.
 
 - `sort` is an array such as `['-createdAt', 'title']`, not an object, because Zod rebuilds object keys in shape order and would reorder the priority. Only required, non-null string, number and enum fields sort, so a cursor never meets null. The default is `['-createdAt']`; `id` is always the last tiebreak.
-- `limit` is 1 to 100, default 20. The generated `find` applies the defaults, not the contract schema: ts-pf types client input from a schema's output, so a Zod default would make the field required for clients.
+- `limit` is 1 to 100, default 20. Both defaults are Zod defaults in `find`'s contract input, so the catalog and OpenAPI show them; `Repo.find` reads the same constants.
 - A cursor is opaque base64url JSON of the sort and the last document's sort values. A cursor from another sort, or a malformed one, is `VALIDATION`. It is not signed: a forged cursor only moves the page start, and `where` still applies.
 - The keyset predicate is itself a `Where` (`or` of `eq`/`gt`/`lt` clauses), so a store applies it as it applies any filter and has no pagination code of its own. Pass `withTotal: true` to also get `total`; it costs a second `count` query, so admin tables ask for it and APIs usually don't. Page numbers are not offered, because skip-based pages slow down on large Mongo collections.
 
