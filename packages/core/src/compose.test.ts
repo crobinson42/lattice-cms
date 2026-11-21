@@ -19,29 +19,31 @@ function typeOnly(_statements: () => unknown): void {}
 
 const draft = { title: 't', body: 'b', status: 'draft' } as const;
 
-/** The app of architecture.md: one override, one method, two collections. */
+/** The definition of architecture.md: one override, one method, two collections. */
+const definition = framework({ family: AppUseCase })
+  .collection(Posts, {
+    methods: { publish: PublishPost },
+    overrides: { delete: ArchivePost },
+  })
+  .collection(Comments);
+
+/** The definition wired to a store and a publisher. */
 function setup(store = new MemoryStore()) {
   const events = new MemoryEventPublisher();
-  const lattice = framework({ family: AppUseCase, store, events })
-    .collection(Posts, {
-      methods: { publish: PublishPost },
-      overrides: { delete: ArchivePost },
-    })
-    .collection(Comments);
-  // Built before build(), from the repo build() returns too.
-  const publish = new PublishPost({ posts: lattice.repo(Posts) });
-  const archive = new ArchivePost({ posts: lattice.repo(Posts) });
-  const built = lattice.build({
-    methods: { posts: { publish } },
-    overrides: { posts: { delete: archive } },
+  const built = definition.build({
+    store,
+    events,
+    methods: ({ repos }) => ({
+      posts: { publish: new PublishPost({ posts: repos.posts }) },
+    }),
+    overrides: ({ repos }) => ({
+      posts: { delete: new ArchivePost({ posts: repos.posts }) },
+    }),
   });
   return {
     ...built,
-    lattice,
     store,
     events,
-    publish,
-    archive,
     local: createLocalClient(built.app, { context: callContext() }),
   };
 }
@@ -58,33 +60,50 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('lattice.repo()', () => {
-  it('is the repo build() returns, for a collection the app added', () => {
-    const { lattice, repos } = setup();
-    expect(lattice.repo(Posts)).toBe(repos.posts);
-    expect(lattice.repo(Comments)).toBe(repos.comments);
+describe('the definition', () => {
+  it('has a contract with no store or publisher, the same object on every read', () => {
+    const plain = framework({ family: AppUseCase }).collection(Posts);
+    expect(plain.contract).toBe(plain.contract);
+    expect(Object.keys(definition.contract)).toEqual(['posts', 'comments']);
+    expect(Object.keys(definition.contract.posts)).toEqual([
+      'find',
+      'get',
+      'create',
+      'update',
+      'delete',
+      'publish',
+    ]);
+  });
+});
+
+describe('the repos build() gives the factories', () => {
+  it('are the repos build() returns, typed by collection', () => {
+    let given: Repo<typeof Posts> | undefined;
+    const { repos } = definition.build({
+      store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
+      methods: ({ repos }) => {
+        given = repos.posts;
+        expectTypeOf(repos.comments).toEqualTypeOf<Repo<typeof Comments>>();
+        return { posts: { publish: new PublishPost({ posts: repos.posts }) } };
+      },
+      overrides: ({ repos }) => {
+        expect(repos.posts).toBe(given);
+        return { posts: { delete: new ArchivePost({ posts: repos.posts }) } };
+      },
+    });
+    expect(given).toBe(repos.posts);
     expectTypeOf(repos.posts).toEqualTypeOf<Repo<typeof Posts>>();
-    expectTypeOf(lattice.repo(Posts)).toEqualTypeOf<Repo<typeof Posts>>();
   });
 
-  it('is a type error, and throws, for a collection the app did not add', () => {
-    const lattice = framework({
-      family: AppUseCase,
-      store: new MemoryStore(),
-      events: new MemoryEventPublisher(),
-    }).collection(Posts);
-    // @ts-expect-error comments was not added
-    expect(() => lattice.repo(Comments)).toThrow(
-      'Lattice: "comments" is not a collection of this app',
-    );
-    const empty = framework({
-      family: AppUseCase,
-      store: new MemoryStore(),
-      events: new MemoryEventPublisher(),
-    });
+  it('hold only the collections the app added', () => {
+    const { repos } = framework({ family: AppUseCase })
+      .collection(Posts)
+      .build({ store: new MemoryStore(), events: new MemoryEventPublisher() });
+    expect(Object.keys(repos)).toEqual(['posts']);
     typeOnly(() => {
-      // @ts-expect-error no collection was added
-      empty.repo(Posts);
+      // @ts-expect-error comments was not added
+      void repos.comments;
     });
   });
 });
@@ -183,17 +202,15 @@ describe('a repo', () => {
 
   it('runs no validation, no hooks and no events', async () => {
     const events = new MemoryEventPublisher();
-    const lattice = framework({
-      family: AppUseCase,
-      store: new MemoryStore(),
-      events,
-    }).collection(
-      Posts.hooks({
-        beforeChange: ({ data }) => ({ ...data, body: 'hooked' }),
-        afterRead: ({ doc }) => ({ ...doc, title: 'read' }),
-      }),
-    );
-    const posts = lattice.repo(Posts);
+    const { repos } = framework({ family: AppUseCase })
+      .collection(
+        Posts.hooks({
+          beforeChange: ({ data }) => ({ ...data, body: 'hooked' }),
+          afterRead: ({ doc }) => ({ ...doc, title: 'read' }),
+        }),
+      )
+      .build({ store: new MemoryStore(), events });
+    const posts = repos.posts;
 
     // An empty title breaks the schema's min(1); the repo trusts its input.
     const post = await posts.insert({ ...draft, title: '' });
@@ -207,7 +224,20 @@ describe('a repo', () => {
 
 describe('useCases', () => {
   it('holds the instance that serves each procedure, typed precisely', () => {
-    const { useCases, publish, archive } = setup();
+    let publish: PublishPost | undefined;
+    let archive: ArchivePost | undefined;
+    const { useCases } = definition.build({
+      store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
+      methods: ({ repos }) => {
+        publish = new PublishPost({ posts: repos.posts });
+        return { posts: { publish } };
+      },
+      overrides: ({ repos }) => {
+        archive = new ArchivePost({ posts: repos.posts });
+        return { posts: { delete: archive } };
+      },
+    });
 
     expect(useCases.posts.publish).toBe(publish);
     expect(useCases.posts.delete).toBe(archive);
@@ -374,12 +404,10 @@ describe('a method and an override', () => {
     const { local } = setup();
     const { app } = framework({
       family: AppUseCase,
-      store: new MemoryStore(),
-      events: new MemoryEventPublisher(),
     })
       .collection(Posts)
       .collection(Comments)
-      .build();
+      .build({ store: new MemoryStore(), events: new MemoryEventPublisher() });
     const plain = createLocalClient(app, { context: callContext() });
 
     expectTypeOf<Omit<typeof local.posts, 'publish'>>().toEqualTypeOf<

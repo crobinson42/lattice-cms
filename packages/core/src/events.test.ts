@@ -86,10 +86,10 @@ function setup(
   events: DomainEventPublisher = new MemoryEventPublisher(),
   logger?: Logger,
 ) {
-  const { app } = framework({ family: AppUseCase, store, events })
+  const { app } = framework({ family: AppUseCase })
     .collection(Posts)
     .collection(Comments)
-    .build();
+    .build({ store, events });
   // Without ts-pf's own input check, bad input reaches Lattice's guard.
   return createLocalClient(app, {
     context: callContext(logger),
@@ -175,11 +175,11 @@ describe('the events publisher', () => {
   }
 
   it('is required', () => {
+    const app = framework({ family: AppUseCase }).collection(Posts);
     typeOnly(() => {
       // @ts-expect-error events is required
-      framework({ family: AppUseCase, store: new MemoryStore() });
-      framework({
-        family: AppUseCase,
+      app.build({ store: new MemoryStore() });
+      app.build({
         store: new MemoryStore(),
         // @ts-expect-error events has no publish
         events: {},
@@ -188,35 +188,41 @@ describe('the events publisher', () => {
   });
 
   it('fits when it is typed by a catalog that lists the collection events', () => {
-    const app = framework({
-      family: AppUseCase,
-      store: new MemoryStore(),
-      events: new MemoryEventPublisher(),
-    });
-    expect(() => app.collection(Posts).collection(Comments)).not.toThrow();
+    const app = framework({ family: AppUseCase })
+      .collection(Posts)
+      .collection(Comments);
+    expect(() =>
+      app.build({
+        store: new MemoryStore(),
+        events: new MemoryEventPublisher(),
+      }),
+    ).not.toThrow();
   });
 
-  it('is a type error on .collection() when the publisher cannot take its events', () => {
-    const app = framework({
-      family: AppUseCase,
-      store: new MemoryStore(),
-      events: new OtherPublisher(),
-    });
+  it('is a type error on build() when the publisher cannot take every collection’s events', () => {
+    const posts = framework({ family: AppUseCase }).collection(Posts);
+    const both = posts.collection(Comments);
     typeOnly(() => {
-      // @ts-expect-error the publisher takes posts.created, not posts.updated or posts.deleted
-      app.collection(Posts);
-      // @ts-expect-error the publisher takes no comments events
-      app.collection(Comments);
+      posts.build({
+        store: new MemoryStore(),
+        // @ts-expect-error the publisher takes posts.created, not posts.updated or posts.deleted
+        events: new OtherPublisher(),
+      });
+      both.build({
+        store: new MemoryStore(),
+        // @ts-expect-error the publisher takes no comments events
+        events: new OtherPublisher(),
+      });
     });
   });
 
   it('throws at runtime for an event its catalog lacks, as app-template’s adapter does', async () => {
-    const store = new MemoryStore();
     const events = new OtherPublisher();
-    const { app } = framework({ family: AppUseCase, store, events })
+    const { app } = framework({ family: AppUseCase }).collection(Posts).build({
+      store: new MemoryStore(),
       // @ts-expect-error the publisher takes posts.created only
-      .collection(Posts)
-      .build();
+      events,
+    });
     const local = createLocalClient(app, { context: callContext() });
 
     const post = await local.posts.create({
@@ -261,11 +267,9 @@ describe('generated writes', () => {
     const events = new MemoryEventPublisher();
     const { app } = framework({
       family: AppUseCase,
-      store: new MemoryStore(),
-      events,
     })
       .collection(Comments)
-      .build();
+      .build({ store: new MemoryStore(), events });
     const local = createLocalClient(app, {
       context: { ...callContext(), actor: { userId: 'u2', roles: [] } },
     });
@@ -281,15 +285,13 @@ describe('generated writes', () => {
     const events = new MemoryEventPublisher();
     const { app } = framework({
       family: AppUseCase,
-      store: new MemoryStore(),
-      events,
     })
       .collection(
         Posts.hooks({
           afterRead: ({ doc }) => ({ ...doc, title: doc.title.toUpperCase() }),
         }),
       )
-      .build();
+      .build({ store: new MemoryStore(), events });
     const local = createLocalClient(app, { context: callContext() });
 
     const created = await local.posts.create({
@@ -440,15 +442,15 @@ describe('an override', () => {
 
   it('publishes no posts.deleted for ArchivePost, which publishes nothing itself', async () => {
     const { store, events, post } = await seeded();
-    const lattice = framework({ family: AppUseCase, store, events }).collection(
-      Posts,
-      { overrides: { delete: ArchivePost } },
-    );
-    const { app } = lattice.build({
-      overrides: {
-        posts: { delete: new ArchivePost({ posts: lattice.repo(Posts) }) },
-      },
-    });
+    const { app } = framework({ family: AppUseCase })
+      .collection(Posts, { overrides: { delete: ArchivePost } })
+      .build({
+        store,
+        events,
+        overrides: ({ repos }) => ({
+          posts: { delete: new ArchivePost({ posts: repos.posts }) },
+        }),
+      });
     const local = createLocalClient(app, { context: callContext() });
 
     await local.posts.delete({ id: post.id });
@@ -459,12 +461,14 @@ describe('an override', () => {
 
   it('publishes only the events the override publishes itself', async () => {
     const { store, events, post } = await seeded();
-    const { app } = framework({ family: AppUseCase, store, events })
+    const { app } = framework({ family: AppUseCase })
       .collection(Posts, { overrides: { delete: AnnouncedArchive } })
       .build({
-        overrides: {
+        store,
+        events,
+        overrides: () => ({
           posts: { delete: new AnnouncedArchive({ store, events }) },
-        },
+        }),
       });
     const local = createLocalClient(app, { context: callContext() });
 

@@ -54,14 +54,16 @@ function setup(
   } = {},
 ) {
   const lock = new LockPost();
-  const { contract, app, onError } = framework({
+  const definition = framework({
     family: AppUseCase,
+    errors: { declared: clientErrors, map: toRpcError },
+  }).collection(Posts, { methods: { lock: LockPost } });
+  const { app, onError } = definition.build({
     store: options.store ?? new MemoryStore(),
     events: new MemoryEventPublisher(),
-    errors: { declared: clientErrors, map: toRpcError },
-  })
-    .collection(Posts, { methods: { lock: LockPost } })
-    .build({ methods: { posts: { lock } } });
+    methods: () => ({ posts: { lock } }),
+  });
+  const { contract } = definition;
   const context = callContext(options.logger);
   return {
     lock,
@@ -120,11 +122,7 @@ describe('declared errors', () => {
   });
 
   it('is a type error and throws when the app declares a Lattice code', () => {
-    const base = {
-      family: AppUseCase,
-      store: new MemoryStore(),
-      events: new MemoryEventPublisher(),
-    };
+    const base = { family: AppUseCase };
     typeOnly(() => {
       framework({
         ...base,
@@ -147,13 +145,12 @@ describe('declared errors', () => {
   });
 
   it('is optional: an app with no domain errors declares Lattice’s', async () => {
-    const { contract, app } = framework({
-      family: AppUseCase,
+    const definition = framework({ family: AppUseCase }).collection(Posts);
+    const { contract } = definition;
+    const { app } = definition.build({
       store: new MemoryStore(),
       events: new MemoryEventPublisher(),
-    })
-      .collection(Posts)
-      .build();
+    });
     expect(Object.keys(contract.posts.get['~pf'].errors)).toEqual([
       'UNAUTHORIZED',
       'FORBIDDEN',
@@ -452,14 +449,12 @@ describe('the onError build() returns', () => {
     const root = new MemoryLogger();
     const { app, onError } = framework({
       family: AppUseCase,
-      store: new MemoryStore(),
-      events: new MemoryEventPublisher(),
     })
       // An afterRead that breaks the output schema: title is min(1).
       .collection(
         Posts.hooks({ afterRead: ({ doc }) => ({ ...doc, title: '' }) }),
       )
-      .build();
+      .build({ store: new MemoryStore(), events: new MemoryEventPublisher() });
     const local = createLocalClient(app, {
       context: callContext(root),
       validation: { output: true },

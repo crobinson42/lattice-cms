@@ -24,11 +24,9 @@ type Thing = z.output<typeof Things.output>;
 
 const { app } = framework({
   family: AppUseCase,
-  store: new MemoryStore(),
-  events: noSubscribers,
 })
   .collection(Things)
-  .build();
+  .build({ store: new MemoryStore(), events: noSubscribers });
 const local = createLocalClient(app, {
   context: callContext(),
 });

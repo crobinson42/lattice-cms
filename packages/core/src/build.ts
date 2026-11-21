@@ -58,14 +58,12 @@ type Ctor<I> = abstract new (...args: never[]) => I;
 
 type Schemas = { readonly input: z.ZodType; readonly output: z.ZodType };
 
-/** A collection, the classes attached to it, and its repo. */
+/** A collection and the classes attached to it. */
 type Entry = {
   readonly collection: AnyCollection;
   readonly methods: Readonly<Record<string, Ctor<unknown> & Schemas>>;
   readonly overrides: Readonly<Record<string, Ctor<unknown>>>;
 };
-
-type Added = Entry & { readonly repo: Repo<AnyCollection> };
 
 type Entries = Record<string, Entry>;
 
@@ -134,15 +132,21 @@ type Refused<Col extends AnyCollection, P extends EventPublisher> = {
       : never;
 }[keyof Col['events']];
 
+// Each event of every collection in `E` that `P.publish` does not take.
+type RefusedBy<E extends Entries, P extends EventPublisher> = {
+  [S in keyof E]: Refused<E[S]['collection'], P>;
+}[keyof E];
+
 // Checked as a tuple, not through `P extends { publish(...) }`: publish is
 // usually a method, and a method's parameter is bivariant, so a publisher of
-// another catalog's events would pass.
-type EventCheck<Col extends AnyCollection, P extends EventPublisher> = [
-  Refused<Col, P>,
+// another catalog's events would pass. A rejected publisher adds a key it
+// lacks, so the error names each token.
+type EventsCheck<E extends Entries, P extends EventPublisher> = [
+  RefusedBy<E, P>,
 ] extends [never]
   ? unknown
   : {
-      readonly '~error': `the events publisher does not take "${Refused<Col, P> & string}"`;
+      readonly '~error': `the events publisher does not take "${RefusedBy<E, P> & string}"`;
     };
 
 // A rejected map adds a key it lacks, so the error names the code.
@@ -192,21 +196,37 @@ type Instances<E extends Entries, Kind extends 'methods' | 'overrides', Ctx> = {
   };
 };
 
-/** What `build()` takes: one instance per attached class, by slug and name. */
-type BuildOptions<E extends Entries, Ctx> = ([
-  keyof Instances<E, 'methods', Ctx>,
-] extends [never]
-  ? { readonly methods?: Record<never, never> }
-  : { readonly methods: Instances<E, 'methods', Ctx> }) &
-  ([keyof Instances<E, 'overrides', Ctx>] extends [never]
-    ? { readonly overrides?: Record<never, never> }
-    : { readonly overrides: Instances<E, 'overrides', Ctx> });
+/** Each collection's repo, by slug. */
+type Repos<E extends Entries> = { [S in keyof E]: Repo<E[S]['collection']> };
 
-type BuildArgs<E extends Entries, Ctx> = [
-  keyof Instances<E, 'methods', Ctx> | keyof Instances<E, 'overrides', Ctx>,
+/** What an instance factory receives: what exists before the use cases. */
+type Wiring<E extends Entries> = { readonly repos: Repos<E> };
+
+/**
+ * One kind of instance `build()` takes: a factory that returns one instance
+ * per attached class, by slug and name. Required when a collection declared
+ * that kind.
+ */
+type Factory<E extends Entries, Kind extends 'methods' | 'overrides', Ctx> = [
+  keyof Instances<E, Kind, Ctx>,
 ] extends [never]
-  ? [options?: BuildOptions<E, Ctx>]
-  : [options: BuildOptions<E, Ctx>];
+  ? { readonly [K in Kind]?: (wiring: Wiring<E>) => Record<never, never> }
+  : {
+      readonly [K in Kind]: (wiring: Wiring<E>) => Instances<E, Kind, Ctx>;
+    };
+
+/** What `build()` takes: the ports, and the method and override instances. */
+type BuildOptions<E extends Entries, P extends EventPublisher, Ctx> = {
+  /** Where every collection's documents live. */
+  readonly store: CollectionStore;
+  /**
+   * The app's domain event publisher. Generated writes publish each
+   * collection's events through it. An app with no subscribers passes one
+   * that does nothing.
+   */
+  readonly events: P & EventsCheck<E, P>;
+} & Factory<E, 'methods', Ctx> &
+  Factory<E, 'overrides', Ctx>;
 
 /**
  * A generated use case as a direct caller sees it. Its `execute` parses its
@@ -231,10 +251,9 @@ type UseCases<E extends Entries, Ctx> = {
 
 /** What `build()` returns. */
 type Built<E extends Entries, D extends ErrorMap, Ctx> = {
-  readonly contract: Contract<E, D>;
   readonly app: ImplementedRouter<Contract<E, D>, Ctx>;
   readonly useCases: UseCases<E, Ctx>;
-  readonly repos: { [S in keyof E]: Repo<E[S]['collection']> };
+  readonly repos: Repos<E>;
   readonly onError: typeof unexpectedErrors;
 };
 
@@ -253,18 +272,22 @@ type RuntimeInstances<Ctx> = Readonly<
   Record<string, Readonly<Record<string, Executable<Ctx>>> | undefined>
 >;
 
-export class Framework<
-  Actor,
-  P extends EventPublisher,
-  D extends ErrorMap,
-  E extends Entries,
-> {
+type RuntimeWiring = {
+  readonly repos: Readonly<Record<string, Repo<AnyCollection>>>;
+};
+
+/**
+ * An app's definition: its family, its error map and its collections, with
+ * the methods and overrides attached to them. It holds no ports, so its
+ * `contract` needs no store and no publisher. `build()` wires it.
+ */
+export class Framework<Actor, D extends ErrorMap, E extends Entries> {
+  #contract: Contract<E, D> | undefined;
+
   constructor(
     private readonly family: Family<Actor>,
-    private readonly store: CollectionStore,
-    private readonly events: P,
     private readonly errors: AppErrors<ErrorMap>,
-    private readonly entries: readonly Added[],
+    private readonly entries: readonly Entry[],
   ) {}
 
   /**
@@ -280,11 +303,10 @@ export class Framework<
       [A in keyof O]: OverrideCheck<C, A, FamilyContext<Actor>>;
     } = Record<never, never>,
   >(
-    collection: C & SlugCheck<C, E> & EventCheck<C, P>,
+    collection: C & SlugCheck<C, E>,
     options?: { readonly methods?: M; readonly overrides?: O },
   ): Framework<
     Actor,
-    P,
     D,
     E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
   > {
@@ -311,105 +333,90 @@ export class Framework<
     }
     return new Framework<
       Actor,
-      P,
       D,
       E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
-    >(this.family, this.store, this.events, this.errors, [
+    >(this.family, this.errors, [
       ...this.entries,
-      { collection, methods, overrides, repo: repo(this.store, collection) },
+      { collection, methods, overrides },
     ]);
   }
 
   /**
-   * The repo of a collection this app added, for the method and override
-   * instances `build()` takes. `build()` returns the same object in `repos`.
-   * The overload types it by the collection; the implementation finds it by
-   * slug, which a mapped type cannot express.
+   * The ts-pf contract: one slice per collection. Built on first read and
+   * the same object after, so clients and codegen import it with no ports.
    */
-  repo<C extends E[keyof E]['collection']>(collection: C): Repo<C>;
-  repo(collection: AnyCollection): Repo<AnyCollection> {
-    const { slug } = collection;
-    const entry = this.entries.find((added) => added.collection.slug === slug);
-    if (entry === undefined) {
-      throw new Error(`Lattice: "${slug}" is not a collection of this app`);
-    }
-    return entry.repo;
+  get contract(): Contract<E, D> {
+    this.#contract ??= contractOf<E, D>(this.entries, this.errors.declared);
+    return this.#contract;
   }
 
   /**
-   * Builds the contract and the implemented router. The overload states the
+   * Wires the definition to its ports: the implemented router, the use
+   * cases, the repos, and the edge's `onError`. `methods` and `overrides`
+   * build the declared instances from the repos. The overload states the
    * precise types; the implementation works on the runtime shape, which a
    * loop over collections cannot express as a mapped type.
    */
-  build(
-    ...args: BuildArgs<E, FamilyContext<Actor>>
+  build<P extends EventPublisher>(
+    options: BuildOptions<E, P, FamilyContext<Actor>>,
   ): Built<E, D, FamilyContext<Actor>>;
-  build(options?: {
-    readonly methods?: RuntimeInstances<FamilyContext<Actor>>;
-    readonly overrides?: RuntimeInstances<FamilyContext<Actor>>;
+  build(options: {
+    readonly store: CollectionStore;
+    readonly events: EventPublisher;
+    readonly methods?: (
+      wiring: RuntimeWiring,
+    ) => RuntimeInstances<FamilyContext<Actor>>;
+    readonly overrides?: (
+      wiring: RuntimeWiring,
+    ) => RuntimeInstances<FamilyContext<Actor>>;
   }): {
-    readonly contract: RuntimeContract;
     readonly app: ImplementedRouter<RuntimeContract, FamilyContext<Actor>>;
     readonly useCases: Readonly<
       Record<string, Readonly<Record<string, unknown>>>
     >;
-    readonly repos: Readonly<Record<string, Repo<AnyCollection>>>;
+    readonly repos: RuntimeWiring['repos'];
     readonly onError: typeof unexpectedErrors;
   } {
-    const call = procedure.errors({
-      ...declaredErrors,
-      ...this.errors.declared,
-    });
-    const slices: RuntimeContract = {};
+    const { store, events } = options;
+    const repos = Object.fromEntries(
+      this.entries.map(({ collection }) => [
+        collection.slug,
+        repo(store, collection),
+      ]),
+    );
+    const methodInstances = options.methods?.({ repos });
+    const overrideInstances = options.overrides?.({ repos });
     const useCases: Record<
       string,
       Record<string, Executable<FamilyContext<Actor>>>
     > = {};
     for (const { collection, methods, overrides } of this.entries) {
       const { slug } = collection;
-      const slice: Record<string, RuntimeProcedure> = {};
       const sliceUseCases: Record<
         string,
         Executable<FamilyContext<Actor>>
       > = {};
       const ops = operations(collection.schema);
       for (const action of actions) {
-        const { input, output } = ops[action];
-        slice[action] = call.input(input).output(output);
         const declared = overrides[action];
         sliceUseCases[action] =
           declared === undefined
-            ? generated(
-                this.family,
-                this.store,
-                this.events,
-                collection,
-                ops,
-                action,
-              )
-            : instanceOf(
-                'override',
-                slug,
-                action,
-                declared,
-                options?.overrides,
-              );
+            ? generated(this.family, store, events, collection, ops, action)
+            : instanceOf('override', slug, action, declared, overrideInstances);
       }
       for (const [name, method] of Object.entries(methods)) {
-        slice[name] = call.input(method.input).output(method.output);
         sliceUseCases[name] = instanceOf(
           'method',
           slug,
           name,
           method,
-          options?.methods,
+          methodInstances,
         );
       }
-      slices[slug] = slice;
       useCases[slug] = sliceUseCases;
     }
 
-    const contract = router(slices);
+    const contract: RuntimeContract = this.contract;
     const impl = createImplementer(contract).$context<FamilyContext<Actor>>();
     const tree: Record<
       string,
@@ -434,15 +441,42 @@ export class Framework<
     }
     const errors = clientErrors(this.family, this.errors.map);
     return {
-      contract,
       app: impl.use(errors).router(tree),
       useCases,
-      repos: Object.fromEntries(
-        this.entries.map((entry) => [entry.collection.slug, entry.repo]),
-      ),
+      repos,
       onError: unexpectedErrors,
     };
   }
+}
+
+/**
+ * The contract of `entries`: Lattice's declared errors and the app's on
+ * every procedure. The overload states its type; the implementation builds
+ * it in a loop over collections, which a mapped type cannot express.
+ */
+function contractOf<E extends Entries, D extends ErrorMap>(
+  entries: readonly Entry[],
+  declared: ErrorMap,
+): Contract<E, D>;
+function contractOf(
+  entries: readonly Entry[],
+  declared: ErrorMap,
+): RuntimeContract {
+  const call = procedure.errors({ ...declaredErrors, ...declared });
+  const slices: RuntimeContract = {};
+  for (const { collection, methods } of entries) {
+    const slice: Record<string, RuntimeProcedure> = {};
+    const ops = operations(collection.schema);
+    for (const action of actions) {
+      const { input, output } = ops[action];
+      slice[action] = call.input(input).output(output);
+    }
+    for (const [name, method] of Object.entries(methods)) {
+      slice[name] = call.input(method.input).output(method.output);
+    }
+    slices[collection.slug] = slice;
+  }
+  return router(slices);
 }
 
 /**
@@ -526,21 +560,16 @@ function clientErrors<Actor>(
   };
 }
 
-/** Starts an app: the family every generated and hand-written use case extends. */
+/**
+ * Starts an app's definition: the family every generated and hand-written
+ * use case extends, and the app's client errors. It takes no ports;
+ * `build()` does.
+ */
 export function framework<
   Actor,
-  P extends EventPublisher,
   D extends ErrorMap = Record<never, never>,
 >(options: {
   family: Family<Actor>;
-  /** Where every collection's documents live. */
-  store: CollectionStore;
-  /**
-   * The app's domain event publisher. Generated writes publish each
-   * collection's events through it. An app with no subscribers passes one
-   * that does nothing.
-   */
-  events: P;
   /**
    * The app's client errors, such as app-template's `clientErrors` and
    * `toRpcError`. Every procedure declares them next to Lattice's codes. An
@@ -550,17 +579,15 @@ export function framework<
     readonly declared: D & DeclaredCheck<D>;
     readonly map: (error: unknown) => unknown;
   };
-}): Framework<Actor, P, D, Record<never, never>> {
+}): Framework<Actor, D, Record<never, never>> {
   const errors = options.errors ?? { declared: {}, map: (error) => error };
   for (const code of Object.keys(errors.declared)) {
     if (latticeCodes.includes(code)) {
       throw new Error(`Lattice: "${code}" is a Lattice error code`);
     }
   }
-  return new Framework<Actor, P, D, Record<never, never>>(
+  return new Framework<Actor, D, Record<never, never>>(
     options.family,
-    options.store,
-    options.events,
     errors,
     [],
   );

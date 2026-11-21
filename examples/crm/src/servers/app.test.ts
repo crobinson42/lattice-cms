@@ -4,7 +4,8 @@ import { asResult } from '@ts-pf/client';
 import { createLocalClient } from '@ts-pf/server';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { MemoryDomainEventPublisher } from '../infra/events/memory-domain-events.js';
-import { AppUseCase, Companies, Contacts, createApp, Deals } from './app.js';
+import { createApp } from './app.js';
+import { AppUseCase, Companies, Contacts, Deals } from './rpc/contract.js';
 
 const actor = { userId: 'u1' };
 
@@ -123,11 +124,12 @@ describe('deals', () => {
     const { local } = setup();
     const { app } = framework({
       family: AppUseCase,
-      store: new MemoryStore(),
-      events: new MemoryDomainEventPublisher(),
     })
       .collection(Deals)
-      .build();
+      .build({
+        store: new MemoryStore(),
+        events: new MemoryDomainEventPublisher(),
+      });
     const generated = createLocalClient(app, {
       context: { actor, logger: new NoopLogger() },
     });
@@ -267,13 +269,14 @@ describe('the contract’s types', () => {
     const { local } = setup();
     const { app } = framework({
       family: AppUseCase,
-      store: new MemoryStore(),
-      events: new MemoryDomainEventPublisher(),
     })
       .collection(Companies)
       .collection(Contacts)
       .collection(Deals)
-      .build();
+      .build({
+        store: new MemoryStore(),
+        events: new MemoryDomainEventPublisher(),
+      });
     const plain = createLocalClient(app, {
       context: { actor, logger: new NoopLogger() },
     });

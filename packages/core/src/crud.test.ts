@@ -72,11 +72,9 @@ function setup(notes = Notes) {
   const store = new RecordingStore();
   const { app } = framework({
     family: AppUseCase,
-    store,
-    events: noSubscribers,
   })
     .collection(notes)
-    .build();
+    .build({ store, events: noSubscribers });
   const local = createLocalClient(app, { context: callContext() });
   return { store, local };
 }
@@ -403,11 +401,9 @@ describe('update validates the merged document', () => {
     const store = new MemoryStore();
     const { app } = framework({
       family: AppUseCase,
-      store,
-      events: noSubscribers,
     })
       .collection(Deals)
-      .build();
+      .build({ store, events: noSubscribers });
     return { store, local: createLocalClient(app, { context: callContext() }) };
   }
 
@@ -483,11 +479,9 @@ describe('a patch never applies a default', () => {
     async (field) => {
       const { app } = framework({
         family: AppUseCase,
-        store: new MemoryStore(),
-        events: noSubscribers,
       })
         .collection(Wrapped)
-        .build();
+        .build({ store: new MemoryStore(), events: noSubscribers });
       const local = createLocalClient(app, { context: callContext() });
       const created = await local.wrapped.create({
         title: 't',
@@ -509,11 +503,9 @@ describe('caller input types', () => {
   function built() {
     return framework({
       family: AppUseCase,
-      store: new MemoryStore(),
-      events: noSubscribers,
     })
       .collection(Notes)
-      .build();
+      .build({ store: new MemoryStore(), events: noSubscribers });
   }
 
   it('find’s input schema carries the default sort and limit', () => {

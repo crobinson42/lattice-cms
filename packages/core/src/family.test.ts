@@ -60,11 +60,13 @@ function setup() {
   const publish = new CountingPublish();
   const { app } = framework({
     family: AppUseCase,
-    store: new MemoryStore(),
-    events: new MemoryEventPublisher(),
   })
     .collection(Posts, { methods: { publish: CountingPublish } })
-    .build({ methods: { posts: { publish } } });
+    .build({
+      store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
+      methods: () => ({ posts: { publish } }),
+    });
   return { publish, app };
 }
 

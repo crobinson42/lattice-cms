@@ -115,9 +115,9 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 
 `examples/crm` showed the contract is not static: `framework()` takes the store and the events publisher, so `contract` exists only after ports do. Split definition from wiring. Maintainer's choice.
 
-- [ ] Definition: `framework({ family, errors })` plus `.collection(...)` gives `contract` with no ports, importable by clients and codegen without server code.
-- [ ] Wiring: `build({ store, events, methods, overrides })`. The `methods` and `overrides` factories receive the typed `repos`.
-- [ ] `examples/crm` exports a `contract` const from a module with no ports.
+- [x] Definition: `framework({ family, errors })` plus `.collection(...)` gives `contract` with no ports, importable by clients and codegen without server code.
+- [x] Wiring: `build({ store, events, methods, overrides })`. The `methods` and `overrides` factories receive the typed `repos`.
+- [x] `examples/crm` exports a `contract` const from a module with no ports.
 
 The maintainer approved option A: `build({ store, events, methods: ({ repos }) => …, overrides: ({ repos }) => … })`, `contract` on the definition, and `lattice.repo()` removed. See `architecture.md` "Compose and build".
 
@@ -139,6 +139,7 @@ Add a line here when the work teaches something the plan did not know: a type li
 - Step 1: type-check of the spike is 0.70 s and 189k instantiations for two collections. Re-measure at step 9.
 - Step 1: TS2883 (a type that cannot be named) only fires for a consumer outside `packages/core`; inside, TypeScript names types by relative path. The public types are `Collection`, `Framework`, `Contract`, `Family` and `FamilyContext` because a consumer's declarations need them. Went to step 9.
 - Step 1: hexok's `#brand` is a structural key in declarations, so `build()` tells instances of two use cases with the same `execute` types apart only by private members. `build()` also checks `instanceof` the declared class at runtime. Nowhere else yet.
+- Step 9b: definition and wiring split as approved. A hand-written use case instance can no longer exist before `build()`; workers and scripts take it from `useCases`. The build-time event check now names every refused token across all collections. Declarations split to `rpc/contract.d.ts` (99 lines) and `app.d.ts` (380). Went to `architecture.md`.
 - Step 9: `examples/crm` DX review. Taken to the maintainer, with outcomes: a static contract (step 9b), export `LatticeError` and add `Doc<C>` (task 0.9c), a hexok `EventClass` (follow-up below). Recorded for later:
   - Phase 1: soft delete leaks into the generated `find`/`get` (an archived deal is still returned). Access filters or a default filter are the likely home.
   - Phase 1: `Repo.insert` takes output data, so defaulted fields are required and not applied, unlike `create`.
