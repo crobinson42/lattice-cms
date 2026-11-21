@@ -7,7 +7,13 @@ import { Comments } from './fixtures/comments.js';
 import { AppUseCase } from './fixtures/context.js';
 import { Posts } from './fixtures/posts.js';
 import { PublishPost } from './fixtures/publish-post.js';
-import { collection, family, framework, type Where } from './index.js';
+import {
+  collection,
+  family,
+  framework,
+  type Sort,
+  type Where,
+} from './index.js';
 
 type Post = {
   title: string;
@@ -74,9 +80,10 @@ describe('type flow', () => {
     });
   });
 
-  it('find takes where, limit and after and returns a page', () => {
+  it('find takes where, sort, limit and after and returns a page', () => {
     expectTypeOf(local.posts.find).parameter(0).toEqualTypeOf<{
       where?: Where<Post> | undefined;
+      sort?: Sort<Post> | undefined;
       limit?: number | undefined;
       after?: string | undefined;
     }>();

@@ -3,14 +3,10 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
 import { LatticeError } from './errors.js';
 import { AppUseCase } from './fixtures/context.js';
+import { type Forms, forms } from './fixtures/forms.js';
+import { validationPaths } from './fixtures/validation.js';
 import { collection, framework, type Where } from './index.js';
-import {
-  type Kind,
-  type KindOf,
-  kindOf,
-  matches,
-  parseWhere,
-} from './where.js';
+import { type KindOf, kindOf, matches, parseWhere } from './where.js';
 
 const Things = collection('things', {
   schema: z.object({
@@ -149,16 +145,9 @@ describe('Where type', () => {
   });
 });
 
-/** The issues `parseWhere` reports, or none when the value parses. */
-function issues(value: unknown): unknown[] {
-  try {
-    parseWhere(Things.output, value);
-    return [];
-  } catch (error) {
-    if (!LatticeError.is(error)) throw error;
-    expect(error.code).toBe('VALIDATION');
-    return error.data.issues.map((issue) => issue.path);
-  }
+/** The paths `parseWhere` reports, or none when the value parses. */
+function issues(value: unknown) {
+  return validationPaths(() => parseWhere(Things.output, value));
 }
 
 describe('parseWhere', () => {
@@ -342,48 +331,6 @@ describe('matches', () => {
     ).toBe(false);
   });
 });
-
-function row<S extends z.ZodType, K extends Kind>(schema: S, kind: K) {
-  return { schema, kind };
-}
-
-/** Every field form a collection can take, with the kind it must have. */
-const forms = {
-  string: row(z.string(), 'string'),
-  email: row(z.email(), 'string'),
-  isoDatetime: row(z.iso.datetime(), 'string'),
-  brandedString: row(z.string().brand<'Id'>(), 'string'),
-  number: row(z.number(), 'number'),
-  int: row(z.int(), 'number'),
-  brandedNumber: row(z.number().brand<'Cents'>(), 'number'),
-  boolean: row(z.boolean(), 'boolean'),
-  booleanLiteral: row(z.literal(true), 'boolean'),
-  enum: row(z.enum(['a', 'b']), 'enum'),
-  stringLiteral: row(z.literal('a'), 'enum'),
-  numberLiteral: row(z.literal(1), 'enum'),
-  brandedLiteral: row(z.literal('a').brand<'A'>(), 'enum'),
-  literalUnion: row(z.union([z.literal('a'), z.literal('b')]), 'enum'),
-  literalOrString: row(z.union([z.literal('a'), z.string()]), 'string'),
-  mixedScalarUnion: row(z.union([z.string(), z.number()]), 'other'),
-  templateLiteral: row(z.templateLiteral(['id-', z.number()]), 'enum'),
-  optional: row(z.string().optional(), 'string'),
-  nullable: row(z.number().nullable(), 'number'),
-  default: row(z.boolean().default(false), 'boolean'),
-  prefault: row(z.string().prefault('x'), 'string'),
-  nonoptional: row(z.string().optional().nonoptional(), 'string'),
-  readonly: row(z.enum(['a']).readonly(), 'enum'),
-  catch: row(z.number().catch(0), 'number'),
-  stacked: row(z.literal('a').nullable().optional().readonly(), 'enum'),
-  wrappedUnionMember: row(
-    z.union([z.literal('a').optional(), z.literal('b')]),
-    'enum',
-  ),
-  null: row(z.null(), 'other'),
-  array: row(z.array(z.string()), 'other'),
-  object: row(z.object({ x: z.number() }), 'other'),
-};
-
-type Forms = typeof forms;
 
 /** Rows whose kind at the type level is not the expected kind. */
 type TypeDisagreements = {

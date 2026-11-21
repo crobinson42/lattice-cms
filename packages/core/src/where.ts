@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { type Issue, LatticeError } from './errors.js';
+import { invalid } from './errors.js';
 
 export type Kind = 'string' | 'number' | 'boolean' | 'enum' | 'other';
 
@@ -109,6 +109,8 @@ type Atom =
   | 'number'
   | 'numberLiteral'
   | 'boolean'
+  | 'null'
+  | 'undefined'
   | 'other';
 
 function valueAtoms(value: unknown): Atom[] {
@@ -120,19 +122,39 @@ function valueAtoms(value: unknown): Atom[] {
     case 'boolean':
       return ['boolean'];
     case 'undefined':
-      return [];
+      return ['undefined'];
     default:
-      return value === null ? [] : ['other'];
+      return value === null ? ['null'] : ['other'];
   }
 }
 
-/** The kinds of value a schema accepts, without null and undefined. */
+const notUndefined = (atom: Atom) => atom !== 'undefined';
+
+/**
+ * The kinds of value a schema's output can hold. Each wrapper changes them
+ * the way it changes the output type: optional adds undefined, nullable adds
+ * null, default, prefault and nonoptional remove undefined.
+ */
 function atoms(schema: z.core.$ZodType): Atom[] {
-  const leaf = unwrap(schema);
-  if (leaf instanceof z.core.$ZodUnion) {
-    return leaf._zod.def.options.flatMap(atoms);
+  if (schema instanceof z.core.$ZodOptional) {
+    return ['undefined', ...atoms(schema._zod.def.innerType)];
   }
-  switch (leaf._zod.def.type) {
+  if (schema instanceof z.core.$ZodNullable) {
+    return ['null', ...atoms(schema._zod.def.innerType)];
+  }
+  if (
+    schema instanceof z.core.$ZodDefault ||
+    schema instanceof z.core.$ZodPrefault ||
+    schema instanceof z.core.$ZodNonOptional
+  ) {
+    return atoms(schema._zod.def.innerType).filter(notUndefined);
+  }
+  const inner = innerOf(schema);
+  if (inner !== undefined) return atoms(inner);
+  if (schema instanceof z.core.$ZodUnion) {
+    return schema._zod.def.options.flatMap(atoms);
+  }
+  switch (schema._zod.def.type) {
     case 'string':
       return ['string'];
     case 'number':
@@ -143,19 +165,27 @@ function atoms(schema: z.core.$ZodType): Atom[] {
       return ['stringLiteral'];
     case 'enum':
     case 'literal':
-      return [...(leaf._zod.values ?? [])].flatMap(valueAtoms);
+      return [...(schema._zod.values ?? [])].flatMap(valueAtoms);
     case 'null':
+      return ['null'];
     case 'undefined':
     case 'void':
-      return [];
+      return ['undefined'];
     default:
       return ['other'];
   }
 }
 
+/** Whether a schema's output can be null or undefined. Mirrors `null extends V`. */
+export function nullish(schema: z.core.$ZodType): boolean {
+  return atoms(schema).some((atom) => atom === 'null' || atom === 'undefined');
+}
+
 /** A field's kind, from its schema. Mirrors `KindOf` above. */
 export function kindOf(schema: z.core.$ZodType): Kind {
-  const found = atoms(schema);
+  const found = atoms(schema).filter(
+    (atom) => atom !== 'null' && atom !== 'undefined',
+  );
   const only = (...allowed: Atom[]) =>
     found.every((atom) => allowed.includes(atom));
   if (found.length === 0) return 'other';
@@ -241,23 +271,6 @@ export function whereSchema(schema: z.ZodObject): z.ZodType {
   return where;
 }
 
-function issuesOf(issues: readonly z.core.$ZodIssue[]): Issue[] {
-  return issues.flatMap((issue) => {
-    const path = issue.path.map((key) =>
-      typeof key === 'symbol' ? String(key) : key,
-    );
-    // Zod reports every unknown key of one object as one issue. Split them
-    // so each path names the field or operator that is not allowed.
-    if (issue.code === 'unrecognized_keys') {
-      return issue.keys.map((key) => ({
-        path: [...path, key],
-        message: `"${key}" is not a field or not allowed on this field`,
-      }));
-    }
-    return [{ path, message: issue.message }];
-  });
-}
-
 /** Parses a `Where` on documents of `schema`, or throws `VALIDATION` naming each path. */
 export function parseWhere<S extends z.ZodObject>(
   schema: S,
@@ -265,7 +278,7 @@ export function parseWhere<S extends z.ZodObject>(
 ): Where<z.output<S>> {
   const result = whereSchema(schema).safeParse(value);
   if (result.success) return result.data;
-  throw LatticeError.VALIDATION({ issues: issuesOf(result.error.issues) });
+  throw invalid(result.error.issues);
 }
 
 type FieldOps = {
@@ -302,7 +315,7 @@ function equals(value: unknown, target: unknown): boolean {
 }
 
 /** Strings compare by code unit, so ISO timestamps order correctly. */
-function compare(value: unknown, target: unknown): number | undefined {
+export function compare(value: unknown, target: unknown): number | undefined {
   if (typeof value === 'number' && typeof target === 'number') {
     return value - target;
   }
