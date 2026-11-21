@@ -72,12 +72,12 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 
 ### 5. Generated CRUD use cases and hooks
 
-- [ ] `find`, `get`, `create`, `update` and `delete` per collection, as classes in the app's family.
-- [ ] `create` sets `id` (`crypto.randomUUID()`), `createdAt` and `updatedAt`; clients cannot set them. `update` is a partial patch and bumps `updatedAt`. A patch never applies schema defaults: Zod 4 `.partial()` still fills them, so a patch of `{ id }` would reset every defaulted field.
-- [ ] `delete` returns the deleted document.
-- [ ] `find` applies `defaultSort` and `defaultLimit` (`sort.ts`) when the caller gives none, and validates `where` and `sort` before the store sees them.
-- [ ] `get`, `update` and `delete` on a missing id throw `NOT_FOUND`.
-- [ ] Hooks run in this order: input validation, `beforeChange`, store write, `afterRead` on every returned document. There is no `beforeValidate` ([0019](../decisions/0019-hooks-are-before-change-and-after-read.md)).
+- [x] `find`, `get`, `create`, `update` and `delete` per collection, as classes in the app's family.
+- [x] `create` sets `id` (`crypto.randomUUID()`), `createdAt` and `updatedAt`; clients cannot set them. `update` is a partial patch and bumps `updatedAt`. A patch never applies schema defaults: Zod 4 `.partial()` still fills them, so a patch of `{ id }` would reset every defaulted field.
+- [x] `delete` returns the deleted document.
+- [x] `find` applies `defaultSort` and `defaultLimit` (`sort.ts`) when the caller gives none, and validates `where` and `sort` before the store sees them.
+- [x] `get`, `update` and `delete` on a missing id throw `NOT_FOUND`.
+- [x] Hooks run in this order: input validation, `beforeChange`, store write, `afterRead` on every returned document. There is no `beforeValidate` ([0019](../decisions/0019-hooks-are-before-change-and-after-read.md)).
 
 ### 6. Event catalogs
 
@@ -127,6 +127,9 @@ Add a line here when the work teaches something the plan did not know: a type li
 - Step 1: type-check of the spike is 0.70 s and 189k instantiations for two collections. Re-measure at step 9.
 - Step 1: TS2883 (a type that cannot be named) only fires for a consumer outside `packages/core`; inside, TypeScript names types by relative path. The public types are `Collection`, `Framework`, `Contract`, `Family` and `FamilyContext` because a consumer's declarations need them. Went to step 9.
 - Step 1: hexok's `#brand` is a structural key in declarations, so `build()` tells instances of two use cases with the same `execute` types apart only by private members. `build()` also checks `instanceof` the declared class at runtime. Nowhere else yet.
+- Step 5: Zod 4 `.partial()` and `.exactPartial()` fill `default`/`prefault` even under `.optional()`, and `.partial()` throws on refined objects. The patch schema is rebuilt per field without defaults, using `z.core.util.clone` to rebuild any wrapper. Went to `architecture.md`.
+- Step 5: update validates the merged document with the whole schema, so object refinements hold, and dropped keys are removed. Old documents that break the current schema fail update until migrated. Went to `architecture.md`; Phase 1 migrations.
+- Step 5: hook types are method signatures so a collection stays assignable to `AnyCollection`. Nowhere else.
 - Step 4: `family()` takes `actorId: (actor) => string` for log lines, parallel to Phase 1's `tenantOf`. Went to `architecture.md`.
 - Step 4: hexok guards run outside hooks, so family logging cannot see guard rejections. Went to step 7.
 - Step 4: the logger lives on the call context (`{ actor, logger }`), not `framework()`: family hooks are fixed at `family()` and see only the call. Maintainer's choice. Went to `architecture.md` and steps 4 and 7.

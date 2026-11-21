@@ -82,8 +82,17 @@ export type Where<Doc> = {
   readonly or?: readonly Where<Doc>[];
 };
 
-/** The schema a wrapper keeps the values of, or undefined for any other schema. */
-export function innerOf(schema: z.core.$ZodType): z.core.$ZodType | undefined {
+/**
+ * A wrapper that keeps its inner schema's values (optional, nullable,
+ * default, prefault, nonoptional, readonly, catch): its inner schema, and the
+ * same wrapper around another one. Undefined for any other schema.
+ */
+export function wrapperOf(schema: z.core.$ZodType):
+  | {
+      readonly inner: z.core.$ZodType;
+      readonly around: (inner: z.core.$ZodType) => z.core.$ZodType;
+    }
+  | undefined {
   if (
     schema instanceof z.core.$ZodOptional ||
     schema instanceof z.core.$ZodNullable ||
@@ -93,9 +102,19 @@ export function innerOf(schema: z.core.$ZodType): z.core.$ZodType | undefined {
     schema instanceof z.core.$ZodReadonly ||
     schema instanceof z.core.$ZodCatch
   ) {
-    return schema._zod.def.innerType;
+    const { def } = schema._zod;
+    return {
+      inner: def.innerType,
+      around: (inner) =>
+        z.core.util.clone(schema, { ...def, innerType: inner }),
+    };
   }
   return undefined;
+}
+
+/** The schema a wrapper keeps the values of, or undefined for any other schema. */
+export function innerOf(schema: z.core.$ZodType): z.core.$ZodType | undefined {
+  return wrapperOf(schema)?.inner;
 }
 
 function unwrap(schema: z.core.$ZodType): z.core.$ZodType {

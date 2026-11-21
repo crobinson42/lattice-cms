@@ -142,6 +142,11 @@ const { contract, app, useCases, repos, events } = lattice.build({
 
 Every write returns the document: `create` and `update` the stored one, `delete` the one it removed.
 
+- `create` sets `id` (a UUID), `createdAt` and `updatedAt`. Clients cannot set them.
+- `update` is a partial patch. A patch never applies schema defaults, so an omitted field keeps its stored value. The merged document is validated with the whole schema, so an object-level `.refine()` holds on update as on create, and a stored key the schema no longer has is removed. Only changed fields and `updatedAt` are written. A stored document that no longer fits the schema fails `update` until a migration fixes it.
+- `get`, `update` and `delete` on a missing or out-of-scope id throw `NOT_FOUND`.
+- Each generated use case parses its own input, because hexok passes `execute` the raw value. The family guard has already rejected bad input.
+
 - Use cases, in the app's one family: `posts.find`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, plus `posts.categories.list` and `posts.categories.set` for each `many()` relation.
 - A contract slice: `posts.find`, `posts.get`, `posts.create`, `posts.update`, `posts.delete`, `posts.publish`, `posts.categories.*`.
 - An event catalog: `posts.created`, `posts.updated`, `posts.deleted`.
@@ -172,7 +177,7 @@ export class PublishPost extends AppUseCase('posts.publish', {
 
 ### Hooks
 
-Collection hooks transform data and nothing else: `beforeChange` and `afterRead` ([0019](decisions/0019-hooks-are-before-change-and-after-read.md), proposed). They run inside the generated use cases, in this order: validate input, `beforeChange`, store write, `afterRead` on every returned document. There is no `beforeValidate`: ts-pf validates input at the edge before any Lattice code runs. Business rules belong in an entity method or an override. Side-effects after a change are event handlers. Cross-cutting behavior (tracing, logging, timing) and error handling use the family's hexok `hooks()` and `onCatch`.
+Collection hooks transform data and nothing else: `beforeChange` and `afterRead` ([0019](decisions/0019-hooks-are-before-change-and-after-read.md), proposed). They run inside the generated use cases, in this order: validate input (on update: read, merge, validate the merged document), `beforeChange`, store write, `afterRead` on every returned document. `beforeChange` receives `{ data, operation, previous? }`, where `data` is the whole document after the change on create and update alike. There is no `beforeValidate`: ts-pf validates input at the edge before any Lattice code runs. Business rules belong in an entity method or an override. Side-effects after a change are event handlers. Cross-cutting behavior (tracing, logging, timing) and error handling use the family's hexok `hooks()` and `onCatch`.
 
 ## Storage
 

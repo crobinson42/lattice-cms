@@ -13,6 +13,10 @@ export class LatticeError extends Errors('lattice', {
     data: z.object({ issues: z.array(issue) }),
   },
   UNAUTHORIZED: { message: 'The actor is missing or invalid' },
+  NOT_FOUND: {
+    message: 'No document with this id',
+    data: z.object({ collection: z.string(), id: z.string() }),
+  },
   CONFLICT: {
     message: 'A document with this id already exists',
     data: z.object({ collection: z.string(), id: z.string() }),
@@ -39,4 +43,14 @@ export function invalid(issues: readonly z.core.$ZodIssue[]) {
       return [{ path, message: issue.message }];
     }),
   });
+}
+
+/** `value` parsed by `schema`, or a VALIDATION error naming each path. */
+export function parse<S extends z.ZodType>(
+  schema: S,
+  value: unknown,
+): z.output<S> {
+  const result = schema.safeParse(value);
+  if (!result.success) throw invalid(result.error.issues);
+  return result.data;
 }

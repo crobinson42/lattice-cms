@@ -7,7 +7,7 @@ import { LatticeError } from './errors.js';
 import { AppUseCase, actor, callContext } from './fixtures/context.js';
 import { Posts } from './fixtures/posts.js';
 import { validationPaths } from './fixtures/validation.js';
-import { framework } from './index.js';
+import { framework, MemoryStore } from './index.js';
 
 type Post = z.output<typeof Posts.output>;
 
@@ -55,7 +55,7 @@ function codeOf(call: Promise<unknown>): Promise<unknown> {
 
 function setup() {
   const publish = new CountingPublish();
-  const { app } = framework({ family: AppUseCase })
+  const { app } = framework({ family: AppUseCase, store: new MemoryStore() })
     .collection(Posts, { methods: { publish: CountingPublish } })
     .build({ methods: { posts: { publish } } });
   return { publish, app };
@@ -176,9 +176,8 @@ describe('family guards on a generated use case', () => {
       await codeOf(unchecked.posts.create({ body: 'b', status: 'draft' })),
     ).toBe('VALIDATION');
 
-    // Generated bodies throw 'todo' until step 5, so reaching that error is
-    // what shows the guards let a valid call through to execute.
-    await expect(unchecked.posts.get({ id: 'p1' })).rejects.toThrow('todo');
+    // NOT_FOUND comes from execute, so a valid call got past the guards.
+    expect(await codeOf(unchecked.posts.get({ id: 'p1' }))).toBe('NOT_FOUND');
   });
 });
 
@@ -250,13 +249,24 @@ describe('family logging', () => {
     const { root, logger } = requestLogger();
     const local = createLocalClient(app, { context: callContext(logger) });
 
-    await expect(local.posts.get({ id: 'p1' })).rejects.toThrow('todo');
+    await local.posts.create({ title: 't', body: 'b', status: 'draft' });
+    await expect(local.posts.get({ id: 'nope' })).rejects.toThrow();
 
     expect(root.records).toMatchObject([
       {
-        level: 'error',
-        message: 'todo',
-        fields: { ...callFields, action: 'get', outcome: 'failed' },
+        level: 'info',
+        message: 'posts.create',
+        fields: { ...callFields, action: 'create', outcome: 'ok' },
+      },
+      {
+        level: 'info',
+        message: 'posts.get',
+        fields: {
+          ...callFields,
+          action: 'get',
+          outcome: 'refused',
+          code: 'NOT_FOUND',
+        },
       },
     ]);
   });

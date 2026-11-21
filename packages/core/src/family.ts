@@ -2,7 +2,7 @@ import type { Logger } from '@hexok/logger';
 import { catalogBrand, type StandardSchemaV1, UseCase, validate } from 'hexok';
 import type { z } from 'zod';
 import type { AnyCollection } from './collection.js';
-import { invalid, LatticeError } from './errors.js';
+import { LatticeError, parse } from './errors.js';
 
 /** The statics every use case in a Lattice family declares. */
 export type FamilySpec = {
@@ -68,9 +68,7 @@ export function family<A extends StandardSchemaV1>(options: {
       // method's input schema uses no defaults or transforms; a generated use
       // case parses its own input inside execute to strip unknown keys and
       // apply defaults.
-      if (spec.input === undefined) return;
-      const result = spec.input.safeParse(input);
-      if (!result.success) throw invalid(result.error.issues);
+      if (spec.input !== undefined) parse(spec.input, input);
     })
     .hooks({
       preExecute: ({ ctx, spec, token }) => {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { maxLimit, sortSchema } from './sort.js';
-import { innerOf, whereSchema } from './where.js';
+import { innerOf, whereSchema, wrapperOf } from './where.js';
 
 /** The operations Lattice generates for every collection. */
 export type Action = 'find' | 'get' | 'create' | 'update' | 'delete';
@@ -16,6 +16,50 @@ const systemShape = {
 // Only `z.object()`: unknown keys are stripped. A loose object would let any
 // key into the store, and its index signature would reach every client type.
 type Schema<Shape extends z.core.$ZodShape> = z.ZodObject<Shape, z.core.$strip>;
+
+// The shape `schema.partial().extend({ id })` would have, as Zod types it.
+type PatchShape<Shape extends z.core.$ZodShape> = z.core.util.Extend<
+  { -readonly [K in keyof Shape]: z.ZodOptional<Shape[K]> },
+  { id: z.ZodString }
+>;
+
+/**
+ * A schema with its `default` and `prefault` wrappers removed, wherever they
+ * sit in its wrapper chain. Every other wrapper is kept around the stripped
+ * inner schema.
+ */
+function withoutDefault(schema: z.core.$ZodType): z.core.$ZodType {
+  const wrapper = wrapperOf(schema);
+  if (wrapper === undefined) return schema;
+  const inner = withoutDefault(wrapper.inner);
+  return schema instanceof z.core.$ZodDefault ||
+    schema instanceof z.core.$ZodPrefault
+    ? inner
+    : wrapper.around(inner);
+}
+
+/**
+ * The update input: `id` and every field optional, with no defaults. Zod 4's
+ * `.partial()` keeps `default` and `prefault`, even inside `.optional()`, so
+ * a patch that omits a defaulted field would reset it. Each field is rebuilt
+ * without them. The overload states the type `.partial()` would give; the
+ * implementation rebuilds the shape in a loop, which a mapped type cannot
+ * express.
+ */
+function patchSchema<Shape extends z.core.$ZodShape>(
+  schema: Schema<Shape>,
+): z.ZodObject<PatchShape<Shape>, z.core.$strip>;
+function patchSchema(schema: z.ZodObject): z.ZodObject {
+  return z.object({
+    ...Object.fromEntries(
+      Object.entries(schema.shape).map(([name, field]) => [
+        name,
+        z.optional(withoutDefault(field)),
+      ]),
+    ),
+    id: z.string(),
+  });
+}
 
 /** The input and output schema of each generated operation. */
 export function operations<Shape extends z.core.$ZodShape>(
@@ -38,7 +82,7 @@ export function operations<Shape extends z.core.$ZodShape>(
     },
     get: { input: id, output },
     create: { input: schema, output },
-    update: { input: schema.partial().extend({ id: z.string() }), output },
+    update: { input: patchSchema(schema), output },
     delete: { input: id, output },
   };
 }
@@ -46,6 +90,38 @@ export function operations<Shape extends z.core.$ZodShape>(
 export type Operations<Shape extends z.core.$ZodShape> = ReturnType<
   typeof operations<Shape>
 >;
+
+/** A collection's data without system fields: what create takes. */
+export type Data<Shape extends z.core.$ZodShape> = z.output<Schema<Shape>>;
+
+/** A stored document: the data plus `id`, `createdAt` and `updatedAt`. */
+export type Document<Shape extends z.core.$ZodShape> = z.output<
+  Operations<Shape>['get']['output']
+>;
+
+export type ChangeArgs<Shape extends z.core.$ZodShape> =
+  | { readonly data: Data<Shape>; readonly operation: 'create' }
+  | {
+      readonly data: Data<Shape>;
+      readonly operation: 'update';
+      /** The stored document before this change. */
+      readonly previous: Document<Shape>;
+    };
+
+/**
+ * Collection hooks. They transform data and nothing else (0019).
+ * `beforeChange` gets the whole document after the change, without system
+ * fields, on create and update alike. `afterRead` gets every document a
+ * generated operation returns.
+ */
+export type Hooks<Shape extends z.core.$ZodShape> = {
+  // Method signatures, not function properties: a method's parameters are
+  // bivariant, so every collection stays assignable to AnyCollection.
+  beforeChange?(args: ChangeArgs<Shape>): Data<Shape> | Promise<Data<Shape>>;
+  afterRead?(args: {
+    readonly doc: Document<Shape>;
+  }): Document<Shape> | Promise<Document<Shape>>;
+};
 
 /** A collection declaration. It names no use case classes. */
 export interface Collection<
@@ -56,6 +132,10 @@ export interface Collection<
   readonly schema: Schema<Shape>;
   /** The document a read returns: the schema plus `id`, `createdAt` and `updatedAt`. */
   readonly output: Operations<Shape>['get']['output'];
+  readonly beforeChange?: Hooks<Shape>['beforeChange'];
+  readonly afterRead?: Hooks<Shape>['afterRead'];
+  /** The same collection with these hooks. A later call replaces a hook it names. */
+  hooks(hooks: Hooks<Shape>): Collection<Slug, Shape>;
 }
 
 export type AnyCollection = Collection<string, z.core.$ZodShape>;
@@ -143,9 +223,19 @@ export function collection<
     }
     checkField(`${slug}.${name}`, field);
   }
+  return declared(slug, options.schema, {});
+}
+
+function declared<Slug extends string, Shape extends z.core.$ZodShape>(
+  slug: Slug,
+  schema: Schema<Shape>,
+  hooks: Hooks<Shape>,
+): Collection<Slug, Shape> {
   return {
     slug,
-    schema: options.schema,
-    output: operations(options.schema).get.output,
+    schema,
+    output: operations(schema).get.output,
+    ...hooks,
+    hooks: (next) => declared(slug, schema, { ...hooks, ...next }),
   };
 }

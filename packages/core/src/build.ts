@@ -17,7 +17,9 @@ import {
   type Operations,
   operations,
 } from './collection.js';
+import { type Executable, generated } from './crud.js';
 import type { Family, FamilyContext } from './family.js';
+import type { CollectionStore } from './store.js';
 
 const actions = [
   'find',
@@ -153,10 +155,6 @@ type Built<E extends Entries, Ctx> = {
   readonly app: ImplementedRouter<Contract<E>, Ctx>;
 };
 
-type Executable<Ctx> = {
-  execute(ctx: Ctx, input: unknown): Promise<unknown>;
-};
-
 type RuntimeContract = Record<
   string,
   Record<string, ContractProcedure<unknown, unknown>>
@@ -169,6 +167,7 @@ type RuntimeInstances<Ctx> = Readonly<
 export class Framework<Actor, E extends Entries> {
   constructor(
     private readonly family: Family<Actor>,
+    private readonly store: CollectionStore,
     private readonly entries: readonly Entry[],
   ) {}
 
@@ -215,7 +214,10 @@ export class Framework<Actor, E extends Entries> {
     return new Framework<
       Actor,
       E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
-    >(this.family, [...this.entries, { collection, methods, overrides }]);
+    >(this.family, this.store, [
+      ...this.entries,
+      { collection, methods, overrides },
+    ]);
   }
 
   /**
@@ -252,7 +254,7 @@ export class Framework<Actor, E extends Entries> {
         const declared = overrides[action];
         sliceUseCases[action] =
           declared === undefined
-            ? new (this.generated(collection, action, input, output))()
+            ? generated(this.family, this.store, collection, ops, action)
             : instanceOf(
                 'override',
                 slug,
@@ -303,27 +305,6 @@ export class Framework<Actor, E extends Entries> {
     }
     return { contract, app: impl.router(tree) };
   }
-
-  /** The generated use case for one operation, in the app's family. */
-  private generated(
-    collection: AnyCollection,
-    action: Action,
-    input: z.ZodType,
-    output: z.ZodType,
-  ) {
-    return class extends this.family(`${collection.slug}.${action}`, {
-      collection,
-      input,
-      output,
-    }) {
-      async execute(
-        _ctx: FamilyContext<Actor>,
-        _input: unknown,
-      ): Promise<unknown> {
-        throw new Error('todo');
-      }
-    };
-  }
 }
 
 /**
@@ -353,6 +334,12 @@ function instanceOf<Ctx>(
 /** Starts an app: the family every generated and hand-written use case extends. */
 export function framework<Actor>(options: {
   family: Family<Actor>;
+  /** Where every collection's documents live. */
+  store: CollectionStore;
 }): Framework<Actor, Record<never, never>> {
-  return new Framework<Actor, Record<never, never>>(options.family, []);
+  return new Framework<Actor, Record<never, never>>(
+    options.family,
+    options.store,
+    [],
+  );
 }

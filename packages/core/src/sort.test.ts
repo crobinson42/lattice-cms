@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { AppUseCase, callContext } from './fixtures/context.js';
 import { type Forms, forms } from './fixtures/forms.js';
 import { validationPaths } from './fixtures/validation.js';
-import { collection, framework, type Sort } from './index.js';
+import { collection, framework, MemoryStore, type Sort } from './index.js';
 import { type IsSortable, parseSort, sortable } from './sort.js';
 
 const Things = collection('things', {
@@ -21,7 +21,9 @@ const Things = collection('things', {
 
 type Thing = z.output<typeof Things.output>;
 
-const { app } = framework({ family: AppUseCase }).collection(Things).build();
+const { app } = framework({ family: AppUseCase, store: new MemoryStore() })
+  .collection(Things)
+  .build();
 const local = createLocalClient(app, {
   context: callContext(),
 });
