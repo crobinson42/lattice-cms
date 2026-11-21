@@ -30,6 +30,7 @@
     "mongodb": "^7.9.1"
   },
   "peerDependencies": {
+    "@hexok/logger": "^0.2.0",
     "@latticecms/core": "*",
     "zod": "^4.1.0"
   },

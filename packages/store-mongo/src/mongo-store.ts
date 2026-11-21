@@ -34,6 +34,26 @@ export type MongoStoreOptions = {
   readonly client?: MongoClientOptions;
 };
 
+/**
+ * The started client of each store, for this package's migrations runner.
+ * Not exported from the package: a store's public surface is the port,
+ * `start` and `stop`.
+ */
+const connections = new WeakMap<
+  MongoStore,
+  () => { readonly client: MongoClient; readonly db: Db }
+>();
+
+/** The client and database of a started store, or its lifecycle error. */
+export function connectionOf(store: MongoStore): {
+  readonly client: MongoClient;
+  readonly db: Db;
+} {
+  const connection = connections.get(store);
+  if (connection === undefined) throw MongoStoreError.NotStarted();
+  return connection();
+}
+
 type State =
   | { readonly kind: 'idle' }
   | {
@@ -57,6 +77,7 @@ export class MongoStore extends Adapter(CollectionStore) {
 
   constructor(private readonly options: MongoStoreOptions) {
     super();
+    connections.set(this, () => this.#connection());
   }
 
   /**
@@ -113,12 +134,12 @@ export class MongoStore extends Adapter(CollectionStore) {
     if (this.#state.kind !== 'ready') throw MongoStoreError.Stopped();
   }
 
-  /** The Mongo collection, or the lifecycle error for a call made now. */
-  #collection(name: string): Collection<MongoDocument> {
+  /** The client and database, or the lifecycle error for a call made now. */
+  #connection(): { readonly client: MongoClient; readonly db: Db } {
     const state = this.#state;
     switch (state.kind) {
       case 'ready':
-        return state.db.collection<MongoDocument>(name);
+        return state;
       case 'idle':
         throw MongoStoreError.NotStarted();
       case 'starting':
@@ -126,6 +147,11 @@ export class MongoStore extends Adapter(CollectionStore) {
       case 'stopped':
         throw MongoStoreError.Stopped();
     }
+  }
+
+  /** The Mongo collection, or the lifecycle error for a call made now. */
+  #collection(name: string): Collection<MongoDocument> {
+    return this.#connection().db.collection<MongoDocument>(name);
   }
 
   #toDoc(doc: MongoDocument): StoredDoc {
