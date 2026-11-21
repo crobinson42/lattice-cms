@@ -101,7 +101,9 @@ Blocked on ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-us
 - `.output(Wide).expand({ key: 'populate', at: ['docs'], fields })`, where the output schema is the wide type the server sends.
 - The plain type is derived by removing `fields`.
 - A `populate` variable typed `K[]` gets the wide type.
-- `InferExpandedOutput` annotates `useSWR`.
+- Implemented in ts-pf PR #66 (`crobinson42/ts-pf#66`). It ships as 0.6.0 after the maintainer merges it and the release PR.
+- `Fields` holds output types. A hand-written procedure type is `ContractProcedure<I, O, E, M, I, Expansion<'populate', ['docs'], { authorId: User | Withheld }>>`. `.expand()` takes schemas at runtime, after `.input()` and `.output()`.
+- `useSWR` narrows when its fetcher calls the procedure: `useSWR(swr.posts.get.key({ input }), () => swr.posts.get(input))`. `InferExpandedOutput<typeof contract.posts.get, ['authorId']>` names the type elsewhere.
 
 Lattice drops the spike's `GetClient`, `FindClient` and `LatticeClient`. Bump `@ts-pf/*` when it ships. If ts-pf declines, stop and ask the maintainer before falling back to the spike's typed client.
 
