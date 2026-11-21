@@ -43,13 +43,7 @@ describe.each(backends)('POST /rpc/deals/close on $name', (backend) => {
     const { fetch, repos } = setup(store());
     // Trusted code writes with a tenant scope it names.
     const deal = await repos.deals.insert(
-      {
-        title: 'Big one',
-        companyId: 'c1',
-        amount: 1,
-        stage: 'lead',
-        archived: false,
-      },
+      { title: 'Big one', companyId: 'c1', amount: 1 },
       tenancy.scope(Deals, 'o1'),
     );
 

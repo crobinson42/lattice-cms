@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import { unscoped, whereOf } from './access.js';
 import type { AnyCollection } from './collection.js';
-import { LatticeError } from './errors.js';
+import { LatticeError, parse } from './errors.js';
 import { defaultLimit, defaultSort, type Sort } from './sort.js';
 import type { CollectionStore, FindQuery, Patch, StoredDoc } from './store.js';
 import { type Scope, type TenantField, withoutTenant } from './tenancy.js';
@@ -43,8 +43,9 @@ export type InsertScope<C extends AnyCollection> = [TenantField<C>] extends [
 
 /**
  * A typed view of the `CollectionStore` for one collection, for hand-written
- * use cases and event handlers. It trusts typed input, like a hexok
- * repository: no validation, no hooks and no events. Each call runs under
+ * use cases and event handlers. It is trusted: no hooks, no events and no
+ * access. `insert` parses its data with the schema, as create does; `update`
+ * writes its typed patch as given. Each call runs under
  * the scope it is given: a row outside it acts as missing. A tenant bypass
  * scope reads only: a write through it on a tenanted collection is
  * FORBIDDEN.
@@ -62,8 +63,13 @@ export interface Repo<C extends AnyCollection> {
   }>;
   /** How many documents in scope match `where`. */
   count(where: Where<Doc<C>>, scope: RepoScope<C>): Promise<number>;
-  /** Stores `data` with a new `id`, `createdAt`, `updatedAt` and the scope's tenant. */
-  insert(data: z.output<C['schema']>, scope: InsertScope<C>): Promise<Doc<C>>;
+  /**
+   * Parses `data` with the collection's schema, as create does: defaults
+   * apply, unknown keys are dropped, and a failed check is VALIDATION. Then
+   * stores it with a new `id`, `createdAt`, `updatedAt` and the scope's
+   * tenant.
+   */
+  insert(data: z.input<C['schema']>, scope: InsertScope<C>): Promise<Doc<C>>;
   /**
    * Writes the fields in `patch` and bumps `updatedAt`; null when no doc in
    * scope has `id`. It never writes the tenant field.
@@ -143,7 +149,7 @@ export function repo(
 ): Omit<Repo<AnyCollection>, 'insert'> & {
   // Any collection: a global one's insert takes `unscoped` too.
   insert(
-    data: z.output<AnyCollection['schema']>,
+    data: z.input<AnyCollection['schema']>,
     scope: RepoScope<AnyCollection>,
   ): Promise<Doc<AnyCollection>>;
 } {
@@ -174,10 +180,12 @@ export function repo(
           `Lattice: "${slug}" is tenanted, so insert needs a scope with a tenant, such as tenancy.scope()`,
         );
       }
+      // The tenant comes from the scope, after the parse: the schema has none.
+      const parsed = parse(collection.schema, data);
       const doc: StoredDoc = stamped(
         tenant === undefined || scope === unscoped
-          ? data
-          : { ...data, [tenant]: scope.tenantId },
+          ? parsed
+          : { ...parsed, [tenant]: scope.tenantId },
       );
       await store.insert(slug, doc);
       return doc;

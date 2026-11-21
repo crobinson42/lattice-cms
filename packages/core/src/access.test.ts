@@ -185,7 +185,7 @@ async function notesOf(
   for (const rank of ranks) {
     notes.push(
       await repos.notes.insert(
-        { ownerId, title: `${ownerId}-${rank}`, rank, pinned: false },
+        { ownerId, title: `${ownerId}-${rank}`, rank },
         unscoped,
       ),
     );

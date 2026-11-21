@@ -472,7 +472,10 @@ Generated writes publish through `build({ events })` after the store write succe
 
 ### `Repo` and `Doc`
 
-`Repo<C>` is a typed view of the store for one collection: `get`, `getMany`, `find`, `count`, `insert`, `update` and `remove`. `insert` stamps `id`, `createdAt` and `updatedAt`; `update` bumps `updatedAt`. It runs no validation, no hooks and no events. Use it in hand-written use cases and event handlers.
+`Repo<C>` is a typed view of the store for one collection: `get`, `getMany`, `find`, `count`, `insert`, `update` and `remove`. Use it in hand-written use cases and event handlers. It is trusted: it runs no hooks, no events and no access check.
+
+- `insert` takes the schema's input type and parses it, as create does: defaults apply, unknown keys are dropped, and a failed check throws `LatticeError` `VALIDATION` with create's issues. Then it stamps `id`, `createdAt` and `updatedAt`.
+- `update` takes a typed patch of the schema's output and writes it as given, with no parse. It bumps `updatedAt`.
 
 Every call takes a scope as its last argument: the call's `Scope` from `ctx.access.scope()`, a tenant's from `tenancy.scope()`, or `unscoped`. A row outside the scope acts as missing. `unscoped` reads and writes every row; trusted code that acts for no caller passes it, such as a script. A `Scope` for another collection throws.
 

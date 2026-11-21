@@ -345,6 +345,17 @@ describe('server scopes', () => {
     expect(await repos.notes.remove(theirs?.id ?? '', o1)).toBe(null);
   });
 
+  it('insert takes the tenant from the scope, not from the data', async () => {
+    const { repos } = setup();
+    // Not a literal, so the extra key type-checks, as data from elsewhere would.
+    const data = { title: 't', rank: 1, organizationId: 'o2' };
+
+    const inserted = await repos.notes.insert(data, tenancy.scope(Notes, 'o1'));
+
+    expect(inserted.organizationId).toBe('o1');
+    expect(await repos.notes.get(inserted.id, unscoped)).toEqual(inserted);
+  });
+
   it('unscoped cannot insert into a tenanted collection', async () => {
     const { repos } = setup();
 

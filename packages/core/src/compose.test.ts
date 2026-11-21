@@ -2,7 +2,7 @@ import { type Logger, MemoryLogger } from '@hexok/logger';
 import { createLocalClient } from '@ts-pf/server';
 import type { EventInstance } from 'hexok';
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { LatticeError } from './errors.js';
 import { ArchivePost } from './fixtures/archive-post.js';
 import { Comments } from './fixtures/comments.js';
@@ -12,10 +12,20 @@ import {
   allowAll,
   callContext,
 } from './fixtures/context.js';
-import { AppEvents, MemoryEventPublisher } from './fixtures/events.js';
+import {
+  AppEvents,
+  MemoryEventPublisher,
+  noSubscribers,
+} from './fixtures/events.js';
 import { Posts } from './fixtures/posts.js';
 import { PublishPost } from './fixtures/publish-post.js';
-import { framework, MemoryStore, type Repo, unscoped } from './index.js';
+import {
+  collection,
+  framework,
+  MemoryStore,
+  type Repo,
+  unscoped,
+} from './index.js';
 
 type Post = z.output<typeof Posts.output>;
 
@@ -217,7 +227,7 @@ describe('a repo', () => {
     });
   });
 
-  it('runs no validation, no hooks and no events', async () => {
+  it('runs no hooks and no events', async () => {
     const events = new MemoryEventPublisher();
     const { repos } = framework({ family: AppUseCase })
       .collection(
@@ -230,13 +240,98 @@ describe('a repo', () => {
       .build({ store: new MemoryStore(), events });
     const posts = repos.posts;
 
-    // An empty title breaks the schema's min(1); the repo trusts its input.
-    const post = await posts.insert({ ...draft, title: '' }, unscoped);
+    const post = await posts.insert(draft, unscoped);
     await posts.update(post.id, { body: 'b2' }, unscoped);
     await posts.remove(post.id, unscoped);
 
-    expect(post).toMatchObject({ title: '', body: 'b' });
+    expect(post).toMatchObject({ title: 't', body: 'b' });
     expect(events.messages).toEqual([]);
+  });
+});
+
+describe('repo insert parses like create', () => {
+  const Deals = collection('deals', {
+    schema: z
+      .object({
+        title: z.string(),
+        stage: z.enum(['lead', 'won']).default('lead'),
+        archived: z.boolean().default(false),
+        openDate: z.string(),
+        closeDate: z.string(),
+      })
+      .refine((deal) => deal.closeDate >= deal.openDate, {
+        path: ['closeDate'],
+        message: 'closeDate is before openDate',
+      }),
+  });
+  const deal = {
+    title: 'D',
+    openDate: '2026-02-01',
+    closeDate: '2026-03-01',
+  };
+
+  function deals() {
+    const store = new MemoryStore();
+    const built = framework({ family: AppUseCase })
+      .collection(Deals, { access: allowAll })
+      .build({ store, events: noSubscribers });
+    return {
+      ...built,
+      store,
+      local: createLocalClient(built.app, { context: callContext() }),
+    };
+  }
+
+  it('applies defaults, so the data is the schema input', async () => {
+    const { repos, store } = deals();
+
+    const inserted = await repos.deals.insert(deal, unscoped);
+
+    expect(inserted).toMatchObject({ ...deal, stage: 'lead', archived: false });
+    expect(await store.get('deals', inserted.id)).toEqual(inserted);
+    expectTypeOf(repos.deals.insert)
+      .parameter(0)
+      .toEqualTypeOf<z.input<typeof Deals.schema>>();
+  });
+
+  it('drops unknown keys', async () => {
+    const { repos, store } = deals();
+    const extra = { ...deal, colour: 'red' };
+
+    const inserted = await repos.deals.insert(extra, unscoped);
+
+    expect(inserted).not.toHaveProperty('colour');
+    expect(await store.get('deals', inserted.id)).not.toHaveProperty('colour');
+  });
+
+  it('refuses data that breaks a refinement with VALIDATION, as create does, and stores nothing', async () => {
+    const { repos, store, local } = deals();
+    const broken = { ...deal, closeDate: '2026-01-01' };
+
+    const error = await repos.deals.insert(broken, unscoped).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+    const viaCreate = await local.deals.create(broken).then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+
+    expect(LatticeError.is(error) && error.code).toBe('VALIDATION');
+    expect(error).toMatchObject({
+      data: {
+        issues: [
+          { path: ['closeDate'], message: 'closeDate is before openDate' },
+        ],
+      },
+    });
+    expect(viaCreate).toMatchObject({
+      code: 'VALIDATION',
+      data: LatticeError.is(error) ? error.data : undefined,
+    });
+    expect(
+      await store.find({ collection: 'deals', sort: [], limit: 10 }),
+    ).toEqual({ docs: [], next: null });
   });
 });
 
