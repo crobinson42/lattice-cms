@@ -122,10 +122,10 @@ Uses ts-pf expandable outputs ([0022](../decisions/0022-populated-reads-use-ts-p
 - `useSWR` narrows when its fetcher calls the procedure: `useSWR(swr.posts.get.key({ input }), () => swr.posts.get(input))`. `InferExpandedOutput<typeof contract.posts.get, ['authorId']>` names the type elsewhere.
 - Drop the spike's `GetClient`, `FindClient` and `LatticeClient`, and delete both spike files once population covers them.
 
-- [ ] `populate` on reads, one level deep. `get` populates refs and `many()` relations, while `find` and a relation's `list` populate refs only; `many()` on `find` is a type error and VALIDATION. Ids are collected per target collection, and `getMany` is called once each.
-- [ ] Access and tenancy apply to populated documents. A populated document the caller may not read, or one that no longer exists, comes back as `{ id }` only.
-- [ ] Remove `rootRouter()` in `build.ts` if ts-pf 0.6.0 offers a typed `router()` for an erased tree that mixes procedures and nested routers. Read ts-pf's router typing first; the ts-pf session is closed. If there is no typed path, write the exact ts-pf change for the maintainer, and keep `rootRouter()` with a comment saying why.
-- [ ] A link field named like a ref field, a reserved name or the tenant is a compile error, not only a throw.
+- [x] `populate` on reads, one level deep. `get` populates refs and `many()` relations, while `find` and a relation's `list` populate refs only; `many()` on `find` is a type error and VALIDATION. Ids are collected per target collection, and `getMany` is called once each.
+- [x] Access and tenancy apply to populated documents. A populated document the caller may not read, or one that no longer exists, comes back as `{ id }` only.
+- [x] Remove `rootRouter()` in `build.ts` if ts-pf 0.6.0 offers a typed `router()` for an erased tree that mixes procedures and nested routers. Read ts-pf's router typing first; the ts-pf session is closed. If there is no typed path, write the exact ts-pf change for the maintainer, and keep `rootRouter()` with a comment saying why.
+- [x] A link field named like a ref field, a reserved name or the tenant is a compile error, not only a throw.
 
 ### 10. `examples/crm` on Mongo
 
@@ -175,5 +175,9 @@ Add a line here when the work teaches something the plan did not know. Each line
 - A self `many()` (`users.friends`) is refused: `<parent>Id` and `<target>Id` would collide. It needs a naming rule later.
 - Apps with relations need the `Many` and `RelationsOf` types exported, or declaration emit fails with TS2883.
 - After 8b: core type-check 2.10 s (1.97 s without many.test.ts), crm 0.49 s, store-mongo 0.37 s. Asserted overloads: 8 (`relationsOf`).
+- ts-pf 0.6.0 still reads a node that may be a procedure or a router as a procedure (`IsContractProcedure` distributes), so `rootRouter()` stays, with a comment. The ts-pf fix, deciding each node by the implementation's node, is in `architecture.md`'s proposed changes table for the maintainer.
+- `ReadUseCase` is an exported interface only because `@ts-pf/contract` does not export `ExpandResult`, so a `.d.ts` cannot name a populating read (TS2883). Exporting it from ts-pf would let Lattice drop the interface.
+- `many()` without `fields` inferred its type parameters from the `relations` constraint, so the Link type got an index signature. `NoInfer` on its return type fixes it, with a regression test.
+- After step 9: core type-check 2.41 s (1.49M instantiations, mostly tests), crm 0.51 s, store-mongo 0.51 s. Asserted overloads: 8.
 - Type-check after access: core check 1.08 s to 1.15 s (with a 500-line test file), crm 0.40 s, unchanged. Asserted overloads: 6.
 - Type-check cost of the spike: core +0.14 s check (0.87 to 1.01 s), a crm-sized fixture about +0.09 s. 0003 holds.

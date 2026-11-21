@@ -313,7 +313,8 @@ Join collections are derived from `many(target, { through, fields?, onDelete? })
 
 - A read takes `populate: ['authorId', 'categories']`, one level deep in v1. `get` populates refs and `many()` relations. `find` and a relation's `list` populate refs only, so a call that type-checks is bounded no matter the data: `many()` on `get` is capped by `set`'s 1000 links, and `posts.categories.list({ id, populate: ['categoriesId'] })` pages through a post's categories with their documents.
 - Lattice collects IDs per target collection and calls `getMany` once each. Access and tenancy filters apply to the populated documents too.
-- A populated document the caller may not read comes back as `{ id }` only.
+- A populated document the caller may not read, or one that no longer exists, comes back as `Withheld`, `{ id }` only. A target whose `read` is `false` withholds every document and does not fail the read. `afterRead` runs on populated documents.
+- An overridden `get`, `find` or `list` does not populate: its output is plain, so the client type never claims documents the override did not fetch.
 - Output types follow `populate`: `authorId` is a `string`, or `User | Withheld` when populated, where `Withheld` is `{ id }`. A caller narrows with `'email' in post.authorId`. ts-pf types this through expandable outputs, so every client gets it without a wrapper ([0022](decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)).
 
 - `ref(slug)` takes a slug, so two collections can refer to each other. A slug that is not in the framework fails `build()` and `.contract`, in its type and at runtime. The ref marker is a Zod check, so `.min()`, `.optional()` and `z.array()` keep it.
@@ -483,11 +484,13 @@ Every generated operation logs and times itself through the family's hexok `hook
 
 ## Proposed changes to hexok and ts-pf
 
-Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the schema's input type, so a defaulted field is optional for callers. Phase 1 needs one ts-pf feature, expandable outputs, for populated reads ([0022](decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)). The other items are later needs. Each goes through hexok's scope gate or ts-pf's `DECISIONS.md` process before it lands; this table is the input to that discussion, not approval.
+Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the schema's input type, so a defaulted field is optional for callers. Phase 1 needed one ts-pf feature, expandable outputs, released in 0.6.0 ([0022](decisions/0022-populated-reads-use-ts-pf-expandable-outputs.md)). The other items are later needs or nice to have. Each goes through hexok's scope gate or ts-pf's `DECISIONS.md` process before it lands; this table is the input to that discussion, not approval.
 
 | Item | Where | Needed by | Recommendation | Why |
 | --- | --- | --- | --- | --- |
-| Expandable outputs: `procedure.output(Wide).expand({ key, at, fields })`, so the output type follows a list in the input | ts-pf | Phase 1 step 9 | Agreed, planned for 0.6.0 | Population changes a read's output per call. ts-pf's client is one non-generic signature per procedure, so no Lattice-side type reaches swr, mvc-kit or codegen clients |
+| Expandable outputs: `procedure.output(Wide).expand({ key, at, fields })`, so the output type follows a list in the input | ts-pf | Phase 1 step 9 | Released in 0.6.0 and used | Population changes a read's output per call. ts-pf's client is one non-generic signature per procedure, so no Lattice-side type reaches swr, mvc-kit or codegen clients |
+| `RouterImplCheck` decides each node by the implementation's node, so a contract node that may be a procedure or a router type-checks | ts-pf (`@ts-pf/server` `runtime.ts`) | Nice to have | Build it | Lattice builds its router at runtime, with relation routers inside slices. Today it calls `router()` through `rootRouter()`, which narrows with runtime guards. The fix is a distributive `NodeCheck`; a fixed contract keeps every error it has today |
+| Export `ExpandResult` and `ExpandedOutput` from `@ts-pf/contract` | ts-pf | Nice to have | Build it | A `.d.ts` that names a populating read needs them (TS2883). Lattice exports a `ReadUseCase` interface to work around it |
 | `@hexok/authz` | hexok (already planned) | Phase 2 | Build it; add list checks that return a filter | Every product needs it. Lattice adapts its `Access` port to it |
 | Tracing port | hexok | Phase 2 | No new package. Lattice calls `@opentelemetry/api` directly | The OTel API is already vendor-neutral and a no-op without an SDK, so an app can solve this today (gate question 2) |
 | Blob storage port, `@hexok/blob` + `@hexok/blob-s3` | hexok | Phase 3 | Build it, shaped like `email` / `sms` | Any product with uploads needs it. S3 covers DigitalOcean Spaces |
