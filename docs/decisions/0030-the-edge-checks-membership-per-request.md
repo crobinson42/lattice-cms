@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: The pilot's identity provider supplies organizations or roles as claims, or the per-request membership lookup shows up in latency.

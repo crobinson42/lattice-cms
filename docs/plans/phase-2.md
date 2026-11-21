@@ -37,7 +37,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 2. Authentication **Checkpoint**
 
-Approved design: [0030](../decisions/0030-the-edge-checks-membership-per-request.md) (proposed).
+Built: [0030](../decisions/0030-the-edge-checks-membership-per-request.md).
 
 - [x] The `@hexok/auth` recipe: `Sessions` with a `JoseSessionToken`, Redis in dev and production and memory in tests. The crm's dev headers are deleted.
 - [x] The active organization: `x-organization-id`, checked against a `memberships` collection on every request before `tenantOf` reads it. Support comes from the `CRM_SUPPORT_USER_IDS` config list.
@@ -46,8 +46,8 @@ Approved design: [0030](../decisions/0030-the-edge-checks-membership-per-request
 
 ### 3. Authorization **Checkpoint**
 
-- [ ] Find out whether `@hexok/authz` exists, or is planned for this phase; it is not in `../hexok/packages` today. If it is not, propose with the maintainer: wait, ask hexok, or keep the declared access functions for the pilot.
-- [ ] With authz: an adapter of the `Access` port whose list checks return a filter. Decide how it composes with the access functions declared at `.collection()`; today `build({ access })` replaces them wholesale.
+- [x] Find out whether `@hexok/authz` exists. It does not. Three competing designs sit on unmerged hexok branches (`authz-claudes-plan`, `authz-groks-plan`, `authz-chatgpts-plan`). The maintainer chose to keep the declared access functions for the pilot.
+- [ ] Deferred until hexok releases `@hexok/authz`: an adapter of the `Access` port whose list checks return a filter, and how it composes with the access functions declared at `.collection()`. Today `build({ access })` replaces them wholesale. Do not design the composition before there is an adapter to compose.
 
 ### 4. Field-level read masking **Checkpoint**
 
