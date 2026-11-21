@@ -282,6 +282,40 @@ export const storeCases: readonly StoreCase[] = [
     },
   },
   {
+    name: 'a where on id never widens a call to another row',
+    async run(store) {
+      await seed(store, 'm_where_id', [post('p1'), post('p2')]);
+      const notP1 = { id: { ne: 'p1' } };
+      same(
+        await store.get('m_where_id', 'p1', notP1),
+        null,
+        'get p1 where id is not p1',
+      );
+      same(
+        await store.getMany('m_where_id', ['p1'], notP1),
+        [],
+        'getMany [p1] where id is not p1',
+      );
+      same(
+        await store.update('m_where_id', 'p1', { title: 'x' }, notP1),
+        null,
+        'update p1 where id is not p1',
+      );
+      same(
+        await store.remove('m_where_id', 'p1', notP1),
+        null,
+        'remove p1 where id is not p1',
+      );
+      same(
+        await store.get('m_where_id', 'p1', { id: { eq: 'p2' } }),
+        null,
+        'get p1 where id is p2',
+      );
+      same(await store.get('m_where_id', 'p2'), post('p2'), 'p2 untouched');
+      same(await store.get('m_where_id', 'p1'), post('p1'), 'p1 untouched');
+    },
+  },
+  {
     name: 'getMany returns docs in the order of ids, skipping missing ones and rows outside where',
     async run(store) {
       await seed(store, 'm_many', [

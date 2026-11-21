@@ -231,6 +231,17 @@ export type AnyCollection = Omit<
 const reservedFields = ['id', 'createdAt', 'updatedAt', 'and', 'or'] as const;
 type ReservedField = (typeof reservedFields)[number];
 
+// Names a store would misread: MongoDB reads a dot as a path, a leading `$`
+// as an operator, and `_id` is where a store keeps `id`.
+type StoreName = `${string}.${string}` | `$${string}` | '_id';
+
+function isStoreName(name: string): boolean {
+  return name.includes('.') || name.startsWith('$') || name === '_id';
+}
+
+const storeNameError = (name: string) =>
+  `"${name}" is not a valid field name: it contains ".", starts with "$" or is "_id"`;
+
 type DateField<Shape extends z.core.$ZodShape> = {
   [K in keyof Shape]: [Exclude<z.output<Shape[K]>, null | undefined>] extends [
     never,
@@ -244,11 +255,11 @@ type DateField<Shape extends z.core.$ZodShape> = {
 // A rejected tenant adds a key the options lack, so the error names it. The
 // tenant field is Lattice's, like the system fields.
 type TenantCheck<Shape extends z.core.$ZodShape, Tenant extends string> = [
-  Tenant & (keyof Shape | ReservedField),
+  Tenant & (keyof Shape | ReservedField | StoreName),
 ] extends [never]
   ? unknown
   : {
-      readonly '~error': `tenant "${Tenant & string}" is stamped by Lattice; it cannot be a schema field or a reserved name`;
+      readonly '~error': `tenant "${Tenant & string}" is stamped by Lattice; it cannot be a schema field, a reserved name or an invalid field name`;
     };
 
 // A rejected schema adds a key the options lack, so the error names the
@@ -256,10 +267,14 @@ type TenantCheck<Shape extends z.core.$ZodShape, Tenant extends string> = [
 type FieldCheck<Shape extends z.core.$ZodShape> = [
   keyof Shape & ReservedField,
 ] extends [never]
-  ? [DateField<Shape>] extends [never]
-    ? unknown
+  ? [keyof Shape & StoreName] extends [never]
+    ? [DateField<Shape>] extends [never]
+      ? unknown
+      : {
+          readonly '~error': `"${DateField<Shape> & string}" is a Date; store an ISO string (z.iso.datetime())`;
+        }
     : {
-        readonly '~error': `"${DateField<Shape> & string}" is a Date; store an ISO string (z.iso.datetime())`;
+        readonly '~error': `"${keyof Shape & StoreName & string}" is not a valid field name: it contains ".", starts with "$" or is "_id"`;
       }
   : {
       readonly '~error': `"${keyof Shape & ReservedField}" is a reserved field name`;
@@ -327,16 +342,18 @@ export function collection<
     if (reservedFields.some((reserved) => reserved === name)) {
       throw new Error(`Lattice: "${name}" is a reserved field name`);
     }
+    if (isStoreName(name)) throw new Error(`Lattice: ${storeNameError(name)}`);
     checkField(`${slug}.${name}`, field);
   }
   const names = Object.keys(options.schema.shape);
   const { tenant } = options;
   if (
     tenant !== undefined &&
-    [...names, ...reservedFields].some((name) => name === tenant)
+    ([...names, ...reservedFields].some((name) => name === tenant) ||
+      isStoreName(tenant))
   ) {
     throw new Error(
-      `Lattice: tenant "${tenant}" is stamped by Lattice; it cannot be a schema field or a reserved name`,
+      `Lattice: tenant "${tenant}" is stamped by Lattice; it cannot be a schema field, a reserved name or an invalid field name`,
     );
   }
   const output = outputOf<Shape, Tenant>(options.schema, tenant);

@@ -25,6 +25,36 @@ describe('collection()', () => {
       collection('a', { schema: z.object({ or: z.string() }) }),
     ).toThrow('"or" is a reserved field name');
   });
+
+  it('rejects names a store would misread, at compile time and at runtime', () => {
+    const invalid =
+      'is not a valid field name: it contains ".", starts with "$" or is "_id"';
+    expect(() =>
+      // @ts-expect-error a dot reads as a path
+      collection('a', { schema: z.object({ 'a.b': z.string() }) }),
+    ).toThrow(`"a.b" ${invalid}`);
+    expect(() =>
+      // @ts-expect-error a leading $ reads as an operator
+      collection('a', { schema: z.object({ $set: z.string() }) }),
+    ).toThrow(`"$set" ${invalid}`);
+    expect(() =>
+      // @ts-expect-error _id is where a store keeps id
+      collection('a', { schema: z.object({ _id: z.string() }) }),
+    ).toThrow(`"_id" ${invalid}`);
+    expect(() =>
+      // @ts-expect-error the tenant field follows the same rule
+      collection('a', {
+        schema: z.object({ name: z.string() }),
+        tenant: 'org.id',
+      }),
+    ).toThrow('tenant "org.id" is stamped by Lattice');
+    // A $ after the first character, or _id inside a name, is fine.
+    expect(
+      collection('a', {
+        schema: z.object({ price$: z.number(), a_id: z.string() }),
+      }).slug,
+    ).toBe('a');
+  });
 });
 
 describe('collection() field forms', () => {

@@ -463,7 +463,7 @@ describe('type errors and throws', () => {
 
   it('a tenant field in the schema', () => {
     expect(() =>
-      // @ts-expect-error tenant "organizationId" is stamped by Lattice; it cannot be a schema field or a reserved name
+      // @ts-expect-error tenant "organizationId" is stamped by Lattice; it cannot be a schema field, a reserved name or an invalid field name
       collection('pages', {
         schema: z.object({ organizationId: z.string() }),
         tenant: 'organizationId',
