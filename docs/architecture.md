@@ -107,6 +107,7 @@ export const Posts = collection('posts', {
 // app/use-cases/context.ts: the app's one use case family
 export const AppUseCase = family({
   actor: actorSchema,                        // the app's actor, built by @hexok/auth at the edge
+  actorId: (actor) => actor.userId,          // the id log lines carry
   tenantOf: (actor) => actor.organizationId,
 })
 
@@ -354,6 +355,8 @@ REST with path parameters is not offered. If an outside partner needs it, it is 
 Every generated operation logs and times itself through the family's hexok `hooks()`, with no code in the collection.
 
 - Logging: the call context carries a `@hexok/logger` `Logger`. The edge passes `rootLogger.child({ requestId })`; workers, scripts and tests pass their own. The family's hooks log each call through a child with `actorId`, `tenantId`, `collection`, `action` and `durationMs`. A context logger, not one given to `framework()` or `family()`, because family hooks are fixed when the family is created and see only the call, and because no module has to import a configured logger at load time. Sentry and New Relic attach through `TeeLogger`, as in `app-template`.
+- One line per call that passes the guards: `info` with `outcome: 'ok'` on return; `info` with `outcome: 'refused'`, `catalog` and `code` for a member of any hexok `Errors` catalog; `error` with the stack for anything else.
+- Guards run outside hexok hooks, so a rejected actor or input is not logged by the family. The edge logs it.
 - Errors: `onCatch` logs unexpected errors once. ts-pf's `onError` is set so the same error is not logged twice.
 - Tracing (Phase 2): one span per procedure (ts-pf server call interceptor), one per use case (`preExecute` / `onFinally`), one per store call (inside the adapter). Spans use `@opentelemetry/api` and follow OpenTelemetry names.
 - Tests: `MemoryLogger` and a no-op tracer, so assertions can read what was logged.

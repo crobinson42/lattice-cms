@@ -1,7 +1,7 @@
 import { createLocalClient } from '@ts-pf/server';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
-import { AppUseCase } from './fixtures/context.js';
+import { AppUseCase, callContext } from './fixtures/context.js';
 import { type Forms, forms } from './fixtures/forms.js';
 import { validationPaths } from './fixtures/validation.js';
 import { collection, framework, type Sort } from './index.js';
@@ -23,7 +23,7 @@ type Thing = z.output<typeof Things.output>;
 
 const { app } = framework({ family: AppUseCase }).collection(Things).build();
 const local = createLocalClient(app, {
-  context: { actor: { userId: 'u1', roles: [] } },
+  context: callContext(),
 });
 
 /** Statements the compiler checks and the test never runs. */

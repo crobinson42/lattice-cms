@@ -29,9 +29,11 @@
     "hexok": "^2.2.7"
   },
   "peerDependencies": {
+    "@hexok/logger": "^0.2.0",
     "zod": "^4.1.0"
   },
   "devDependencies": {
+    "@hexok/logger": "^0.2.0",
     "zod": "^4.1.0"
   }
 }

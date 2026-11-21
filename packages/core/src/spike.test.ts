@@ -4,7 +4,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
 import { ArchivePost } from './fixtures/archive-post.js';
 import { Comments } from './fixtures/comments.js';
-import { AppUseCase } from './fixtures/context.js';
+import { AppUseCase, callContext } from './fixtures/context.js';
 import { Posts } from './fixtures/posts.js';
 import { PublishPost } from './fixtures/publish-post.js';
 import {
@@ -41,7 +41,7 @@ const { app } = lattice.build({
 });
 
 const local = createLocalClient(app, {
-  context: { actor: { userId: 'u1', roles: [] } },
+  context: callContext(),
 });
 
 /** Statements the compiler checks and the test never runs. */
@@ -185,7 +185,10 @@ describe('method checks', () => {
     }
   }
 
-  const OtherUseCase = family({ actor: z.object({ tenant: z.string() }) });
+  const OtherUseCase = family({
+    actor: z.object({ tenant: z.string() }),
+    actorId: (other) => other.tenant,
+  });
   class OtherFamily extends OtherUseCase('posts.publish', {
     collection: Posts,
     input: publishInput,
