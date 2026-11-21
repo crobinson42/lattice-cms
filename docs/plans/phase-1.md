@@ -100,10 +100,17 @@ Decided at the Checkpoint:
 
 ### 8. Relations
 
-- [ ] `ref()` fields and `many()` relations with real join collections that get generated use cases, access (the parent's `update` access by default), tenancy, indexes and events.
-- [ ] `<slug>.<relation>.list` and `.set` use cases and procedures, as a nested router node in the slice. Decide whether the join collection also gets its own slice. A relation name must not equal a field, an action, a method or an override.
-- [ ] `ref()` takes a slug, so mutual refs do not cycle. A slug that is not in the framework fails at `build()`; make `.contract` fail the same way. Arrays of refs (`z.array(ref('tags'))`) are typed and checked like single refs.
-- [ ] `onDelete`: `restrict` (default), `cascade` and `nullify`, in one transaction when the store supports it, otherwise in order with the parent last. Across stores, `cascade` and `nullify` are idempotent event handlers.
+Decided in [0028](../decisions/0028-relations-delete-in-a-store-transaction-as-system-work.md). Built in two parts.
+
+8a. Refs and deleting a parent:
+- [ ] `ref(slug, { onDelete? })` with a check-based marker, arrays of refs, the unknown-slug check at `build()` and on `.contract`, and the `has` operator on arrays.
+- [ ] `CollectionStore.transaction(work)` on MemoryStore and MongoStore, with conformance cases.
+- [ ] `onDelete` in the generated delete: restrict (`REFERENCED`), cascade and nullify, as system work inside the parent's tenant.
+- [ ] Ref indexes in `ensure()`.
+
+8b. `many()`:
+- [ ] Derived join collections with `list` and `set`, the parent's access, the parent's tenant, events in the catalog, join indexes, and nested overrides.
+- [ ] Name rules for relations.
 
 ### 9. Population
 

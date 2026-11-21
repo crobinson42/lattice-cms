@@ -41,5 +41,6 @@ These are not decided yet. Treat them as context, not rules.
 | ID | Decision | Strength | Revisit when |
 | --- | --- | --- | --- |
 | [0027](0027-migrations-lock-in-the-database-they-migrate.md) | Migrations run forward only, from an explicit list, under a lease lock in their own database | default | hexok ships a general Lock port, or migrations must coordinate across more than one database. |
+| [0028](0028-relations-delete-in-a-store-transaction-as-system-work.md) | Relations: derived join collections, and `onDelete` as system work inside the parent's tenant and a store transaction | default | A collection lives in a different store from a relation's other side, an app needs per-relation access rules, or a relation outgrows a 1000-link set. |
 
 1 superseded record is history and not listed. Do not follow them.
