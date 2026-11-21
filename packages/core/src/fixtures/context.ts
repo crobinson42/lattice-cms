@@ -23,7 +23,11 @@ export class AllowAll extends Adapter(Access) {
  * procedure call replaces `access` with the app's own.
  */
 export function callContext(logger: Logger = new NoopLogger()) {
-  return { actor, logger, access: callAccess(new AllowAll(), actor) };
+  return {
+    actor,
+    logger,
+    access: callAccess(new AllowAll(), { actor, logger }, AppUseCase),
+  };
 }
 
 /** Access functions that allow every generated operation. */

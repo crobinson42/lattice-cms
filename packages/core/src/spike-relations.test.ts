@@ -11,7 +11,7 @@ import {
   ref,
   type Withheld,
 } from './fixtures/spike-relations.js';
-import { MemoryStore, type Where } from './index.js';
+import { MemoryStore, type tenancy, type Where } from './index.js';
 
 /** Statements the compiler checks and the test never runs. */
 function typeOnly(_statements: () => unknown): void {}
@@ -204,7 +204,7 @@ describe('tenant', () => {
           userId: string;
           organizationId: string;
           roles: string[];
-        }) => string)
+        }) => string | typeof tenancy.bypass)
       | undefined
     >();
   });

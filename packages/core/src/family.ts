@@ -4,6 +4,7 @@ import type { z } from 'zod';
 import type { CallAccess } from './access.js';
 import type { AnyCollection } from './collection.js';
 import { invalid, LatticeError, refusal } from './errors.js';
+import { type Tenant, tenancy } from './tenancy.js';
 
 /** The statics every use case in a Lattice family declares. */
 export type FamilySpec = {
@@ -31,16 +32,36 @@ export type FamilyContext<Actor> = CallContext<Actor> & {
 };
 
 /**
- * A Lattice family: a hexok `UseCase.context` factory, its actor schema, and
- * the id of an actor as log lines and the generated events carry it.
+ * A Lattice family: a hexok `UseCase.context` factory, its actor schema, the
+ * id of an actor as log lines and the generated events carry it, and the
+ * actor's tenant. `Tenanted` is true when the family has `tenantOf`, so a
+ * tenanted collection in a family without it is a compile error.
  */
-export type Family<Actor> = UseCase.ContextFactory<
-  FamilyContext<Actor>,
-  FamilySpec
-> & {
+export type Family<
+  Actor,
+  Tenanted extends boolean = boolean,
+> = UseCase.ContextFactory<FamilyContext<Actor>, FamilySpec> & {
   readonly actor: StandardSchemaV1<unknown, Actor>;
   readonly actorId: (actor: Actor) => string;
+  readonly tenantOf: ((actor: Actor) => Tenant) | undefined;
+  /** Type-only. */
+  readonly '~tenanted'?: Tenanted;
 };
+
+/**
+ * The fields that say who made a call, for its log lines: the actor's id,
+ * and its tenant id or `tenancy: 'bypass'`.
+ */
+export function callerFields<Actor>(
+  family: Pick<Family<Actor>, 'actorId' | 'tenantOf'>,
+  actor: Actor,
+): Readonly<Record<string, string>> {
+  const actorId = family.actorId(actor);
+  const tenant = family.tenantOf?.(actor);
+  if (tenant === undefined) return { actorId };
+  if (tenant === tenancy.bypass) return { actorId, tenancy: 'bypass' };
+  return { actorId, tenantId: tenant };
+}
 
 /** How a family logged an error: at info as a refusal, or at error. */
 export type Logged = 'refused' | 'failed';
@@ -69,19 +90,19 @@ function actionOf(spec: FamilySpec, token: string): string {
 
 /**
  * The logger of one call: `ctx.logger` with the call's collection, action
- * and, once the actor has parsed, its id. Every family log line goes
- * through it, so the fields cannot drift.
+ * and, once the actor has parsed, its id and tenant. Every family log line
+ * goes through it, so the fields cannot drift.
  */
 function callLogger(
   logger: Logger,
   spec: FamilySpec,
   token: string,
-  actorId: string | undefined,
+  caller: Readonly<Record<string, string>> | undefined,
 ): Logger {
   return logger.child({
     collection: spec.collection.slug,
     action: actionOf(spec, token),
-    ...(actorId === undefined ? {} : { actorId }),
+    ...caller,
   });
 }
 
@@ -118,11 +139,28 @@ function logThrown(
  * through a child of `ctx.logger`: info when it returns or a guard or
  * `execute` refuses it, error when it throws anything else.
  */
-export function family<A extends StandardSchemaV1>(options: {
+export function family<
+  A extends StandardSchemaV1,
+  T extends Tenant = never,
+>(options: {
   actor: A;
   /** The id the call's log lines and the generated events carry as `actorId`. */
   actorId: (actor: StandardSchemaV1.InferOutput<A>) => string;
-}): Family<StandardSchemaV1.InferOutput<A>> {
+  /**
+   * The actor's tenant id, or `tenancy.bypass` for a platform actor that
+   * reads across tenants. Required by a framework with a tenanted
+   * collection.
+   */
+  tenantOf?: (actor: StandardSchemaV1.InferOutput<A>) => T;
+}): Family<
+  StandardSchemaV1.InferOutput<A>,
+  [T] extends [never] ? false : true
+> {
+  const caller = (actor: StandardSchemaV1.InferOutput<A>) =>
+    callerFields(
+      { actorId: options.actorId, tenantOf: options.tenantOf },
+      actor,
+    );
   const factory = UseCase.context<
     FamilyContext<StandardSchemaV1.InferOutput<A>>,
     FamilySpec
@@ -144,8 +182,7 @@ export function family<A extends StandardSchemaV1>(options: {
       if (spec.input === undefined) return;
       const result = spec.input.safeParse(input);
       if (!result.success) {
-        const actorId = options.actorId(ctx.actor);
-        const log = callLogger(ctx.logger, spec, token, actorId);
+        const log = callLogger(ctx.logger, spec, token, caller(ctx.actor));
         throw logThrown(log, token, invalid(result.error.issues));
       }
     })
@@ -164,14 +201,13 @@ export function family<A extends StandardSchemaV1>(options: {
       try {
         await ctx.access.scope(spec.collection, action, data);
       } catch (error) {
-        const actorId = options.actorId(ctx.actor);
-        const log = callLogger(ctx.logger, spec, token, actorId);
+        const log = callLogger(ctx.logger, spec, token, caller(ctx.actor));
         throw logThrown(log, token, error);
       }
     })
     .hooks({
       preExecute: ({ ctx, spec, token }) => ({
-        log: callLogger(ctx.logger, spec, token, options.actorId(ctx.actor)),
+        log: callLogger(ctx.logger, spec, token, caller(ctx.actor)),
         started: performance.now(),
       }),
       postExecute: ({ token }, { log, started }) => {
@@ -195,6 +231,7 @@ export function family<A extends StandardSchemaV1>(options: {
   return Object.assign(factory, {
     actor: options.actor,
     actorId: options.actorId,
+    tenantOf: options.tenantOf,
   });
 }
 

@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { z } from 'zod';
+import { CallAccess } from './access.js';
 import type {
   Action,
   AnyCollection,
@@ -13,6 +14,7 @@ import { LatticeError, parse } from './errors.js';
 import type { Family, FamilyContext } from './family.js';
 import { findQuery, stamped, touched } from './repo.js';
 import type { CollectionStore, StoredDoc } from './store.js';
+import { withoutTenant } from './tenancy.js';
 import { type AnyWhere, both } from './where.js';
 
 type AnyShape = z.core.$ZodShape;
@@ -45,6 +47,8 @@ type Call = {
   /** The access and tenant filter of this call, for every store call. */
   readonly scope: AnyWhere | undefined;
   readonly actorId: string;
+  /** The call's tenant on this collection: what create stamps and events carry. */
+  readonly tenantId: string | undefined;
 };
 
 /**
@@ -60,6 +64,11 @@ async function scopeOf(
 ): Promise<AnyWhere | undefined> {
   if (action === 'create') return undefined;
   return (await ctx.access.scope(collection, action)).where;
+}
+
+/** `tenantId` for an event payload, on a tenanted collection only. */
+function tenantPayload(call: Call): { tenantId?: string } {
+  return call.tenantId === undefined ? {} : { tenantId: call.tenantId };
 }
 
 function notFound(call: Call, id: string) {
@@ -131,12 +140,19 @@ const operations: Record<
   async create(call, raw) {
     const input = parse(call.ops.create.input, raw);
     const data = await change(call, { data: input, operation: 'create' });
-    const doc = stamped(data);
+    // Stamped after beforeChange, so a hook cannot pick the tenant.
+    const { tenant } = call.collection;
+    const doc = stamped(
+      tenant === undefined
+        ? data
+        : { ...withoutTenant(call.collection, data), [tenant]: call.tenantId },
+    );
     await call.store.insert(call.collection.slug, doc);
     await call.events.publish(
       new call.collection.events.created({
         doc,
         actorId: call.actorId,
+        ...tenantPayload(call),
       } satisfies Payload<'created'>),
     );
     return read(call, doc);
@@ -150,17 +166,21 @@ const operations: Record<
     const stored = await call.store.get(call.collection.slug, id, call.scope);
     if (stored === null) throw notFound(call, id);
     const previous = documentOf(call, stored);
-    const { id: _id, createdAt, updatedAt, ...data } = previous;
+    // The tenant field is Lattice's, like the system fields: the schema does
+    // not have it, so leaving it in would read as a stored key to remove.
+    const { id: _id, createdAt, updatedAt, ...stamps } = previous;
+    const data = withoutTenant(call.collection, stamps);
     // The merged document must pass the whole schema, as a create would, so
     // an object-level refinement holds on update too. Parsing also drops
     // stored keys the schema no longer has.
     const merged = parse(call.ops.create.input, { ...data, ...patch });
     // beforeChange sees the whole document after the change, as on create.
-    const next = await change(call, {
-      data: merged,
-      operation: 'update',
-      previous,
-    });
+    // A hook that returns the tenant field changes nothing: update never
+    // writes it.
+    const next = withoutTenant(
+      call.collection,
+      await change(call, { data: merged, operation: 'update', previous }),
+    );
     // Only the fields that differ from the stored ones are written. A stored
     // key that is gone from `next` (dropped by the schema or by the hook) is
     // written as undefined, which the store removes.
@@ -181,6 +201,7 @@ const operations: Record<
         doc: documentOf(call, updated),
         previous,
         actorId: call.actorId,
+        ...tenantPayload(call),
       } satisfies Payload<'updated'>),
     );
     return read(call, updated);
@@ -198,6 +219,7 @@ const operations: Record<
       new call.collection.events.deleted({
         doc: documentOf(call, removed),
         actorId: call.actorId,
+        ...tenantPayload(call),
       } satisfies Payload<'deleted'>),
     );
     return read(call, removed);
@@ -237,6 +259,7 @@ export function generated<Actor>(
           ops,
           scope: await scopeOf(ctx, collection, action),
           actorId: family.actorId(ctx.actor),
+          tenantId: CallAccess.stampOf(ctx.access, collection),
         },
         raw,
       );

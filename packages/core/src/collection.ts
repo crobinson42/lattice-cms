@@ -1,6 +1,7 @@
 import { Event, type EventCatalog } from 'hexok';
 import { z } from 'zod';
 import { defaultLimit, maxLimit, sortSchema } from './sort.js';
+import { tenantShapes } from './tenancy.js';
 import { innerOf, whereSchema, wrapperOf } from './where.js';
 
 /** The operations Lattice generates for every collection. */
@@ -62,11 +63,27 @@ function patchSchema(schema: z.ZodObject): z.ZodObject {
   });
 }
 
-/** The input and output schema of each generated operation. */
-export function operations<Shape extends z.core.$ZodShape>(
+/** A stored document's schema: the schema plus the system fields and the tenant field. */
+function outputOf<Shape extends z.core.$ZodShape, Tenant extends string>(
   schema: Schema<Shape>,
+  tenant: Tenant | undefined,
 ) {
-  const output = schema.extend(systemShape);
+  return schema.extend({ ...systemShape, ...tenantShapes(tenant).field });
+}
+
+type Output<Shape extends z.core.$ZodShape, Tenant extends string> = ReturnType<
+  typeof outputOf<Shape, Tenant>
+>;
+
+/**
+ * The input and output schema of each generated operation, from the
+ * collection's schema and its output. The output has the tenant field;
+ * create and update input never do, so a client cannot set or change it.
+ */
+export function operations<
+  Shape extends z.core.$ZodShape,
+  Tenant extends string = never,
+>(schema: Schema<Shape>, output: Output<Shape, Tenant>) {
   const id = z.object({ id: z.string() });
   return {
     find: {
@@ -85,50 +102,62 @@ export function operations<Shape extends z.core.$ZodShape>(
   };
 }
 
-export type Operations<Shape extends z.core.$ZodShape> = ReturnType<
-  typeof operations<Shape>
->;
+export type Operations<
+  Shape extends z.core.$ZodShape,
+  Tenant extends string = never,
+> = ReturnType<typeof operations<Shape, Tenant>>;
 
 /**
  * The event classes of a collection, one per write. A payload's `doc` is the
  * stored document, before afterRead: an event records what was written, and
- * afterRead only shapes what a read returns.
+ * afterRead only shapes what a read returns. A tenanted collection's events
+ * also carry `tenantId`, so a handler can scope itself to that tenant.
  */
-function events<const Slug extends string, Shape extends z.core.$ZodShape>(
+function events<
+  const Slug extends string,
+  Shape extends z.core.$ZodShape,
+  Tenant extends string,
+>(
   slug: Slug,
-  output: Operations<Shape>['get']['output'],
+  output: Operations<Shape, Tenant>['get']['output'],
+  tenant: Tenant | undefined,
 ) {
-  const actorId = z.string();
+  const base = { actorId: z.string(), ...tenantShapes(tenant).event };
   return {
-    created: Event(`${slug}.created`, z.object({ doc: output, actorId })),
+    created: Event(`${slug}.created`, z.object({ doc: output, ...base })),
     updated: Event(
       `${slug}.updated`,
-      z.object({ doc: output, previous: output, actorId }),
+      z.object({ doc: output, previous: output, ...base }),
     ),
-    deleted: Event(`${slug}.deleted`, z.object({ doc: output, actorId })),
+    deleted: Event(`${slug}.deleted`, z.object({ doc: output, ...base })),
   };
 }
 
 export type Events<
   Slug extends string,
   Shape extends z.core.$ZodShape,
-> = ReturnType<typeof events<Slug, Shape>>;
+  Tenant extends string = never,
+> = ReturnType<typeof events<Slug, Shape, Tenant>>;
 
 /** A collection's data without system fields: what create takes. */
 export type Data<Shape extends z.core.$ZodShape> = z.output<Schema<Shape>>;
 
-/** A stored document: the data plus `id`, `createdAt` and `updatedAt`. */
-export type Document<Shape extends z.core.$ZodShape> = z.output<
-  Operations<Shape>['get']['output']
->;
+/** A stored document: the data plus `id`, `createdAt`, `updatedAt` and the tenant field. */
+export type Document<
+  Shape extends z.core.$ZodShape,
+  Tenant extends string = never,
+> = z.output<Operations<Shape, Tenant>['get']['output']>;
 
-export type ChangeArgs<Shape extends z.core.$ZodShape> =
+export type ChangeArgs<
+  Shape extends z.core.$ZodShape,
+  Tenant extends string = never,
+> =
   | { readonly data: Data<Shape>; readonly operation: 'create' }
   | {
       readonly data: Data<Shape>;
       readonly operation: 'update';
       /** The stored document before this change. */
-      readonly previous: Document<Shape>;
+      readonly previous: Document<Shape, Tenant>;
     };
 
 /**
@@ -137,34 +166,45 @@ export type ChangeArgs<Shape extends z.core.$ZodShape> =
  * fields, on create and update alike. `afterRead` gets every document a
  * generated operation returns.
  */
-export type Hooks<Shape extends z.core.$ZodShape> = {
+export type Hooks<
+  Shape extends z.core.$ZodShape,
+  Tenant extends string = never,
+> = {
   // Method signatures, not function properties: a method's parameters are
   // bivariant, so every collection stays assignable to AnyCollection.
-  beforeChange?(args: ChangeArgs<Shape>): Data<Shape> | Promise<Data<Shape>>;
+  beforeChange?(
+    args: ChangeArgs<Shape, Tenant>,
+  ): Data<Shape> | Promise<Data<Shape>>;
   afterRead?(args: {
-    readonly doc: Document<Shape>;
-  }): Document<Shape> | Promise<Document<Shape>>;
+    readonly doc: Document<Shape, Tenant>;
+  }): Document<Shape, Tenant> | Promise<Document<Shape, Tenant>>;
 };
 
 /** A collection declaration. It names no use case classes. */
 export interface Collection<
   Slug extends string,
   Shape extends z.core.$ZodShape,
+  Tenant extends string = never,
 > {
   readonly slug: Slug;
   readonly schema: Schema<Shape>;
-  /** The document a read returns: the schema plus `id`, `createdAt` and `updatedAt`. */
-  readonly output: Operations<Shape>['get']['output'];
+  /**
+   * The field that holds a document's tenant id, or undefined for a global
+   * collection. Lattice stamps it on create and filters every call by it.
+   */
+  readonly tenant: [Tenant] extends [never] ? undefined : Tenant;
+  /** The document a read returns: the schema plus `id`, `createdAt`, `updatedAt` and the tenant field. */
+  readonly output: Operations<Shape, Tenant>['get']['output'];
   /**
    * The hexok `Event` classes its generated writes publish, with tokens
    * `<slug>.created`, `.updated` and `.deleted`. The app lists them in its
    * own catalog.
    */
-  readonly events: Events<Slug, Shape>;
-  readonly beforeChange?: Hooks<Shape>['beforeChange'];
-  readonly afterRead?: Hooks<Shape>['afterRead'];
+  readonly events: Events<Slug, Shape, Tenant>;
+  readonly beforeChange?: Hooks<Shape, Tenant>['beforeChange'];
+  readonly afterRead?: Hooks<Shape, Tenant>['afterRead'];
   /** The same collection with these hooks. A later call replaces a hook it names. */
-  hooks(hooks: Hooks<Shape>): Collection<Slug, Shape>;
+  hooks(hooks: Hooks<Shape, Tenant>): Collection<Slug, Shape, Tenant>;
 }
 
 /** An event class as hexok's `EventCatalog` takes it, whatever its payload. */
@@ -178,8 +218,9 @@ type AnyEventClass = Parameters<typeof EventCatalog>[1][string];
  */
 export type AnyCollection = Omit<
   Collection<string, z.core.$ZodShape>,
-  'events' | 'hooks'
+  'events' | 'hooks' | 'tenant'
 > & {
+  readonly tenant: string | undefined;
   readonly events: Readonly<
     Record<keyof Events<string, z.core.$ZodShape>, AnyEventClass>
   >;
@@ -199,6 +240,16 @@ type DateField<Shape extends z.core.$ZodShape> = {
       ? K
       : never;
 }[keyof Shape];
+
+// A rejected tenant adds a key the options lack, so the error names it. The
+// tenant field is Lattice's, like the system fields.
+type TenantCheck<Shape extends z.core.$ZodShape, Tenant extends string> = [
+  Tenant & (keyof Shape | ReservedField),
+] extends [never]
+  ? unknown
+  : {
+      readonly '~error': `tenant "${Tenant & string}" is stamped by Lattice; it cannot be a schema field or a reserved name`;
+    };
 
 // A rejected schema adds a key the options lack, so the error names the
 // field. Only top-level Dates are checked here; collection() finds the rest.
@@ -258,36 +309,72 @@ function checkField(path: string, schema: z.core.$ZodType): void {
 export function collection<
   const Slug extends string,
   Shape extends z.core.$ZodShape,
+  const Tenant extends string = never,
 >(
   slug: Slug,
-  options: { schema: Schema<Shape> } & FieldCheck<Shape>,
-): Collection<Slug, Shape> {
+  options: {
+    readonly schema: Schema<Shape>;
+    /**
+     * The field that holds each document's tenant id, such as
+     * `'organizationId'`. Lattice adds it to the output, stamps it on
+     * create, and filters every call by the caller's tenant.
+     */
+    readonly tenant?: Tenant;
+  } & FieldCheck<Shape> &
+    TenantCheck<Shape, Tenant>,
+): Collection<Slug, Shape, Tenant> {
   for (const [name, field] of Object.entries(options.schema.shape)) {
     if (reservedFields.some((reserved) => reserved === name)) {
       throw new Error(`Lattice: "${name}" is a reserved field name`);
     }
     checkField(`${slug}.${name}`, field);
   }
-  const output = operations(options.schema).get.output;
-  return declared(slug, options.schema, output, events(slug, output), {});
+  const names = Object.keys(options.schema.shape);
+  const { tenant } = options;
+  if (
+    tenant !== undefined &&
+    [...names, ...reservedFields].some((name) => name === tenant)
+  ) {
+    throw new Error(
+      `Lattice: tenant "${tenant}" is stamped by Lattice; it cannot be a schema field or a reserved name`,
+    );
+  }
+  const output = outputOf<Shape, Tenant>(options.schema, tenant);
+  return declared<Slug, Shape, Tenant>(
+    slug,
+    options.schema,
+    tenantShapes(tenant).tenant,
+    output,
+    events(slug, output, tenant),
+    {},
+  );
 }
 
 // A collection with other hooks keeps the same event classes: a catalog
 // matches an event to its class with instanceof.
-function declared<Slug extends string, Shape extends z.core.$ZodShape>(
+function declared<
+  Slug extends string,
+  Shape extends z.core.$ZodShape,
+  Tenant extends string,
+>(
   slug: Slug,
   schema: Schema<Shape>,
-  output: Operations<Shape>['get']['output'],
-  events: Events<Slug, Shape>,
-  hooks: Hooks<Shape>,
-): Collection<Slug, Shape> {
+  tenant: Collection<Slug, Shape, Tenant>['tenant'],
+  output: Operations<Shape, Tenant>['get']['output'],
+  events: Events<Slug, Shape, Tenant>,
+  hooks: Hooks<Shape, Tenant>,
+): Collection<Slug, Shape, Tenant> {
   return {
     slug,
     schema,
+    tenant,
     output,
     events,
     ...hooks,
     hooks: (next) =>
-      declared(slug, schema, output, events, { ...hooks, ...next }),
+      declared<Slug, Shape, Tenant>(slug, schema, tenant, output, events, {
+        ...hooks,
+        ...next,
+      }),
   };
 }

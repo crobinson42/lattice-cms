@@ -1,8 +1,10 @@
 import type { z } from 'zod';
-import { type Scope, type unscoped, whereOf } from './access.js';
+import { unscoped, whereOf } from './access.js';
 import type { AnyCollection } from './collection.js';
+import { LatticeError } from './errors.js';
 import { defaultLimit, defaultSort, type Sort } from './sort.js';
 import type { CollectionStore, FindQuery, Patch, StoredDoc } from './store.js';
+import { type Scope, type TenantField, withoutTenant } from './tenancy.js';
 import { type AnyWhere, both, type Where } from './where.js';
 
 /** A collection's stored document: its schema plus `id`, `createdAt` and `updatedAt`. */
@@ -29,10 +31,23 @@ export type RepoScope<C extends AnyCollection> =
   | typeof unscoped;
 
 /**
+ * What `insert` runs under. A tenanted collection's new row needs its
+ * tenant, so `unscoped` cannot insert into it: use the call's scope, or
+ * `tenancy.scope(C, tenantId)`.
+ */
+export type InsertScope<C extends AnyCollection> = [TenantField<C>] extends [
+  never,
+]
+  ? RepoScope<C>
+  : Scope<C['slug']>;
+
+/**
  * A typed view of the `CollectionStore` for one collection, for hand-written
  * use cases and event handlers. It trusts typed input, like a hexok
  * repository: no validation, no hooks and no events. Each call runs under
- * the scope it is given: a row outside it acts as missing.
+ * the scope it is given: a row outside it acts as missing. A tenant bypass
+ * scope reads only: a write through it on a tenanted collection is
+ * FORBIDDEN.
  */
 export interface Repo<C extends AnyCollection> {
   get(id: string, scope: RepoScope<C>): Promise<Doc<C> | null>;
@@ -45,9 +60,12 @@ export interface Repo<C extends AnyCollection> {
     docs: Doc<C>[];
     next: string | null;
   }>;
-  /** Stores `data` with a new `id`, `createdAt` and `updatedAt`. */
-  insert(data: z.output<C['schema']>, scope: RepoScope<C>): Promise<Doc<C>>;
-  /** Writes the fields in `patch` and bumps `updatedAt`; null when no doc in scope has `id`. */
+  /** Stores `data` with a new `id`, `createdAt`, `updatedAt` and the scope's tenant. */
+  insert(data: z.output<C['schema']>, scope: InsertScope<C>): Promise<Doc<C>>;
+  /**
+   * Writes the fields in `patch` and bumps `updatedAt`; null when no doc in
+   * scope has `id`. It never writes the tenant field.
+   */
   update(
     id: string,
     patch: Partial<z.output<C['schema']>>,
@@ -55,6 +73,25 @@ export interface Repo<C extends AnyCollection> {
   ): Promise<Doc<C> | null>;
   /** The removed doc, or null when no doc in scope has `id`. */
   remove(id: string, scope: RepoScope<C>): Promise<Doc<C> | null>;
+}
+
+/**
+ * The filter of a write. A bypass scope has no tenant, so it cannot write a
+ * tenanted collection.
+ */
+function writable(
+  collection: AnyCollection,
+  scope: Scope | typeof unscoped,
+): AnyWhere | undefined {
+  const where = whereOf(collection.slug, scope);
+  if (
+    collection.tenant !== undefined &&
+    scope !== unscoped &&
+    scope.tenantId === undefined
+  ) {
+    throw LatticeError.FORBIDDEN();
+  }
+  return where;
 }
 
 /** A new document: `data` with an `id`, `createdAt` and `updatedAt`. */
@@ -101,7 +138,13 @@ export function repo<C extends AnyCollection>(
 export function repo(
   store: CollectionStore,
   collection: AnyCollection,
-): Repo<AnyCollection> {
+): Omit<Repo<AnyCollection>, 'insert'> & {
+  // Any collection: a global one's insert takes `unscoped` too.
+  insert(
+    data: z.output<AnyCollection['schema']>,
+    scope: RepoScope<AnyCollection>,
+  ): Promise<Doc<AnyCollection>>;
+} {
   const { slug } = collection;
   // Each method is async, so a scope for another collection rejects, as a
   // store failure would, rather than throwing before a promise exists.
@@ -119,16 +162,28 @@ export function repo(
     async insert(data, scope) {
       // A new row has no filter to meet, but a scope for another collection
       // is still refused.
-      whereOf(slug, scope);
-      const doc: StoredDoc = stamped(data);
+      writable(collection, scope);
+      const { tenant } = collection;
+      if (tenant !== undefined && scope === unscoped) {
+        throw new Error(
+          `Lattice: "${slug}" is tenanted, so insert needs a scope with a tenant, such as tenancy.scope()`,
+        );
+      }
+      const doc: StoredDoc = stamped(
+        tenant === undefined || scope === unscoped
+          ? data
+          : { ...data, [tenant]: scope.tenantId },
+      );
       await store.insert(slug, doc);
       return doc;
     },
     async update(id, patch, scope) {
-      return store.update(slug, id, touched(patch), whereOf(slug, scope));
+      const where = writable(collection, scope);
+      const changes = touched(withoutTenant(collection, patch));
+      return store.update(slug, id, changes, where);
     },
     async remove(id, scope) {
-      return store.remove(slug, id, whereOf(slug, scope));
+      return store.remove(slug, id, writable(collection, scope));
     },
   };
 }

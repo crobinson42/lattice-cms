@@ -42,12 +42,14 @@ import {
 } from './errors.js';
 import {
   type CallContext,
+  callerFields,
   type Family,
   type FamilyContext,
   loggedByFamily,
 } from './family.js';
 import { type Repo, repo } from './repo.js';
 import type { CollectionStore } from './store.js';
+import type { TenantField } from './tenancy.js';
 
 const actions = [
   'find',
@@ -82,7 +84,10 @@ type Entry = {
 
 type Entries = Record<string, Entry>;
 
-type Ops<Col extends AnyCollection> = Operations<Col['schema']['shape']>;
+type Ops<Col extends AnyCollection> = Operations<
+  Col['schema']['shape'],
+  TenantField<Col>
+>;
 
 /**
  * What a class attached as method `N` of `Col` must be: its statics name
@@ -135,6 +140,18 @@ type SlugCheck<C extends AnyCollection, E extends Entries> = C extends {
   ? { readonly '~error': `"${C['slug']}" is a ts-pf implementer key` }
   : C['slug'] extends keyof E
     ? { readonly '~error': `"${C['slug']}" is already a collection` }
+    : unknown;
+
+// A tenanted collection needs a family with tenantOf. A rejected collection
+// adds a key it lacks, so the error names it.
+type TenantCheck<C extends AnyCollection, Tenanted extends boolean> = [
+  TenantField<C>,
+] extends [never]
+  ? unknown
+  : [Tenanted] extends [false]
+    ? {
+        readonly '~error': `"${C['slug']}" is tenanted, but the family has no tenantOf`;
+      }
     : unknown;
 
 // Each event of `Col` that `P.publish` does not take, by token.
@@ -308,11 +325,16 @@ type RuntimeWiring = {
  * the methods and overrides attached to them. It holds no ports, so its
  * `contract` needs no store and no publisher. `build()` wires it.
  */
-export class Framework<Actor, D extends ErrorMap, E extends Entries> {
+export class Framework<
+  Actor,
+  D extends ErrorMap,
+  E extends Entries,
+  Tenanted extends boolean = boolean,
+> {
   #contract: Contract<E, D> | undefined;
 
   constructor(
-    private readonly family: Family<Actor>,
+    private readonly family: Family<Actor, Tenanted>,
     private readonly errors: AppErrors<ErrorMap>,
     private readonly entries: readonly Entry[],
   ) {}
@@ -331,7 +353,7 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
       [A in keyof O]: OverrideCheck<C, A, FamilyContext<Actor>>;
     } = Record<never, never>,
   >(
-    collection: C & SlugCheck<C, E>,
+    collection: C & SlugCheck<C, E> & TenantCheck<C, Tenanted>,
     options: {
       /**
        * Who may do what (0021): `read` (find and get), `create`, `update`,
@@ -344,9 +366,15 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
   ): Framework<
     Actor,
     D,
-    E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
+    E & Record<C['slug'], { collection: C; methods: M; overrides: O }>,
+    Tenanted
   > {
     const { slug } = collection;
+    if (collection.tenant !== undefined && this.family.tenantOf === undefined) {
+      throw new Error(
+        `Lattice: "${slug}" is tenanted, but the family has no tenantOf`,
+      );
+    }
     if (reserved.some((key) => key === slug)) {
       throw new Error(`Lattice: "${slug}" is a ts-pf implementer key`);
     }
@@ -371,7 +399,8 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
     return new Framework<
       Actor,
       D,
-      E & Record<C['slug'], { collection: C; methods: M; overrides: O }>
+      E & Record<C['slug'], { collection: C; methods: M; overrides: O }>,
+      Tenanted
     >(this.family, this.errors, [
       ...this.entries,
       { collection, access, methods, overrides },
@@ -426,7 +455,7 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
       );
     const context = (base: CallContext<Actor>): FamilyContext<Actor> => ({
       ...base,
-      access: callAccess(access, base.actor),
+      access: callAccess(access, base, this.family),
     });
     const repos = Object.fromEntries(
       this.entries.map(({ collection }) => [
@@ -446,7 +475,7 @@ export class Framework<Actor, D extends ErrorMap, E extends Entries> {
         string,
         Executable<FamilyContext<Actor>>
       > = {};
-      const ops = operations(collection.schema);
+      const ops = operations(collection.schema, collection.output);
       for (const action of actions) {
         const declared = overrides[action];
         sliceUseCases[action] =
@@ -516,7 +545,7 @@ function contractOf(
   const slices: RuntimeContract = {};
   for (const { collection, methods } of entries) {
     const slice: Record<string, RuntimeProcedure> = {};
-    const ops = operations(collection.schema);
+    const ops = operations(collection.schema, collection.output);
     for (const action of actions) {
       const { input, output } = ops[action];
       slice[action] = call.input(input).output(output);
@@ -600,7 +629,7 @@ function clientErrors<Actor>(
         context.logger.info(path.join('.'), {
           collection,
           action,
-          ...(actor.ok ? { actorId: family.actorId(actor.value) } : {}),
+          ...(actor.ok ? callerFields(family, actor.value) : {}),
           outcome: 'refused',
           ...(refusal(error) ?? { code: sent.code }),
         });
@@ -617,9 +646,10 @@ function clientErrors<Actor>(
  */
 export function framework<
   Actor,
+  Tenanted extends boolean,
   D extends ErrorMap = Record<never, never>,
 >(options: {
-  family: Family<Actor>;
+  family: Family<Actor, Tenanted>;
   /**
    * The app's client errors, such as app-template's `clientErrors` and
    * `toRpcError`. Every procedure declares them next to Lattice's codes. An
@@ -629,14 +659,14 @@ export function framework<
     readonly declared: D & DeclaredCheck<D>;
     readonly map: (error: unknown) => unknown;
   };
-}): Framework<Actor, D, Record<never, never>> {
+}): Framework<Actor, D, Record<never, never>, Tenanted> {
   const errors = options.errors ?? { declared: {}, map: (error) => error };
   for (const code of Object.keys(errors.declared)) {
     if (latticeCodes.includes(code)) {
       throw new Error(`Lattice: "${code}" is a Lattice error code`);
     }
   }
-  return new Framework<Actor, D, Record<never, never>>(
+  return new Framework<Actor, D, Record<never, never>, Tenanted>(
     options.family,
     errors,
     [],

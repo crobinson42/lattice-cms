@@ -2,7 +2,6 @@ export {
   Access,
   type AccessRequest,
   type CallAccess,
-  type Scope,
   unscoped,
 } from './access.js';
 export { type Contract, type Framework, framework } from './build.js';
@@ -17,4 +16,5 @@ export {
 export type { Doc, Repo } from './repo.js';
 export type { Sort } from './sort.js';
 export { CollectionStore, MemoryStore } from './store.js';
+export { type Scope, tenancy } from './tenancy.js';
 export type { Where } from './where.js';

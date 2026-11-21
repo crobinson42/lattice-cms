@@ -509,8 +509,8 @@ describe('caller input types', () => {
   }
 
   it('find’s input schema carries the default sort and limit', () => {
-    const first = operations(Notes.schema).find.input.parse({});
-    const second = operations(Notes.schema).find.input.parse({});
+    const first = operations(Notes.schema, Notes.output).find.input.parse({});
+    const second = operations(Notes.schema, Notes.output).find.input.parse({});
     expect(first).toEqual({ sort: ['-createdAt'], limit: 20 });
     // Each parse gets its own array, so a caller that mutates one changes no other.
     expect(first.sort).not.toBe(second.sort);

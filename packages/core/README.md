@@ -182,14 +182,15 @@ expect(again.error.status).toBe(409);
 
 ## Reference
 
-### `collection(slug, { schema })`
+### `collection(slug, { schema, tenant? })`
 
-Returns a `Collection` with `slug`, `schema`, `output`, `events` and `hooks()`. `output` is the stored document's schema: the collection's schema plus `id`, `createdAt` and `updatedAt`.
+Returns a `Collection` with `slug`, `schema`, `tenant`, `output`, `events` and `hooks()`. `output` is the stored document's schema: the collection's schema plus `id`, `createdAt`, `updatedAt` and the tenant field.
 
 - `schema` is a `z.object()`. Unknown keys are stripped.
 - `id`, `createdAt`, `updatedAt`, `and` and `or` are reserved field names.
 - No `z.date()` and no transforms, anywhere in the schema. Store ISO strings (`z.iso.datetime()`). Normalize in a `beforeChange` hook. `collection()` throws at definition time, and a top-level Date or reserved name fails to compile.
 - `createdAt` and `updatedAt` are ISO 8601 strings.
+- `tenant: 'organizationId'` makes the collection tenanted; see [Tenancy](#tenancy). Without it, the collection is global.
 
 ### Hooks
 
@@ -198,16 +199,17 @@ Returns a `Collection` with `slug`, `schema`, `output`, `events` and `hooks()`. 
 - `beforeChange({ data, operation, previous? })` runs after validation, before the write, on create and update. `data` is the whole document after the change, without system fields. It returns the data to store.
 - `afterRead({ doc })` runs on every document a generated operation returns. It does not change what is stored or what events carry.
 
-### `family({ actor, actorId })`
+### `family({ actor, actorId, tenantOf? })`
 
 Builds the app's one hexok `UseCase.context` family. A caller passes `{ actor, logger }` (`CallContext<Actor>`): the actor, and a `@hexok/logger` `Logger` for the call. Lattice adds `access`, the call's access, so a use case receives `{ actor, logger, access }` (`FamilyContext<Actor>`).
 
 - Before `execute`, the actor must parse against `actor`, the input against the use case's `input` static, and access must allow the use case's action. A bad actor is `UNAUTHORIZED`, bad input is `VALIDATION`, and a refusal is `FORBIDDEN`.
-- `actorId` names the id that log lines and collection events carry. The family exposes `actor` and `actorId`, so hand-written code calls `AppUseCase.actorId(ctx.actor)`.
-- Every call writes one line through a child of `ctx.logger` with `collection`, `action`, `actorId` and `durationMs`.
+- `actorId` names the id that log lines and collection events carry. The family exposes `actor`, `actorId` and `tenantOf`, so hand-written code calls `AppUseCase.actorId(ctx.actor)`.
+- `tenantOf` names the actor's tenant id, or `tenancy.bypass`. A framework with a tenanted collection requires it; see [Tenancy](#tenancy).
+- Every call writes one line through a child of `ctx.logger` with `collection`, `action`, `actorId`, `tenantId` (or `tenancy: 'bypass'`) and `durationMs`.
 - A hand-written use case extends the family with a `collection` static, and `input` and `output` schemas for a method. Its token is `<slug>.<name>`.
 
-`FamilyContext<Actor>` is the context type a use case receives, and `CallContext<Actor>` the one a caller passes. `Family<Actor>` is the family's type.
+`FamilyContext<Actor>` is the context type a use case receives, and `CallContext<Actor>` the one a caller passes. `Family<Actor, Tenanted>` is the family's type; `Tenanted` is true when it has `tenantOf`.
 
 ### `framework()`, `.collection()` and `build()`
 
@@ -263,6 +265,42 @@ Hide rows with a `read` filter, such as soft-deleted ones. The CRM's `live` filt
 
 `Access` is the hexok port behind this. `build({ access })` takes another adapter of it. Its `check({ actor, collection, action, data? })` returns `boolean` or a `Where`; `action` is `find`, `get`, `create`, `update`, `delete` or a method's name, and `data` is passed for `create` only.
 
+### Tenancy
+
+A collection with `tenant: 'organizationId'` keeps each tenant's rows apart. Lattice adds the field to the output, stamps it on create, and filters every call by the caller's tenant. A collection without `tenant` is global: no call is filtered by tenant.
+
+```ts
+const AppUseCase = family({
+  actor: z.object({ userId: z.string(), organizationId: z.string(), support: z.boolean().optional() }),
+  actorId: (actor) => actor.userId,
+  tenantOf: (actor) => (actor.support === true ? tenancy.bypass : actor.organizationId),
+});
+
+const Notes = collection('notes', {
+  schema: z.object({ title: z.string() }),
+  tenant: 'organizationId',
+});
+```
+
+- `family({ tenantOf })` gives each call's tenant. A tenanted collection in a framework whose family has no `tenantOf` is a compile error and a throw.
+- The tenant field is in `Doc` and `Where`, never in create or update input. Create stamps it after `beforeChange`, update never writes it, and a client cannot set or change it.
+- Every scope is the tenant clause ANDed with the access `Where`. Another tenant's row is `NOT_FOUND` on get, update and delete, and `find` never returns it, page after page.
+- A schema field with the tenant's name, or a reserved name, is a compile error and a throw.
+
+`tenancy.bypass` is what `tenantOf` returns for a platform actor, such as support staff. The actor schema validates the flag, and the edge sets it per request.
+
+- A bypassed call reads across tenants. It can filter `find` by the tenant field.
+- It is read-only on tenanted collections: generated create, update and delete are `FORBIDDEN`, and so is a repo write through its scope.
+- Its log line carries `tenancy: 'bypass'`, and each bypassed scope writes one `tenancy.bypass` line with the actor, collection and action.
+
+Server code says which tenant it works in. An event handler uses `tenancy.scope(C, tenantId)`: the tenant clause and no access. An insert through it is stamped with that tenant. `tenancy.scope` takes only a tenanted collection.
+
+```ts
+await repos.notes.update(id, patch, tenancy.scope(Notes, event.payload.tenantId));
+```
+
+`unscoped` still reads and writes every tenant, but it cannot insert into a tenanted collection, since the row would belong to no tenant. That is a compile error and a throw.
+
 ### `Where` and `Sort`
 
 `find` takes `{ where?, sort?, limit?, after? }` and returns `{ docs, next }`. `Where<Doc>` and `Sort<Doc>` are typed from the document, system fields included.
@@ -290,7 +328,7 @@ Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (4
 
 ### Events
 
-`collection()` derives three hexok `Event` classes: `Contacts.events.created`, `.updated` and `.deleted`, with tokens `contacts.created` and so on. Payloads are `{ doc, actorId }`, and `{ doc, previous, actorId }` on update, typed from the schema. `doc` is the stored document.
+`collection()` derives three hexok `Event` classes: `Contacts.events.created`, `.updated` and `.deleted`, with tokens `contacts.created` and so on. Payloads are `{ doc, actorId }`, and `{ doc, previous, actorId }` on update, typed from the schema. `doc` is the stored document. A tenanted collection's payloads also carry `tenantId`.
 
 The app lists them in its own catalog, next to its hand-written events:
 
@@ -316,7 +354,9 @@ Generated writes publish through `build({ events })` after the store write succe
 
 `Repo<C>` is a typed view of the store for one collection: `get`, `getMany`, `find`, `insert`, `update` and `remove`. `insert` stamps `id`, `createdAt` and `updatedAt`; `update` bumps `updatedAt`. It runs no validation, no hooks and no events. Use it in hand-written use cases and event handlers.
 
-Every call takes a scope as its last argument: the call's `Scope` from `ctx.access.scope()`, or `unscoped`. A row outside the scope acts as missing. `unscoped` reads and writes every row; trusted code that acts for no caller passes it, such as an event handler or a script. A `Scope` for another collection throws.
+Every call takes a scope as its last argument: the call's `Scope` from `ctx.access.scope()`, a tenant's from `tenancy.scope()`, or `unscoped`. A row outside the scope acts as missing. `unscoped` reads and writes every row; trusted code that acts for no caller passes it, such as a script. A `Scope` for another collection throws.
+
+On a tenanted collection, `insert` stamps the scope's tenant and does not take `unscoped`. `update` never writes the tenant field. `scope.tenantId` is the tenant, for a method's own events.
 
 `Doc<C>` is the collection's stored document type.
 
@@ -360,10 +400,11 @@ The tests prove each of these.
 - Each call writes one log line. Each refusal is logged once, whether the call came over RPC, in process, or through `useCases`.
 - No use case runs when access says `false`, and no row outside an access `Where` is read, changed or returned.
 - Each access function runs once per call.
+- No call reaches another tenant's rows, and every bypassed call is logged.
 - Events publish only after a successful write.
 - An update patch never resets a field to its default.
 - On update, the merged document is validated with the whole schema.
 
 ## Not yet
 
-MongoDB, relations, tenancy and auth arrive in later phases. See the [phase table](../../docs/architecture.md#phased-build-plan).
+MongoDB, relations and auth arrive in later phases. See the [phase table](../../docs/architecture.md#phased-build-plan).

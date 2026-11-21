@@ -156,8 +156,8 @@ export function family<A extends StandardSchemaV1>(options: {
   actorId: (actor: StandardSchemaV1.InferOutput<A>) => string;
   tenantOf?: (actor: StandardSchemaV1.InferOutput<A>) => string;
 }) {
-  const { actor, actorId, tenantOf } = options;
-  return Object.assign(phase0Family({ actor, actorId }), { tenantOf });
+  // The real family takes tenantOf since Phase 1 step 3.
+  return phase0Family(options);
 }
 
 type SpikeFamily<Actor> = ReturnType<
