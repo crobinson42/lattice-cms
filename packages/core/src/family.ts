@@ -1,7 +1,7 @@
 import type { Logger } from '@hexok/logger';
-import { type StandardSchemaV1, UseCase, validate } from 'hexok';
+import { type StandardSchemaV1, UseCase } from 'hexok';
 import type { z } from 'zod';
-import type { CallAccess } from './access.js';
+import { CallAccess } from './access.js';
 import type { AnyCollection } from './collection.js';
 import { invalid, LatticeError, refusal } from './errors.js';
 import { type Tenant, tenancy } from './tenancy.js';
@@ -167,9 +167,10 @@ export function family<
   >()
     // Guards run outside hexok's hooks, so each logs its own rejection.
     .guard(({ ctx, spec, token }) => {
-      // The issues describe the caller's credentials, so they stay out of
-      // the error and the log.
-      if (!validate(options.actor, ctx.actor).ok) {
+      // The call's context parsed the actor once (familyContext), so this
+      // guard reads that parse rather than repeating it. The issues describe
+      // the caller's credentials, so they stay out of the error and the log.
+      if (!CallAccess.parsed(ctx.access, ctx.actor)) {
         const log = callLogger(ctx.logger, spec, token, undefined);
         throw logThrown(log, token, LatticeError.UNAUTHORIZED());
       }

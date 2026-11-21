@@ -371,6 +371,7 @@ const links = await client.posts.categories.list({ id, populate: ['categoriesId'
 Builds the app's one hexok `UseCase.context` family. A caller passes `{ actor, logger }` (`CallContext<Actor>`): the actor, and a `@hexok/logger` `Logger` for the call. Lattice adds `access`, the call's access, so a use case receives `{ actor, logger, access }` (`FamilyContext<Actor>`).
 
 - Before `execute`, the actor must parse against `actor`, the input against the use case's `input` static, and access must allow the use case's action. A bad actor is `UNAUTHORIZED`, bad input is `VALIDATION`, and a refusal is `FORBIDDEN`.
+- The actor is parsed once per call, and everything after sees the parsed value: access functions, `tenantOf`, `actorId`, log lines, `execute`'s `ctx.actor` and events. Keys the schema strips never reach them, and a transform's output does. Make an actor union of `z.strictObject`s when a key changes meaning, such as a `support` flag, so an actor that mixes the shapes is refused rather than read as one of them.
 - `actorId` names the id that log lines and collection events carry. The family exposes `actor`, `actorId` and `tenantOf`, so hand-written code calls `AppUseCase.actorId(ctx.actor)`.
 - `tenantOf` names the actor's tenant id, or `tenancy.bypass`. A framework with a tenanted collection requires it; see [Tenancy](#tenancy).
 - Every call writes one line through a child of `ctx.logger` with `collection`, `action`, `actorId`, `tenantId` (or `tenancy: 'bypass'`), `outcome` and `durationMs`.

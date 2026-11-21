@@ -1,8 +1,8 @@
-import { Adapter, Port } from 'hexok';
+import { Adapter, Port, validate } from 'hexok';
 import type { z } from 'zod';
 import type { Action, AnyCollection } from './collection.js';
 import { LatticeError } from './errors.js';
-import type { CallContext, Family } from './family.js';
+import type { CallContext, Family, FamilyContext } from './family.js';
 import type { Doc } from './repo.js';
 import { Scope, type Tenant, tenancy, tenantClause } from './tenancy.js';
 import { type AnyWhere, both, type FieldWhere, type Where } from './where.js';
@@ -176,7 +176,30 @@ export class CallAccess {
   /** The bypassed scopes already logged, as `slug action`. */
   readonly #logged = new Set<string>();
 
-  constructor(private readonly caller: Caller) {}
+  /**
+   * @param actor The call's actor as the family's schema parsed it, or a
+   * failed parse. The family's first guard reads it: nothing after that
+   * guard sees an actor the schema did not produce.
+   */
+  constructor(
+    private readonly caller: Caller,
+    private readonly actor:
+      | { readonly ok: true; readonly value: unknown }
+      | { readonly ok: false },
+  ) {}
+
+  /**
+   * Whether `access` is a call's access whose actor parsed, and `actor` is
+   * that parsed value. A context made any other way, or whose actor was
+   * swapped after the parse, is refused.
+   */
+  static parsed(access: unknown, actor: unknown): boolean {
+    return (
+      access instanceof CallAccess &&
+      access.actor.ok &&
+      access.actor.value === actor
+    );
+  }
 
   /**
    * The scope of `action` on `collection`: the tenant clause ANDed with the
@@ -272,16 +295,22 @@ export class CallAccess {
 }
 
 /**
- * The access of the calls made in `context`, decided by `access`, with the
- * tenant `family.tenantOf` gives its actor.
+ * The context of one call. The actor is parsed once, here, with the
+ * family's schema, and everything downstream gets the parsed value: access
+ * functions, `tenantOf`, `actorId`, the log lines, `execute` and events. So
+ * a key the schema strips, or a value it transforms, never reaches them.
+ * An actor that does not parse is kept as given, and the family's first
+ * guard refuses the call before anything reads it.
  */
-export function callAccess<Actor>(
+export function familyContext<Actor>(
   access: Access<Actor>,
-  context: CallContext<Actor>,
-  family: Pick<Family<Actor>, 'actorId' | 'tenantOf'>,
-): CallAccess {
-  const { actor, logger } = context;
-  return new CallAccess({
+  base: CallContext<Actor>,
+  family: Pick<Family<Actor>, 'actor' | 'actorId' | 'tenantOf'>,
+): FamilyContext<Actor> {
+  const parsed = validate(family.actor, base.actor);
+  const actor = parsed.ok ? parsed.value : base.actor;
+  const { logger } = base;
+  const caller: Caller = {
     check: (collection, action, data) =>
       access.check({
         actor,
@@ -297,7 +326,15 @@ export function callAccess<Actor>(
         action,
         tenancy: 'bypass',
       }),
-  });
+  };
+  return {
+    ...base,
+    actor,
+    access: new CallAccess(
+      caller,
+      parsed.ok ? { ok: true, value: actor } : { ok: false },
+    ),
+  };
 }
 
 /** The filter a `Repo` call runs under. A scope for another collection throws. */

@@ -53,6 +53,7 @@
     "@ts-pf/contract": "^0.6.0",
     "@ts-pf/protocol": "^0.6.0",
     "@ts-pf/server": "^0.6.0",
+    "@ts-pf/server-http": "^0.6.0",
     "hexok": "^2.2.7",
     "zod": "^4.1.0"
   }

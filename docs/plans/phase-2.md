@@ -39,10 +39,10 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 Approved design: [0030](../decisions/0030-the-edge-checks-membership-per-request.md) (proposed).
 
-- [ ] The `@hexok/auth` recipe: `Sessions` with a `JoseSessionToken`, Redis in dev and production and memory in tests. The crm's dev headers are deleted.
-- [ ] The active organization: `x-organization-id`, checked against a `memberships` collection on every request before `tenantOf` reads it. Support comes from the `CRM_SUPPORT_USER_IDS` config list.
+- [x] The `@hexok/auth` recipe: `Sessions` with a `JoseSessionToken`, Redis in dev and production and memory in tests. The crm's dev headers are deleted.
+- [x] The active organization: `x-organization-id`, checked against a `memberships` collection on every request before `tenantOf` reads it. Support comes from the `CRM_SUPPORT_USER_IDS` config list.
 - [x] Revisit `CallContext`'s "valid actor" typing: kept. The edge refuses, and anonymous procedures live on their own router.
-- [ ] Password login, on its own ts-pf router at `/auth`. The hashes never reach the Lattice router, MCP or OpenAPI. Its design is approved before it is built.
+- [x] Password login, on its own ts-pf router at `/auth`. The hashes never reach the Lattice router, MCP or OpenAPI. scrypt (OWASP parameters, PHC format), with a per-email failure limit.
 
 ### 3. Authorization **Checkpoint**
 
@@ -99,4 +99,6 @@ Add a line here when the work teaches something the plan did not know. Each line
 - core's emitted `.d.ts` failed under `skipLibCheck: false` (a distributive `RelationsOf` in `collection()`'s return type). Root `skipLibCheck: true` hid it. Fixed in task 2.1b, with a check over the built declarations in the four checks.
 - The packages had no license. The maintainer chose MIT, matching hexok and ts-pf (task 2.1b).
 - In the workspace, npm does not check a linked package against a peer range. Only a packed install catches a wrong internal peer range.
+- Lattice validated the actor but passed the raw object on, so a non-strict schema let a stripped key (such as `support`) reach `tenantOf`. Task 2.2b parses it once and passes the parsed actor on.
+- hexok's `@hexok/auth`, `auth-jose` and `auth-redis` depend on `hexok` directly, not as a peer: the second-copy risk 0029 avoids. A note for hexok, held for the maintainer.
 - Turbo ignores `peerDependencies` when ordering builds, so store-mongo keeps `@latticecms/core` as a devDependency too.

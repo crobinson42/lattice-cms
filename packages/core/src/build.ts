@@ -29,7 +29,7 @@ import {
   type AccessMap,
   type AccessReturns,
   CollectionAccess,
-  callAccess,
+  familyContext,
 } from './access.js';
 import {
   type Action,
@@ -961,10 +961,8 @@ export class Framework<
           this.entries.map((entry) => [entry.collection.slug, entry.access]),
         ),
       );
-    const context = (base: CallContext<Actor>): FamilyContext<Actor> => ({
-      ...base,
-      access: callAccess(access, base, this.family),
-    });
+    const context = (base: CallContext<Actor>): FamilyContext<Actor> =>
+      familyContext(access, base, this.family);
     const repos = Object.fromEntries(
       this.entries.map(({ collection }) => [
         collection.slug,

@@ -340,9 +340,13 @@ Authentication stays in `@hexok/auth` at the edge ([0006](decisions/0006-use-cas
 
 ### Authentication
 
-The app follows hexok's `app-template` pattern unchanged. A ts-pf context function reads the credential, `Sessions` or `resolving()` turns it into the actor, and the actor goes on the use case context. Lattice validates the actor against the family's actor schema and never imports `@hexok/auth`. Swapping to the company IdP changes the composition root only.
+The edge authenticates, and Lattice never imports `@hexok/auth`. A ts-pf context function reads the credential, `@hexok/auth`'s `Sessions` (or `resolving()`) turns it into the user, and the edge builds the actor. Lattice parses the actor against the family's actor schema. Swapping to the company IdP changes the composition root only.
 
-The edge's context is `CallContext<Actor>`, `{ actor, logger }`; Lattice adds `access`. Its `actor` is typed as a valid actor, so an edge cannot hand the family guard "no actor" without a cast. The edge refuses a missing credential itself, as app-template does; the family guard rejects a present but invalid actor. Phase 2's auth recipe revisits this.
+The edge's context is `CallContext<Actor>`, `{ actor, logger }`; Lattice adds `access`. Its `actor` is typed as a valid actor, so an edge cannot hand Lattice "no actor" without a cast. The edge refuses a missing or bad credential itself, with 401 `UNAUTHORIZED`. Lattice rejects a present but invalid actor with the same code. app-template differs: its edge passes an anonymous caller, and a guard refuses it.
+
+The active organization comes from a request header, `x-organization-id` in `examples/crm`. The edge checks membership on every request, with one indexed `count` on the app's `memberships` collection, before the actor exists. So `tenantOf` reads only a checked organization ([0030](decisions/0030-the-edge-checks-membership-per-request.md)). No organization, not a member, and no such organization are one 403 `FORBIDDEN`. Each refusal's reason is logged, never sent. The session holds only the user. A support actor comes from server config, never from the request.
+
+Procedures with no actor, such as login and logout, live on the app's own small ts-pf router (`/auth` in the crm), outside the Lattice families. In the crm, password hashes live in a store collection that Lattice never registers, so no contract, MCP tool or OpenAPI document can describe them.
 
 ### Access
 
@@ -496,10 +500,10 @@ What the built system does not do yet, or does with a known gap. Each is a candi
   - A standalone MongoDB runs a transaction's work in order, without atomicity.
   - `MemoryStore` and MongoDB differ on string order outside the BMP, and on non-ASCII case folding in `contains`.
   - One store serves every collection.
-- **Auth.** The example authenticates with dev headers. The `@hexok/auth` recipe, the `@hexok/authz` adapter and field masking are Phase 2.
-- **Publishing.** Before the first publish:
-  - `@latticecms/store-mongo` needs a real peer range on `@latticecms/core`, which is `*` today;
-  - decide whether `hexok` and `@ts-pf/*` become peers.
+- **Auth.**
+  - `CallContext<Actor>` types the actor as the schema's output. Lattice parses it once per call, so an actor schema with a transform makes the edge pass an output-shaped value through the transform again. No app uses a transforming actor schema. When one does, `CallContext` should take the schema's input type.
+  - The crm's login limit counts failures per email only: concurrent failures can overshoot it, anyone can lock an email for 15 minutes, and per-IP limiting belongs in front of the app.
+  - The `@hexok/authz` adapter and field masking are Phase 2.
 - **Type-check cost.** After Phase 1, a full check takes 0.98 s for core's sources (0.87 s after Phase 0), 0.41 s for the crm's sources (0.38 s), and 0.51 s for the crm with tests. Core's own suite takes 2.2 s, mostly type tests. [0003](decisions/0003-collections-compile-at-runtime.md)'s revisit condition does not hold.
 
 ## Proposed changes to hexok and ts-pf

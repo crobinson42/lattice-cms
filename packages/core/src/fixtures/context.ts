@@ -1,7 +1,7 @@
 import { type Logger, NoopLogger } from '@hexok/logger';
 import { Adapter } from 'hexok';
 import { z } from 'zod';
-import { callAccess } from '../access.js';
+import { familyContext } from '../access.js';
 import { Access, family } from '../index.js';
 
 export const AppUseCase = family({
@@ -23,11 +23,7 @@ export class AllowAll extends Adapter(Access) {
  * procedure call replaces `access` with the app's own.
  */
 export function callContext(logger: Logger = new NoopLogger()) {
-  return {
-    actor,
-    logger,
-    access: callAccess(new AllowAll(), { actor, logger }, AppUseCase),
-  };
+  return familyContext(new AllowAll(), { actor, logger }, AppUseCase);
 }
 
 /** Access functions that allow every generated operation. */

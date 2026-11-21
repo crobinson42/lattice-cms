@@ -559,9 +559,13 @@ describe('a refusal is logged once on every path', () => {
     const direct = new MemoryLogger();
     const rpc = new MemoryLogger();
 
+    const built = setup();
     await codeOf(
-      // @ts-expect-error id is a string
-      setup().useCases.posts.get.execute({ actor, logger: direct }, { id: 1 }),
+      built.useCases.posts.get.execute(
+        built.context({ actor, logger: direct }),
+        // @ts-expect-error id is a string
+        { id: 1 },
+      ),
     );
     // @ts-expect-error id is a string
     await codeOf(client(rpc, false).posts.get({ id: 1 }));
@@ -587,12 +591,9 @@ describe('a refusal is logged once on every path', () => {
     const rpc = new MemoryLogger();
 
     await codeOf(
-      setup().useCases.posts.get.execute(
-        { ...callContext(direct), actor },
-        {
-          id: 'nope',
-        },
-      ),
+      setup().useCases.posts.get.execute(callContext(direct), {
+        id: 'nope',
+      }),
     );
     await codeOf(client(rpc, true).posts.get({ id: 'nope' }));
 
