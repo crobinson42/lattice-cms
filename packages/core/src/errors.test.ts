@@ -54,7 +54,7 @@ function setup(
   } = {},
 ) {
   const lock = new LockPost();
-  const { contract, app } = framework({
+  const { contract, app, onError } = framework({
     family: AppUseCase,
     store: options.store ?? new MemoryStore(),
     events: new MemoryEventPublisher(),
@@ -67,6 +67,7 @@ function setup(
     lock,
     contract,
     app,
+    onError,
     local: createLocalClient(app, {
       context,
       validation: { input: options.checkInput ?? true },
@@ -413,5 +414,76 @@ describe('the PFError a client receives', () => {
     const error = await local.posts.get({ id: 'nope' }).catch((e) => e);
     expect(isPFError(error)).toBe(true);
     expect(LatticeError.is(error.cause)).toBe(true);
+  });
+});
+
+describe('the onError build() returns', () => {
+  it('does not log again an unexpected error the family logged', async () => {
+    const root = new MemoryLogger();
+    const { local, lock, onError } = setup({ logger: root });
+    lock.throws = new Error('boom');
+
+    const error = await local.posts.lock({ id: 'p1' }).catch((e) => e);
+    onError(root)(error);
+
+    expect(root.records).toMatchObject([
+      { level: 'error', message: 'boom', fields: { outcome: 'failed' } },
+    ]);
+  });
+
+  it('logs once a throw no family saw, such as the context factory’s', () => {
+    const root = new MemoryLogger();
+    const { onError } = setup();
+
+    onError(root)(new Error('no context'));
+    onError(root)('a string');
+
+    expect(root.records).toMatchObject([
+      { level: 'error', message: 'no context' },
+      {
+        level: 'error',
+        message: 'Unexpected error',
+        fields: { thrown: 'a string' },
+      },
+    ]);
+  });
+
+  it('logs once an INTERNAL from ts-pf’s output check, after the family’s ok line', async () => {
+    const root = new MemoryLogger();
+    const { app, onError } = framework({
+      family: AppUseCase,
+      store: new MemoryStore(),
+      events: new MemoryEventPublisher(),
+    })
+      // An afterRead that breaks the output schema: title is min(1).
+      .collection(
+        Posts.hooks({ afterRead: ({ doc }) => ({ ...doc, title: '' }) }),
+      )
+      .build();
+    const local = createLocalClient(app, {
+      context: callContext(root),
+      validation: { output: true },
+    });
+
+    const error = await local.posts
+      .create({ title: 't', body: 'b', status: 'draft' })
+      .catch((e) => e);
+    onError(root)(error);
+
+    expect(isPFError(error) && error.code).toBe('INTERNAL');
+    expect(root.records).toMatchObject([
+      { level: 'info', fields: { action: 'create', outcome: 'ok' } },
+      { level: 'error', message: 'Internal server error' },
+    ]);
+  });
+
+  it('does not log a refusal', async () => {
+    const root = new MemoryLogger();
+    const { local, onError } = setup();
+    const error = await local.posts.get({ id: 'nope' }).catch((e) => e);
+
+    onError(root)(error);
+
+    expect(root.records).toEqual([]);
   });
 });

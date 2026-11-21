@@ -104,12 +104,22 @@ Stop and show the maintainer the spike: the public type signatures and one sampl
 
 ### 9. `examples/crm`
 
-- [ ] Three collections: `companies`, `contacts` (with a `companyId` string field; `ref()` arrives in Phase 1) and `deals`.
-- [ ] One override (`deals.delete` archives instead of deleting) and one custom method (`deals.close`).
-- [ ] Served by `FetchHandler` on srvx at `/rpc`, with an actor read from a dev header. Real auth is Phase 2.
-- [ ] Tests through `createLocalClient` cover each collection's CRUD, the override, the method, and one event per action.
-- [ ] Measure the consumer's emitted declarations. Step 6 found each collection event class inlined into a consumer's catalog `.d.ts` (about 2.3k lines for 7 events). If named exported types let declarations reference the classes instead, use them.
-- [ ] Its app module exports the collections, the family, `lattice` and `contract`, and its type-check runs with `declaration: true`. That is the check that every type a consumer's declarations name is exported from `@latticecms/core` (TS2883 fires only outside the package).
+- [x] Three collections: `companies`, `contacts` (with a `companyId` string field; `ref()` arrives in Phase 1) and `deals`.
+- [x] One override (`deals.delete` archives instead of deleting) and one custom method (`deals.close`).
+- [x] Served by `FetchHandler` on srvx at `/rpc`, with an actor read from a dev header. Real auth is Phase 2.
+- [x] Tests through `createLocalClient` cover each collection's CRUD, the override, the method, and one event per action.
+- [x] Measure the consumer's emitted declarations. Step 6 found each collection event class inlined into a consumer's catalog `.d.ts` (about 2.3k lines for 7 events). If named exported types let declarations reference the classes instead, use them.
+- [x] Its app module exports the collections, the family, `lattice` and `contract`, and its type-check runs with `declaration: true`. That is the check that every type a consumer's declarations name is exported from `@latticecms/core` (TS2883 fires only outside the package).
+
+### 9b. Definition and wiring **Checkpoint**
+
+`examples/crm` showed the contract is not static: `framework()` takes the store and the events publisher, so `contract` exists only after ports do. Split definition from wiring. Maintainer's choice.
+
+- [ ] Definition: `framework({ family, errors })` plus `.collection(...)` gives `contract` with no ports, importable by clients and codegen without server code.
+- [ ] Wiring: `build({ store, events, methods, overrides })`. Instances can still take a typed repo of a declared collection.
+- [ ] `examples/crm` exports a `contract` const from a module with no ports.
+
+Stop and show the maintainer the proposed signatures and the example's two modules before building.
 
 ### 10. Docs
 
@@ -129,6 +139,12 @@ Add a line here when the work teaches something the plan did not know: a type li
 - Step 1: type-check of the spike is 0.70 s and 189k instantiations for two collections. Re-measure at step 9.
 - Step 1: TS2883 (a type that cannot be named) only fires for a consumer outside `packages/core`; inside, TypeScript names types by relative path. The public types are `Collection`, `Framework`, `Contract`, `Family` and `FamilyContext` because a consumer's declarations need them. Went to step 9.
 - Step 1: hexok's `#brand` is a structural key in declarations, so `build()` tells instances of two use cases with the same `execute` types apart only by private members. `build()` also checks `instanceof` the declared class at runtime. Nowhere else yet.
+- Step 9: `examples/crm` DX review. Taken to the maintainer, with outcomes: a static contract (step 9b), export `LatticeError` and add `Doc<C>` (task 0.9c), a hexok `EventClass` (follow-up below). Recorded for later:
+  - Phase 1: soft delete leaks into the generated `find`/`get` (an archived deal is still returned). Access filters or a default filter are the likely home.
+  - Phase 1: `Repo.insert` takes output data, so defaulted fields are required and not applied, unlike `create`.
+  - Phase 2: `FamilyContext.actor` is typed as a valid actor, so an edge cannot pass "no actor" to the guard without a cast. `examples/crm` refuses a missing dev header at the edge, as app-template does.
+- **Follow up:** hexok's `Event()` returns an anonymous class type, so every collection event class is inlined into a consumer's catalog `.d.ts` (3.8k lines, 161 KB for 10 events in `examples/crm`). The maintainer will have hexok export a named `EventClass<Token, Schema>` interface (about 8 times smaller); Lattice adopts it when released.
+- Step 9: type-check: core 1.17–1.20 s, `examples/crm` 0.50 s, root about 1.8 s wall. Within 0003's tolerance.
 - Step 8: six asserted overloads now sit where runtime-built values meet precise types (`build`, `whereSchema`, `sortSchema`, `patchSchema`, `repo`, `Framework.repo`). Each is commented; no value is cast. Typing `CollectionStore` per collection would remove the two repo ones. Nowhere yet; watch the count.
 - Step 8: `Repo.update` takes `Partial<Data>`, so under `exactOptionalPropertyTypes` it cannot unset an optional field, though the store can. Nowhere yet.
 - Step 8: generated `useCases` members take the schema's input type (defaults optional), while the contract follows ts-pf's output typing until the ts-pf fix lands.

@@ -1,3 +1,4 @@
+import type { Logger } from '@hexok/logger';
 import {
   type ContractProcedure,
   type ContractRouterBrand,
@@ -7,7 +8,7 @@ import {
   procedure,
   router,
 } from '@ts-pf/contract';
-import { isPFError } from '@ts-pf/protocol';
+import { isPFError, isUnexpectedError } from '@ts-pf/protocol';
 import {
   createImplementer,
   type ImplementedProcedure,
@@ -234,6 +235,7 @@ type Built<E extends Entries, D extends ErrorMap, Ctx> = {
   readonly app: ImplementedRouter<Contract<E, D>, Ctx>;
   readonly useCases: UseCases<E, Ctx>;
   readonly repos: { [S in keyof E]: Repo<E[S]['collection']> };
+  readonly onError: typeof unexpectedErrors;
 };
 
 type RuntimeProcedure = ContractProcedure<unknown, unknown, ErrorMap>;
@@ -352,6 +354,7 @@ export class Framework<
       Record<string, Readonly<Record<string, unknown>>>
     >;
     readonly repos: Readonly<Record<string, Repo<AnyCollection>>>;
+    readonly onError: typeof unexpectedErrors;
   } {
     const call = procedure.errors({
       ...declaredErrors,
@@ -437,8 +440,26 @@ export class Framework<
       repos: Object.fromEntries(
         this.entries.map((entry) => [entry.collection.slug, entry.repo]),
       ),
+      onError: unexpectedErrors,
     };
   }
+}
+
+/**
+ * The edge's `onError`, such as `FetchHandler`'s: it logs each unexpected
+ * error (ts-pf's `isUnexpectedError`) that no family has logged. A throw
+ * inside `execute` reaches the edge unchanged, and the family has logged it
+ * once already; a throw the family never saw, such as the context factory's
+ * or ts-pf's output check, is logged here. Typed structurally, so core needs
+ * no `@ts-pf/server-http`: it fits `FetchHandlerOnError`, which also passes
+ * the request.
+ */
+function unexpectedErrors(logger: Logger): (error: unknown) => void {
+  return (error) => {
+    if (!isUnexpectedError(error) || loggedByFamily(error)) return;
+    if (error instanceof Error) logger.error(error);
+    else logger.error('Unexpected error', { thrown: error });
+  };
 }
 
 /**
