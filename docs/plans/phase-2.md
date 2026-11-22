@@ -51,7 +51,7 @@ Built: [0030](../decisions/0030-the-edge-checks-membership-per-request.md).
 
 ### 4. Field-level read masking **Checkpoint**
 
-Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundary.md) (proposed). Built; the crm's type-check with tests is 0.56–0.58 s, core sources +0.6% instantiations.
+Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundary.md). The crm's type-check with tests is 0.56–0.58 s, core sources +0.6% instantiations.
 
 - [x] `collection({ maskable })`, `clientOutput` and `ClientDoc<C>`; `.collection(C, { fields: { f: { read } } })`; `Access.readable`, failing closed. A withheld field is absent, and optional in client types.
 - [x] Masking at the implemented router covers get, find, list, population, overrides, methods, and create and update responses. Maskable fields are found by a field-schema marker. Repos, direct `useCases` and events stay whole.
@@ -60,7 +60,7 @@ Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundar
 
 ### 5. Tracing
 
-- [ ] One span per procedure (a middleware on Lattice's router, so every caller gets it with no wiring; ts-pf's call interceptors attach to callers, not routers), one per use case (`preExecute` and `onFinally`), and one per store call (inside MongoStore), through `@opentelemetry/api`, following OpenTelemetry names.
+- [ ] One span per procedure (a middleware on Lattice's router, so every caller gets it with no wiring; ts-pf's call interceptors attach to callers, not routers), one per use case (`preExecute` and `onFinally`; hexok has no around hook, so a use case's store calls are its siblings under the procedure span, not its children), and one per store call (inside MongoStore), through `@opentelemetry/api`, following OpenTelemetry names.
 - [ ] Tests use an in-memory exporter. A no-op without an SDK costs nothing measurable.
 
 ### 6. Events out of the product
@@ -105,4 +105,5 @@ Add a line here when the work teaches something the plan did not know. Each line
 - In the workspace, npm does not check a linked package against a peer range. Only a packed install catches a wrong internal peer range.
 - Lattice validated the actor but passed the raw object on, so a non-strict schema let a stripped key (such as `support`) reach `tenantOf`. Task 2.2b parses it once and passes the parsed actor on.
 - hexok's `@hexok/auth`, `auth-jose` and `auth-redis` depend on `hexok` directly, not as a peer: the second-copy risk 0029 avoids. A note for hexok, held for the maintainer.
+- ts-pf's call interceptors attach to callers (`FetchHandler`, `createLocalClient`), not routers, so Lattice's procedure span is router middleware. hexok has no around hook, so a use-case span cannot parent its store calls. A note for hexok, held for the maintainer.
 - Turbo ignores `peerDependencies` when ordering builds, so store-mongo keeps `@latticecms/core` as a devDependency too.
