@@ -4,7 +4,7 @@ A CRM on Lattice: companies, contacts and deals, each organization's own, on Mon
 
 ## Run it
 
-It needs MongoDB (a replica set, for transactions) and Redis, for sessions.
+It runs as two processes: the HTTP server and the worker. Both need MongoDB (a replica set, for transactions) and Redis, for sessions and the event queues.
 
 ```bash
 npm run build -w @latticecms/example-crm
@@ -14,18 +14,54 @@ export AUTH_TOKEN_SECRETS=$(node -e "console.log(require('node:crypto').randomBy
 export AUTH_TOKEN_ISSUER=crm AUTH_TOKEN_AUDIENCE=crm
 npm run dev:user -w @latticecms/example-crm -- ann ann@example.com 'a long password' org-a manager
 npm start -w @latticecms/example-crm
+npm run worker -w @latticecms/example-crm   # in another terminal
 ```
 
 | Variable | Meaning |
 | --- | --- |
 | `MONGODB_URL`, `MONGODB_DATABASE` | The store. The database defaults to `crm`. |
-| `REDIS_URL` | The session store. |
+| `REDIS_URL` | The session store, and the domain event and webhook queues. |
 | `AUTH_TOKEN_SECRETS`, `AUTH_TOKEN_ISSUER`, `AUTH_TOKEN_AUDIENCE` | The session token's signing secrets, newest first, and its claims. Required. |
 | `AUTH_SESSION_IDLE_SECONDS`, `AUTH_SESSION_ABSOLUTE_SECONDS` | Session lifetimes. Default 30 minutes idle, 8 hours absolute. |
 | `CRM_SUPPORT_USER_IDS` | User ids that act as support, comma separated. |
 | `PORT` | Default 3000. |
+| `CRM_WEBHOOK_ENDPOINTS` | The worker's webhook endpoints, a JSON list of `{ organizationId, id, url, secrets, events }`. `secrets` are `whsec_` secrets, newest first; `generateSecret()` from `@hexok/webhooks` makes one. Unset: none. |
+| `WEBHOOKS_ALLOW_PRIVATE` | `1` lets the worker send to plain http and private addresses, for a receiver on this machine. |
 
 A missing or bad setting fails at startup and names each one. Startup is: start the store, migrate, create indexes, then serve. `SIGINT` and `SIGTERM` stop taking requests, let those in flight finish, and close the stores.
+
+## Events and the worker
+
+```
+HTTP process                 Redis                         worker process
+deals.close ──publish──▶  crm:domain: deal.closed  ──▶  process deal.closed (crm:deals.send-closed-webhook)
+                                                          │  reads the deal inside the event's organization
+                                                          ▼
+                          crm:webhooks: webhooks   ──▶  @hexok/webhooks sender ──POST──▶ the organization's endpoints
+```
+
+- The HTTP process publishes every domain event to the queue, on a topic named by its token: Lattice's `deals.created` and the rest, and `deal.closed` from `deals.close`. It only publishes.
+- The worker subscribes each handler in its own consumer group, `crm:<handler token>`, so each handler gets every event. A handler that throws is retried, up to 10 deliveries, then given up. A payload the event schema rejects is logged and dropped.
+- Handlers are system code: they read and write through repos with `tenancy.scope(C, event.tenantId)`, never an actor's access. `deal.closed` carries `tenantId` for that.
+- `SIGINT` and `SIGTERM` stop the worker taking events, wait for the handlers in flight, stop the webhook sender, then close the queues and the store.
+- Each handled event is one OpenTelemetry consumer span, `process deal.closed`, and the handler's store calls are its children.
+
+### Webhooks
+
+When a deal closes, its organization's endpoints that list `deal.closed` get, signed per [Standard Webhooks](https://www.standardwebhooks.com/):
+
+```json
+{
+  "type": "deal.closed",
+  "timestamp": "2026-11-22T00:00:00.000Z",
+  "data": { "dealId": "…", "companyId": "…", "title": "Big one", "outcome": "won", "closedAt": "2026-11-22T00:00:00.000Z" }
+}
+```
+
+- The payload is its own schema, mapped field by field from the deal ([`webhook-events.ts`](src/domain/events/webhook-events.ts)), never the deal itself. A field added to Deals reaches no customer until it is added there, and a test asserts the exact keys.
+- No `amount`: inside the crm only managers see it, and an endpoint is not an actor whose role can be checked.
+- A failed send is retried on @hexok/webhooks' schedule, with the same `webhook-id`, which a receiver dedupes on.
+
 
 ## Calling it
 
@@ -70,4 +106,4 @@ The reason is logged, never sent. Logs carry no password and no email; a login r
 
 ## Tests
 
-`npm test -w @latticecms/example-crm` runs every test on `MemoryStore` and on MongoDB, through mongodb-memory-server. Sessions run in memory with real signed tokens; Redis is not needed.
+`npm test -w @latticecms/example-crm` runs every test on `MemoryStore` and on MongoDB, through mongodb-memory-server. Sessions run in memory with real signed tokens, and the queues on `MemoryQueue` ([`src/test/memory-queue.ts`](src/test/memory-queue.ts)), an adapter of the `@hexok/queue` port with the same delivery rules as RedisQueue. Redis is not needed. Webhooks are sent to a real HTTP server on this machine.

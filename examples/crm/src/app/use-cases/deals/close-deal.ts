@@ -43,6 +43,9 @@ export class CloseDeal extends AppUseCase('deals.close', {
         dealId: closed.id,
         outcome: input.outcome,
         actorId: AppUseCase.actorId(ctx.actor),
+        // The deal's own tenant: a support actor cannot write, so it never
+        // reaches this line.
+        tenantId: closed.organizationId,
       }),
     );
     return closed;

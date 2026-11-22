@@ -1,5 +1,6 @@
 import { MemoryLogger } from '@hexok/logger';
 import { type CollectionStore, unscoped } from '@latticecms/core';
+import type { DomainEventPublisher } from '../app/ports/events/domain-event-publisher.js';
 import type { CrmSessions } from '../infra/auth/sessions.js';
 import type { Hasher } from '../infra/auth/store-credentials.js';
 import { MemoryDomainEventPublisher } from '../infra/events/memory-domain-events.js';
@@ -45,10 +46,15 @@ export function httpSetup(
     readonly support?: readonly string[];
     readonly now?: () => number;
     readonly hasher?: Hasher;
+    /** Where domain events go. Default: kept in memory. */
+    readonly events?: DomainEventPublisher;
   } = {},
 ) {
   const logger = new MemoryLogger();
-  const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
+  const crm = createApp({
+    store,
+    events: options.events ?? new MemoryDomainEventPublisher(),
+  });
   const sessions = options.sessions ?? testSessions();
   const auth = storeLogin(store, {
     ...(options.now === undefined ? {} : { now: options.now }),

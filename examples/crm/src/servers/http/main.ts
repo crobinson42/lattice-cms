@@ -1,8 +1,9 @@
 import { ConsoleLogger } from '@hexok/logger';
+import { RedisQueue } from '@hexok/queue-redis';
 import { MongoStore } from '@latticecms/store-mongo';
 import { redisSessions } from '../../infra/auth/sessions.js';
 import { supportUserIds } from '../../infra/auth/support.js';
-import { LoggingDomainEventPublisher } from '../../infra/events/logging-domain-events.js';
+import { QueueDomainEventPublisher } from '../../infra/events/queue-domain-events.js';
 import { start } from './server.js';
 
 const logger = new ConsoleLogger();
@@ -21,11 +22,18 @@ const { sessions, store: sessionStore } = redisSessions({
   redisUrl,
   logger,
 });
+// The queue the worker consumes domain events from. This process only
+// publishes to it.
+const domainQueue = new RedisQueue({
+  redis: redisUrl,
+  keyPrefix: 'crm:domain:',
+  logger: logger.child({ component: 'domain-queue' }),
+});
 await sessionStore.start();
+await domainQueue.start();
 const running = await start({
   store,
-  // Events are logged, not queued, until the app has a queue.
-  events: new LoggingDomainEventPublisher({ logger }),
+  events: new QueueDomainEventPublisher({ queue: domainQueue }),
   sessions,
   support: supportUserIds(process.env),
   logger,
@@ -36,6 +44,7 @@ const running = await start({
 async function shutdown(signal: string): Promise<void> {
   logger.info('http stopping', { signal });
   await running.stop();
+  await domainQueue.stop();
   await sessionStore.stop();
 }
 process.once('SIGINT', () => void shutdown('SIGINT'));

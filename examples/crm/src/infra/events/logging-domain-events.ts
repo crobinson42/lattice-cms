@@ -4,8 +4,9 @@ import { DomainEventPublisher } from '../../app/ports/events/domain-event-publis
 import { DomainEvents } from '../../domain/events/domain-events.js';
 
 /**
- * Phase 0 has no queue, so the server logs each event instead. Like
- * app-template's queue adapter, it rejects an event the catalog lacks.
+ * Logs each event instead of queueing it, for the dev scripts, which have
+ * no worker to reach. Like the queue adapter, it rejects an event the
+ * catalog lacks.
  */
 export class LoggingDomainEventPublisher extends Adapter(DomainEventPublisher) {
   constructor(private readonly deps: { logger: Logger }) {

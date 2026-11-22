@@ -250,7 +250,12 @@ describe.each(backends)('on $name', (backend) => {
       expect(won).toMatchObject({ stage: 'won', closedAt: expect.any(String) });
       expect(events.messages.at(-1)).toEqual({
         key: 'dealClosed',
-        payload: { dealId: deal.id, outcome: 'won', actorId: 'u1' },
+        payload: {
+          dealId: deal.id,
+          outcome: 'won',
+          actorId: 'u1',
+          tenantId: 'o1',
+        },
       });
 
       const again = await asResult(

@@ -257,7 +257,8 @@ const again = await asResult(
   local.deals.close({ id: deal.id, outcome: 'lost' }),
 );
 if (again.ok) throw new Error('expected AlreadyClosed');
-if (again.error.code !== 'AlreadyClosed') throw new Error(again.error.code);
+if (again.error.code !== 'AlreadyClosed')
+  throw new Error(again.error.code);
 expectTypeOf(again.error.data).toEqualTypeOf<{ id: string }>();
 expect(again.error.data).toEqual({ id: deal.id });
 expect(again.error.status).toBe(409);
