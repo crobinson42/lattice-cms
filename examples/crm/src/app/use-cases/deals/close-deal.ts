@@ -10,7 +10,8 @@ import { type AppCtx, AppUseCase } from '../context.js';
 export class CloseDeal extends AppUseCase('deals.close', {
   collection: Deals,
   input: z.object({ id: z.string(), outcome: z.enum(['won', 'lost']) }),
-  output: Deals.output,
+  // As a client receives a deal: the amount is withheld from a member.
+  output: Deals.clientOutput,
 }) {
   constructor(
     private readonly deps: {

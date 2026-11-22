@@ -40,8 +40,8 @@ export function linkFields(relation: AnyRelation): string[] {
 }
 
 /**
- * The schemas of a populated read of `collection`, by the output schema of
- * each collection: `fields` holds each ref field's expanded schema (its
+ * The schemas of a populated read of `collection`, by the client output
+ * schema of each collection: `fields` holds each ref field's expanded schema (its
  * target document or `Withheld`, element-wise for a list of ids), and `wide`
  * is the document as a read sends it, with each ref field plain or expanded.
  */
@@ -66,7 +66,7 @@ export function expansionOf(
   };
   for (const { field, slug, array } of collection.refs) {
     const one = targetOf(slug);
-    const plain = collection.output.shape[field];
+    const plain = collection.clientOutput.shape[field];
     if (plain === undefined) {
       throw new Error(`Lattice: ${collection.slug} has no field "${field}"`);
     }
@@ -78,7 +78,7 @@ export function expansionOf(
     // A relation is in the output only when populated: its links, each
     // with its fields and its target document.
     for (const [name, relation] of Object.entries(collection.relations)) {
-      const { shape } = relation.through.output;
+      const { shape } = relation.through.clientOutput;
       const link = z.object({
         ...Object.fromEntries(
           linkFields(relation).flatMap((field) => {
@@ -92,5 +92,5 @@ export function expansionOf(
       wide[name] = z.array(link).optional();
     }
   }
-  return { fields, wide: collection.output.extend(wide) };
+  return { fields, wide: collection.clientOutput.extend(wide) };
 }

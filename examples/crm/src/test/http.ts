@@ -67,8 +67,15 @@ export function httpSetup(
     sessions,
     credentials: auth.credentials,
     fetch,
-    async member(userId: string, organizationId: string) {
-      await crm.repos.memberships.insert({ userId, organizationId }, unscoped);
+    async member(
+      userId: string,
+      organizationId: string,
+      role: 'member' | 'manager' = 'member',
+    ) {
+      await crm.repos.memberships.insert(
+        { userId, organizationId, role },
+        unscoped,
+      );
     },
     signIn(userId: string): Promise<string> {
       return sessions.open({ userId });

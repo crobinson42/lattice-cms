@@ -76,16 +76,22 @@ function contextOf(deps: HttpDeps) {
     // Trusted edge code: it decides who the actor is, so no actor's access
     // applies yet. A missing organization and one that does not exist look
     // the same as one the user is not a member of.
-    const member =
-      organizationId !== null &&
-      (await memberships.count(
-        {
-          userId: { eq: userId },
-          organizationId: { eq: organizationId },
-        },
-        unscoped,
-      )) > 0;
-    if (organizationId === null || !member) {
+    const [member] =
+      organizationId === null
+        ? []
+        : (
+            await memberships.find(
+              {
+                where: {
+                  userId: { eq: userId },
+                  organizationId: { eq: organizationId },
+                },
+                limit: 1,
+              },
+              unscoped,
+            )
+          ).docs;
+    if (organizationId === null || member === undefined) {
       logger.info('rpc', {
         outcome: 'refused',
         code: 'FORBIDDEN',
@@ -93,7 +99,7 @@ function contextOf(deps: HttpDeps) {
       });
       throw refusal('FORBIDDEN');
     }
-    return { actor: { userId, organizationId }, logger };
+    return { actor: { userId, organizationId, role: member.role }, logger };
   };
 }
 

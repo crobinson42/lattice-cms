@@ -15,6 +15,8 @@ export const Deals = collection('deals', {
     closedAt: z.iso.datetime().optional(),
   }),
   tenant: 'organizationId',
+  // Only managers and support see amounts: the contract's fields rule.
+  maskable: ['amount'],
   // The pipeline view: one organization's deals in a stage, newest first.
   indexes: [{ fields: { organizationId: 1, stage: 1, createdAt: -1 } }],
 });

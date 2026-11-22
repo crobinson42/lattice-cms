@@ -16,6 +16,12 @@ export class AllowAll extends Adapter(Access) {
   override async check(): Promise<boolean> {
     return true;
   }
+
+  override async readable(request: {
+    readonly fields: readonly string[];
+  }): Promise<readonly string[]> {
+    return request.fields;
+  }
 }
 
 /**

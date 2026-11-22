@@ -44,11 +44,13 @@ The app has one use case family. Generated and hand-written use cases extend it,
 import { family, tenancy } from '@latticecms/core';
 import type { UseCase } from 'hexok';
 import { z } from 'zod';
+import { role } from '../../domain/collections/memberships.js';
 
-/** A member acting in one organization, which the edge checked. */
+/** A member acting in one organization, with its role there; the edge checked both. */
 const memberSchema = z.strictObject({
   userId: z.string().min(1),
   organizationId: z.string().min(1),
+  role,
 });
 
 /**
@@ -120,6 +122,12 @@ export const crm = framework({
       delete: live,
       close: live,
     },
+    // A member sees every deal of the organization, without its amount.
+    fields: {
+      amount: {
+        read: ({ actor }) => 'support' in actor || actor.role === 'manager',
+      },
+    },
     methods: { close: CloseDeal },
     overrides: { delete: ArchiveDeal },
   })
@@ -184,9 +192,7 @@ ts-pf's `FetchHandler` serves the app at `/rpc`, and `onError` from `build()` lo
 function contextOf(deps: HttpDeps) {
   const memberships = deps.crm.repos.memberships;
   return async (request: Request): Promise<CallContext<Actor>> => {
-    const logger = deps.logger.child({
-      requestId: request.headers.get('x-request-id') ?? crypto.randomUUID(),
-    });
+    const logger = requestLogger(deps.logger, request);
     const found = await deps.sessions.authenticate(
       bearerToken(request.headers.get('authorization')),
     );
@@ -206,16 +212,22 @@ function contextOf(deps: HttpDeps) {
     // Trusted edge code: it decides who the actor is, so no actor's access
     // applies yet. A missing organization and one that does not exist look
     // the same as one the user is not a member of.
-    const member =
-      organizationId !== null &&
-      (await memberships.count(
-        {
-          userId: { eq: userId },
-          organizationId: { eq: organizationId },
-        },
-        unscoped,
-      )) > 0;
-    if (organizationId === null || !member) {
+    const [member] =
+      organizationId === null
+        ? []
+        : (
+            await memberships.find(
+              {
+                where: {
+                  userId: { eq: userId },
+                  organizationId: { eq: organizationId },
+                },
+                limit: 1,
+              },
+              unscoped,
+            )
+          ).docs;
+    if (organizationId === null || member === undefined) {
       logger.info('rpc', {
         outcome: 'refused',
         code: 'FORBIDDEN',
@@ -223,7 +235,7 @@ function contextOf(deps: HttpDeps) {
       });
       throw refusal('FORBIDDEN');
     }
-    return { actor: { userId, organizationId }, logger };
+    return { actor: { userId, organizationId, role: member.role }, logger };
   };
 }
 ```
@@ -253,9 +265,9 @@ expect(again.error.status).toBe(409);
 
 ## Reference
 
-### `collection(slug, { schema, tenant?, indexes?, relations? })`
+### `collection(slug, { schema, tenant?, indexes?, relations?, maskable? })`
 
-Returns a `Collection` with `slug`, `schema`, `tenant`, `indexes`, `output`, `events` and `hooks()`. `output` is the stored document's schema: the collection's schema plus `id`, `createdAt`, `updatedAt` and the tenant field.
+Returns a `Collection` with `slug`, `schema`, `tenant`, `indexes`, `output`, `clientOutput`, `maskable`, `events` and `hooks()`. `output` is the stored document's schema: the collection's schema plus `id`, `createdAt`, `updatedAt` and the tenant field. `clientOutput` is the document a client receives: `output`, with each maskable field optional.
 
 - `schema` is a `z.object()`. Unknown keys are stripped.
 - `id`, `createdAt`, `updatedAt`, `and` and `or` are reserved field names.
@@ -263,6 +275,7 @@ Returns a `Collection` with `slug`, `schema`, `tenant`, `indexes`, `output`, `ev
 - `createdAt` and `updatedAt` are ISO 8601 strings.
 - `tenant: 'organizationId'` makes the collection tenanted; see [Tenancy](#tenancy). Without it, the collection is global.
 - A field name may not contain `.`, start with `$`, or be `_id`: MongoDB would read it as a path, an operator or the id.
+- `maskable: ['amount']` names schema fields a caller's rules may withhold; see [Field masking](#field-masking). A maskable field may not be a ref or in a unique index.
 - `indexes` lists the indexes the store creates at startup, through `build().ensure()`: `[{ fields: { stage: 1, createdAt: -1 } }, { fields: { email: 1 }, unique: true }]`. Fields are named from the stored document, so the system fields and the tenant field count; any other name is a compile error and a throw. Key order is the index's order. `id` needs no index. A tenanted collection's indexes usually lead with the tenant field, because every call filters by it; Lattice does not add it for you.
 
 ### Refs and `onDelete`
@@ -383,8 +396,9 @@ Builds the app's one hexok `UseCase.context` family. A caller passes `{ actor, l
 
 `framework({ family, errors? })` starts a definition. `errors` is the app's `{ declared, map }`; an app with no domain errors leaves it out.
 
-`.collection(C, { access, methods?, overrides? })` adds a collection. Its slug becomes a contract slice with `find`, `count`, `get`, `create`, `update` and `delete`. `access` is required; see [Access](#access).
+`.collection(C, { access, fields?, methods?, overrides? })` adds a collection. Its slug becomes a contract slice with `find`, `count`, `get`, `create`, `update` and `delete`. `access` is required; see [Access](#access).
 
+- `fields: { amount: { read } }` gives each maskable field its read rule, and is required exactly when `C` has one; see [Field masking](#field-masking).
 - `methods: { name: Class }` adds a procedure. `overrides: { action: Class }` replaces a generated one.
 - Each class must name `C` and its token, and its `execute` must take and return the procedure's types. A mismatch, a reserved name, or a slug added twice is a compile error and a runtime throw.
 
@@ -433,7 +447,7 @@ const deal = await this.deps.deals.get(input.id, scope);
 
 Hide rows with a `read` filter, such as soft-deleted ones. The CRM's `live` filter above hides an archived deal from `find` and `get`, and keeps it from changing.
 
-`Access` is the hexok port behind this. `build({ access })` takes another adapter of it. Its `check({ actor, collection, action, data? })` returns `boolean` or a `Where`; `action` is `find`, `count`, `get`, `create`, `update`, `delete` or a method's name, and `data` is passed for `create` only.
+`Access` is the hexok port behind this. `build({ access })` takes another adapter of it. Its `check({ actor, collection, action, data? })` returns `boolean` or a `Where`; `action` is `find`, `count`, `get`, `create`, `update`, `delete` or a method's name, and `data` is passed for `create` only. Its `readable({ actor, collection, fields })` returns which of a collection's maskable fields the actor may read; a field it leaves out is withheld, so an adapter that forgets one withholds it.
 
 ### Tenancy
 
@@ -564,6 +578,54 @@ export class ArchiveDeal extends AppUseCase('deals.delete', {
 }
 ```
 
+### Field masking
+
+A collection names the fields a caller's rules may withhold, and composition gives each a read rule. The rule receives `{ actor }` and is asked once per call per collection.
+
+```ts
+// examples/crm/src/domain/collections/deals.ts
+export const Deals = collection('deals', {
+  schema: z.object({
+    title: z.string().min(1),
+    // An archived deal still refers to its company, so it restricts too.
+    companyId: ref('companies'),
+    amount: z.number().nonnegative(),
+    stage: z.enum(dealStages).default('lead'),
+    // deals.delete archives: the row stays, with archived set.
+    archived: z.boolean().default(false),
+    closedAt: z.iso.datetime().optional(),
+  }),
+  tenant: 'organizationId',
+  // Only managers and support see amounts: the contract's fields rule.
+  maskable: ['amount'],
+  // The pipeline view: one organization's deals in a stage, newest first.
+  indexes: [{ fields: { organizationId: 1, stage: 1, createdAt: -1 } }],
+});
+```
+
+```ts
+// examples/crm/src/servers/rpc/contract.ts
+    // A member sees every deal of the organization, without its amount.
+    fields: {
+      amount: {
+        read: ({ actor }) => 'support' in actor || actor.role === 'manager',
+      },
+    },
+```
+
+- A withheld field is left out of what a client receives: `get`, `find`, `create`, `update` and `delete`, a relation's `list`, and documents populated into another collection's read, under the caller's rule for that collection. It is masked where every procedure returns to a client (HTTP, `createLocalClient`, MCP), so overrides and methods are masked too.
+- A client's type has the field optional: `deal.amount` is `number | undefined`, for every caller, since types cannot follow the actor. `ClientDoc<C>` names that document; `Doc<C>` stays the stored one.
+- A `where` or a `sort` on a field the caller may not read, at any depth, on `find` or `count`, is `VALIDATION` naming its path. So no filter, count, order or cursor reveals it. A caller who may read it filters and sorts as usual.
+- A method that returns a collection's documents declares `output: Deals.clientOutput`, or a schema built from it (`.extend()`, `.pick()`, `shape.amount`). An output that holds a maskable field where it is required, such as `Deals.output`, throws at `build()`, and so does an output Lattice cannot see through (`z.lazy()`, a transform, `z.custom()`, `z.unknown()`, `z.any()`) in an app with a maskable field.
+- Server code sees whole documents: repos, direct `useCases.*.execute` calls and events' `doc`. A page rendered for a user calls through `createLocalClient`. Masking for a webhook happens where the webhook maps the event.
+- In JSON Schema, and so in OpenAPI and MCP, the field is optional with the description "Withheld when the caller may not read it."
+
+Masking covers the named field only. These can still reveal it:
+
+- An object-level `.refine()` that reads a maskable field can fail a non-reader's update depending on the hidden value. Don't refine across a maskable field.
+- An access `Where` that filters rows by a maskable field, such as `read: () => ({ amount: { lt: 1000 } })`, reveals a bound through which rows exist.
+- An `afterRead` hook that derives another field from a masked one, or a method that computes a field of its own from it, is not masked.
+
 ### `CollectionStore` and `MemoryStore`
 
 `CollectionStore` is the hexok port every collection uses: `ensure`, `find`, `count`, `get`, `getMany`, `insert`, `update`, `remove` and `transaction`. A `where` on a single-row call limits the rows it can touch; a row outside it acts as missing. `MemoryStore` is the in-memory adapter, for tests and examples. It stores copies and enforces unique indexes.
@@ -601,6 +663,7 @@ it.each(storeCases.filter((c) => !c.needs?.includes('transactions')))('$name', (
 ### Other types
 
 - `Withheld` is `{ id: string }`: a populated document the caller may not read.
+- `ClientDoc<C>` is a collection's document as a client receives it, each maskable field optional.
 - `ReadUseCase<Proc, Ctx>` is the type of a populating read in `useCases`: its `execute` is generic in the `populate` list.
 - `Ref<Slug, OnDelete>`, `Many<Target, Through, Fields, OnDelete>`, `RelationsOf` and `JoinShape` are the types of refs, relations and join collections. `OnDelete` and `ManyOnDelete` are their `onDelete` values. An app names them only when it exports its collections from a package with declarations.
 - `CallAccess` is the type of `ctx.access`. `AccessRequest<Actor>` is what `Access.check` receives.
@@ -618,6 +681,7 @@ The tests prove each of these.
 - No call reaches another tenant's rows, and every bypassed call is logged.
 - Events publish only after a successful write.
 - A populated document passes its collection's `read` access and tenant, or comes back as `{ id }`.
+- A field a caller may not read never reaches it through a procedure's output, a filter, a count, a sort or a cursor.
 - An update patch never resets a field to its default.
 - On update, the merged document is validated with the whole schema.
 
@@ -626,7 +690,6 @@ The tests prove each of these.
 These are not built. See the [phase table](../../docs/architecture.md#phased-build-plan).
 
 - An `@hexok/authz` adapter for `Access`. Authentication is the app's, at its edge, with `@hexok/auth`; the CRM shows the recipe.
-- Field-level read masking.
 - `entity`: a collection backed by a hexok `Entity` instead of a schema.
 - A store per collection. One `build({ store })` serves every collection.
 - Tracing spans.

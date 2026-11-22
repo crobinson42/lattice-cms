@@ -50,7 +50,7 @@ describe('the migrations', () => {
     const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
     const ctx = () =>
       crm.context({
-        actor: { userId: 'u1', organizationId: 'o1' },
+        actor: { userId: 'u1', organizationId: 'o1', role: 'manager' },
         logger: new NoopLogger(),
       });
     expect((await crm.useCases.deals.find.execute(ctx(), {})).docs).toEqual([]);

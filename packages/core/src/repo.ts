@@ -12,6 +12,13 @@ export type Doc<C extends { readonly output: z.ZodType }> = z.output<
   C['output']
 >;
 
+/**
+ * A collection's document as a client receives it: `Doc`, with each
+ * maskable field optional, since the caller's rules may withhold it.
+ */
+export type ClientDoc<C extends { readonly clientOutput: z.ZodType }> =
+  z.output<C['clientOutput']>;
+
 /** A query of `Repo.find`. Each key is optional; the defaults are find's. */
 export type RepoQuery<D> = {
   readonly where?: Where<D>;

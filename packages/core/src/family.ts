@@ -4,6 +4,7 @@ import type { z } from 'zod';
 import { CallAccess } from './access.js';
 import type { AnyCollection } from './collection.js';
 import { invalid, LatticeError, refusal } from './errors.js';
+import { withheldPaths } from './mask.js';
 import { type Tenant, tenancy } from './tenancy.js';
 
 /** The statics every use case in a Lattice family declares. */
@@ -204,6 +205,20 @@ export function family<
       } catch (error) {
         const log = callLogger(ctx.logger, spec, token, caller(ctx.actor));
         throw logThrown(log, token, error);
+      }
+    })
+    // A where or a sort on a field the caller's rules withhold would reveal
+    // it through which rows match or their order, so it is refused, on every
+    // path. Output masking happens where a client receives the result.
+    .guard(async ({ ctx, spec, token, input }) => {
+      const action = actionOf(spec, token);
+      if (action !== 'find' && action !== 'count') return;
+      const withheld = await CallAccess.withheld(ctx.access, spec.collection);
+      if (withheld.size === 0) return;
+      const issues = withheldPaths(input, withheld);
+      if (issues.length > 0) {
+        const log = callLogger(ctx.logger, spec, token, caller(ctx.actor));
+        throw logThrown(log, token, LatticeError.VALIDATION({ issues }));
       }
     })
     .hooks({

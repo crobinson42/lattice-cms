@@ -14,7 +14,12 @@ import { backends, storeOf } from '../test/stores.js';
 import { createApp } from './app.js';
 import { AppUseCase, Companies, Contacts, Deals } from './rpc/contract.js';
 
-const actor = { userId: 'u1', organizationId: 'o1' };
+/** A manager, who sees deal amounts. */
+const actor: { userId: string; organizationId: string; role: 'manager' } = {
+  userId: 'u1',
+  organizationId: 'o1',
+  role: 'manager',
+};
 
 /** Access that allows every generated operation. */
 const open = {
@@ -196,7 +201,10 @@ describe.each(backends)('on $name', (backend) => {
         family: AppUseCase,
       })
         .collection(Companies, { access: open })
-        .collection(Deals, { access: open })
+        .collection(Deals, {
+          access: open,
+          fields: { amount: { read: () => true } },
+        })
         .build({
           store: new MemoryStore(),
           events: new MemoryDomainEventPublisher(),
@@ -362,7 +370,10 @@ describe.each(backends)('on $name', (backend) => {
       const { app } = setup();
       const logger = new MemoryLogger();
       const anonymous = createLocalClient(app, {
-        context: { actor: { userId: '', organizationId: 'o1' }, logger },
+        context: {
+          actor: { userId: '', organizationId: 'o1', role: 'manager' },
+          logger,
+        },
       });
 
       const result = await asResult(anonymous.deals.find({}));
@@ -380,7 +391,12 @@ describe.each(backends)('on $name', (backend) => {
       const logger = new MemoryLogger();
       const both = createLocalClient(app, {
         context: {
-          actor: { userId: 'u1', organizationId: 'o1', support: true },
+          actor: {
+            userId: 'u1',
+            organizationId: 'o1',
+            role: 'manager',
+            support: true,
+          },
           logger,
         },
       });
@@ -422,7 +438,8 @@ describe.each(backends)('on $name', (backend) => {
       expectTypeOf(deal).toEqualTypeOf<{
         title: string;
         companyId: string;
-        amount: number;
+        // Maskable: a member does not receive it, so every client types it optional.
+        amount?: number | undefined;
         stage: 'lead' | 'proposal' | 'won' | 'lost';
         archived: boolean;
         id: string;
@@ -443,7 +460,10 @@ describe.each(backends)('on $name', (backend) => {
       })
         .collection(Companies, { access: open })
         .collection(Contacts, { access: open })
-        .collection(Deals, { access: open })
+        .collection(Deals, {
+          access: open,
+          fields: { amount: { read: () => true } },
+        })
         .build({
           store: new MemoryStore(),
           events: new MemoryDomainEventPublisher(),

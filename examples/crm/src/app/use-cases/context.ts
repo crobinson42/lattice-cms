@@ -1,11 +1,13 @@
 import { family, tenancy } from '@latticecms/core';
 import type { UseCase } from 'hexok';
 import { z } from 'zod';
+import { role } from '../../domain/collections/memberships.js';
 
-/** A member acting in one organization, which the edge checked. */
+/** A member acting in one organization, with its role there; the edge checked both. */
 const memberSchema = z.strictObject({
   userId: z.string().min(1),
   organizationId: z.string().min(1),
+  role,
 });
 
 /**

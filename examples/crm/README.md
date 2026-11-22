@@ -12,7 +12,7 @@ export MONGODB_URL=mongodb://localhost:27017/?replicaSet=rs0
 export REDIS_URL=redis://localhost:6379
 export AUTH_TOKEN_SECRETS=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))")
 export AUTH_TOKEN_ISSUER=crm AUTH_TOKEN_AUDIENCE=crm
-npm run dev:user -w @latticecms/example-crm -- ann ann@example.com 'a long password' org-a
+npm run dev:user -w @latticecms/example-crm -- ann ann@example.com 'a long password' org-a manager
 npm start -w @latticecms/example-crm
 ```
 
@@ -34,7 +34,7 @@ A missing or bad setting fails at startup and names each one. Startup is: start 
 - `POST /rpc/<collection>/<operation>` is the Lattice API. Send `Authorization: Bearer <token>` and `x-organization-id: <organization>`.
 - `GET /health` answers `{ ok: true }`.
 
-`npm run dev:user -- <userId> <email> <password> <organizationId>` sets a user's password (12 characters or more), adds the membership, and prints a token. `npm run dev:session -- <userId> <organizationId>` prints a token without a password. Both are for local development. There is no signup and no password reset.
+`npm run dev:user -- <userId> <email> <password> <organizationId> [member|manager]` sets a user's password (12 characters or more), adds the membership with that role (default `member`), and prints a token. `npm run dev:session -- <userId> <organizationId> [member|manager]` prints a token without a password. Both are for local development. There is no signup and no password reset.
 
 ## How a request is authenticated
 
@@ -42,7 +42,15 @@ The edge builds the actor before Lattice sees it ([`handler.ts`](src/servers/htt
 
 1. The bearer token must name a live session. The session holds only the user id.
 2. A user listed in `CRM_SUPPORT_USER_IDS` acts as support: every call reads across organizations and changes nothing, and each is logged.
-3. Anyone else must be a member of the organization `x-organization-id` names, checked against the `memberships` collection on every request. Switching organizations needs no new session, and a revoked membership stops the next request.
+3. Anyone else must be a member of the organization `x-organization-id` names, checked against the `memberships` collection on every request. Switching organizations needs no new session, and a revoked membership stops the next request. The membership's role, `member` or `manager`, goes on the actor, so a changed role takes effect on the next request too.
+
+## Roles and deal amounts
+
+A membership has a role: `member` (the default) or `manager`. A deal's `amount` is maskable, and the contract's `fields` rule lets managers and support read it.
+
+- A member sees every deal of the organization without its `amount`, on reads, writes and `deals.close`. A `where` or `sort` on `amount` is `VALIDATION`.
+- A manager and support see amounts, and a manager filters and sorts by them.
+- A member may still set an amount on create or update; the response leaves it out.
 
 | Case | Answer |
 | --- | --- |

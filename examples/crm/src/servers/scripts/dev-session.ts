@@ -1,5 +1,6 @@
 import { ConsoleLogger } from '@hexok/logger';
 import { MongoStore } from '@latticecms/store-mongo';
+import { role } from '../../domain/collections/memberships.js';
 import { openDevSession } from '../../infra/auth/dev-session.js';
 import { redisSessions } from '../../infra/auth/sessions.js';
 import { LoggingDomainEventPublisher } from '../../infra/events/logging-domain-events.js';
@@ -9,13 +10,16 @@ import { createApp } from '../app.js';
  * Prints a session token for a user in an organization, adding the
  * membership if needed. Local development only: it checks no password.
  *
- * npm run dev:session -w @latticecms/example-crm -- <userId> <organizationId>
+ * npm run dev:session -w @latticecms/example-crm -- <userId> <organizationId> [member|manager]
  */
-const [userId = '', organizationId = ''] = process.argv
+const [userId = '', organizationId = '', given = 'member'] = process.argv
   .slice(2)
   .map((arg) => arg.trim());
-if (userId === '' || organizationId === '') {
-  console.error('usage: npm run dev:session -- <userId> <organizationId>');
+const parsed = role.safeParse(given);
+if (userId === '' || organizationId === '' || !parsed.success) {
+  console.error(
+    'usage: npm run dev:session -- <userId> <organizationId> [member|manager]',
+  );
   process.exit(1);
 }
 const url = process.env.MONGODB_URL;
@@ -44,7 +48,10 @@ await sessionStore.start();
 try {
   await crm.ensure();
   console.log(
-    await openDevSession({ crm, sessions }, { userId, organizationId }),
+    await openDevSession(
+      { crm, sessions },
+      { userId, organizationId, role: parsed.data },
+    ),
   );
 } finally {
   await sessionStore.stop();

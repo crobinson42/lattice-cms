@@ -28,7 +28,9 @@ import {
   type AccessFns,
   type AccessMap,
   type AccessReturns,
+  CallAccess,
   CollectionAccess,
+  type FieldsMap,
   familyContext,
 } from './access.js';
 import {
@@ -59,13 +61,19 @@ import {
   loggedByFamily,
 } from './family.js';
 import {
+  applyMask,
+  type MaskPlan,
+  maskedCollections,
+  maskPlan,
+} from './mask.js';
+import {
   expansionOf,
   populateKeys,
   populateShape,
   type Withheld,
 } from './populate.js';
 import { type CascadeFields, type RefSlugs, referrersOf } from './relations.js';
-import { type Doc, type Repo, repo } from './repo.js';
+import { type ClientDoc, type Repo, repo } from './repo.js';
 import type { CollectionStore } from './store.js';
 import type { TenantField } from './tenancy.js';
 
@@ -104,6 +112,7 @@ type AnyOverride = Ctor<unknown> | Readonly<Record<string, Ctor<unknown>>>;
 type Entry = {
   readonly collection: AnyCollection;
   readonly access: AccessMap;
+  readonly fields: FieldsMap;
   readonly methods: Readonly<Record<string, Ctor<unknown> & Schemas>>;
   readonly overrides: Readonly<Record<string, AnyOverride>>;
   readonly join: boolean;
@@ -134,6 +143,40 @@ type Ops<Col extends AnyCollection> = Operations<
   Col['schema']['shape'],
   TenantField<Col>
 >;
+
+/**
+ * What a client receives from operation `A` of `Col`: its documents as
+ * `clientOutput`, each maskable field optional.
+ */
+type ClientOut<Col extends AnyCollection, A extends Action> = A extends 'count'
+  ? Ops<Col>['count']['output']
+  : A extends 'find'
+    ? z.ZodObject<{
+        docs: z.ZodArray<Col['clientOutput']>;
+        next: z.ZodNullable<z.ZodString>;
+      }>
+    : Col['clientOutput'];
+
+/** The maskable fields of `Col`. */
+type MaskableOf<Col extends AnyCollection> = Col['maskable'][number];
+
+/**
+ * The `fields` option of `.collection()`: a read rule for each maskable
+ * field, given the actor, and required exactly when there is one.
+ */
+type FieldsOption<Actor, Col extends AnyCollection> = [
+  MaskableOf<Col>,
+] extends [never]
+  ? { readonly fields?: never }
+  : {
+      readonly fields: {
+        readonly [K in MaskableOf<Col>]: {
+          readonly read: (args: {
+            readonly actor: Actor;
+          }) => boolean | Promise<boolean>;
+        };
+      };
+    };
 
 /**
  * What a class attached as method `N` of `Col` must be: its statics name
@@ -317,7 +360,7 @@ type PopulateKey<
 
 /** A populated ref's document: the target's, or `Withheld`. */
 type Target<E extends Entries, Slug> =
-  | (Slug extends keyof E ? Doc<E[Slug]['collection']> : never)
+  | (Slug extends keyof E ? ClientDoc<E[Slug]['collection']> : never)
   | Withheld;
 
 /** A ref field's expanded type, one target or a list. Null and undefined stay the field's own. */
@@ -330,7 +373,7 @@ type Swap<V, T> = V extends string
 /** A populated link of `Rel`: its fields and its target document. */
 type Link<E extends Entries, Rel extends AnyRelation> = Flat<
   Omit<
-    Doc<Rel['through']>,
+    ClientDoc<Rel['through']>,
     | 'id'
     | 'createdAt'
     | 'updatedAt'
@@ -343,7 +386,7 @@ type Link<E extends Entries, Rel extends AnyRelation> = Flat<
 /** Each ref field of `Col`, populated. */
 type ExpandedRefs<E extends Entries, Col extends AnyCollection> = {
   [K in keyof RefsOf<Col>]: Swap<
-    Doc<Col>[K & keyof Doc<Col>],
+    ClientDoc<Col>[K & keyof ClientDoc<Col>],
     Target<E, RefsOf<Col>[K]>
   >;
 };
@@ -374,9 +417,9 @@ type Wide<
   R extends PopulatingRead,
 > = Flat<
   {
-    [K in keyof Doc<Col>]: K extends keyof ExpandedRefs<E, Col>
-      ? Doc<Col>[K] | ExpandedRefs<E, Col>[K]
-      : Doc<Col>[K];
+    [K in keyof ClientDoc<Col>]: K extends keyof ExpandedRefs<E, Col>
+      ? ClientDoc<Col>[K] | ExpandedRefs<E, Col>[K]
+      : ClientDoc<Col>[K];
   } & Partial<ExpandedLinks<E, Col, R>>
 >;
 
@@ -437,20 +480,20 @@ type Operation<
   ? A extends keyof S['overrides']
     ? Procedure<
         Ops<S['collection']>[A]['input'],
-        Ops<S['collection']>[A]['output'],
+        ClientOut<S['collection'], A>,
         D
       >
     : ReadOr<
         E,
         S['collection'],
         Ops<S['collection']>[A]['input'],
-        Ops<S['collection']>[A]['output'],
+        ClientOut<S['collection'], A>,
         A,
         D
       >
   : Procedure<
       Ops<S['collection']>[A]['input'],
-      Ops<S['collection']>[A]['output'],
+      ClientOut<S['collection'], A>,
       D
     >;
 
@@ -791,7 +834,8 @@ export class Framework<
       readonly access: AccessFns<Actor, R, C>;
       readonly methods?: M;
       readonly overrides?: O;
-    } & AccessCheck<R, M, C> &
+    } & FieldsOption<Actor, C> &
+      AccessCheck<R, M, C> &
       CascadeOverrideCheck<C, O>,
   ): Framework<
     Actor,
@@ -847,6 +891,17 @@ export class Framework<
       }
     }
     const overrides: Entry['overrides'] = options.overrides ?? {};
+    const fields: FieldsMap = options.fields ?? {};
+    const given = Object.keys(fields);
+    const { maskable } = collection;
+    if (
+      given.length !== maskable.length ||
+      !maskable.every((field) => Object.hasOwn(fields, field))
+    ) {
+      throw new Error(
+        `Lattice: ${slug} needs exactly one fields rule for each maskable field (${maskable.join(', ') || 'none'}); it has ${given.join(', ') || 'none'}`,
+      );
+    }
     const cascading = collection.refs.find((ref) => ref.onDelete === 'cascade');
     if (overrides.delete !== undefined && cascading !== undefined) {
       throw new Error(
@@ -899,10 +954,11 @@ export class Framework<
       Tenanted
     >(this.family, this.errors, [
       ...this.entries,
-      { collection, access, methods, overrides, join: false },
+      { collection, access, fields, methods, overrides, join: false },
       ...joins.map((join) => ({
         collection: join,
         access: {},
+        fields: {},
         methods: {},
         overrides: {},
         join: true,
@@ -959,6 +1015,9 @@ export class Framework<
       new CollectionAccess(
         new Map(
           this.entries.map((entry) => [entry.collection.slug, entry.access]),
+        ),
+        new Map(
+          this.entries.map((entry) => [entry.collection.slug, entry.fields]),
         ),
       );
     const context = (base: CallContext<Actor>): FamilyContext<Actor> =>
@@ -1058,6 +1117,33 @@ export class Framework<
     // router as a procedure. The root router places each procedure at its
     // path and checks the tree against the whole contract.
     const contract: RuntimeContract = this.contract;
+    // Masking reads each output schema once, here. With no maskable field
+    // in the app, nothing can be masked, so no schema needs reading.
+    const masking = this.entries.some(
+      ({ collection }) => collection.maskable.length > 0,
+    );
+    const maskOf = (
+      path: readonly string[],
+      procedure: RuntimeProcedure,
+    ): Mask | undefined => {
+      if (!masking) return undefined;
+      const where = path.join('.');
+      const { output } = procedure['~pf'];
+      if (!(output instanceof z.core.$ZodType)) {
+        throw new Error(
+          `Lattice: the output of "${where}" is not a Zod schema, which Lattice cannot see through to mask a field`,
+        );
+      }
+      const plan = maskPlan(output, where);
+      if (plan === undefined) return undefined;
+      return {
+        plan,
+        collections: [...maskedCollections(plan)].flatMap((slug) => {
+          const found = collections.get(slug);
+          return found === undefined ? [] : [found];
+        }),
+      };
+    };
     type Implemented = ImplementedProcedure<
       RuntimeProcedure,
       CallContext<Actor>
@@ -1073,7 +1159,7 @@ export class Framework<
     ): Record<string, Implemented> => {
       const impl = createImplementer(procedures).$context<CallContext<Actor>>();
       const node: Record<string, Implemented> = {};
-      for (const name of Object.keys(procedures)) {
+      for (const [name, procedure] of Object.entries(procedures)) {
         const builder = impl[name];
         const useCase = useCasesOf?.[name];
         if (builder === undefined || useCase === undefined) {
@@ -1081,11 +1167,16 @@ export class Framework<
             `Lattice: no procedure "${[...path, name].join('.')}"`,
           );
         }
+        const mask = maskOf([...path, name], procedure);
         // A fresh context per call: a createLocalClient context object is
         // shared by every call, and access answers are kept on the context.
-        node[name] = builder.handler(({ input, context: base }) =>
-          useCase.execute(context(base), input),
-        );
+        // Every procedure's output is masked here, generated or not, so an
+        // override or a method cannot skip it.
+        node[name] = builder.handler(async ({ input, context: base }) => {
+          const ctx = context(base);
+          const output = await useCase.execute(ctx, input);
+          return mask === undefined ? output : masked(mask, output, ctx);
+        });
       }
       return node;
     };
@@ -1163,8 +1254,11 @@ function contractOf(
   declared: ErrorMap,
 ): RuntimeContract {
   const call = procedure.errors({ ...declaredErrors, ...declared });
+  // What a client receives of each collection's documents: each maskable
+  // field optional. Where and sort stay on the stored output, so a caller
+  // allowed to read a field can filter by it.
   const outputs = new Map(
-    entries.map(({ collection }) => [collection.slug, collection.output]),
+    entries.map(({ collection }) => [collection.slug, collection.clientOutput]),
   );
   /** A page of `doc`s, as find and list return them. */
   const page = (doc: z.ZodObject) =>
@@ -1174,9 +1268,15 @@ function contractOf(
     if (join) continue;
     const slice: Record<string, RuntimeProcedure | RuntimeRelation> = {};
     const ops = operations(collection.schema, collection.output);
+    const doc = collection.clientOutput;
     for (const action of actions) {
-      const { input, output } = ops[action];
-      slice[action] = call.input(input).output(output);
+      const output =
+        action === 'count'
+          ? ops.count.output
+          : action === 'find'
+            ? page(doc)
+            : doc;
+      slice[action] = call.input(ops[action].input).output(output);
     }
     // A read's output follows its `populate` list, through ts-pf's
     // expandable outputs (0022): the output is the wide document.
@@ -1394,5 +1494,37 @@ export function framework<
     options.family,
     errors,
     [],
+  );
+}
+
+/** A procedure's mask: where its output holds maskable fields, and whose. */
+type Mask = {
+  readonly plan: MaskPlan;
+  readonly collections: readonly AnyCollection[];
+};
+
+/**
+ * `output` without the fields the caller's rules withhold, asked once per
+ * call per collection. A field of a collection outside the app is withheld.
+ */
+async function masked(
+  mask: Mask,
+  output: unknown,
+  ctx: { readonly access: CallAccess },
+): Promise<unknown> {
+  const withheld = new Map(
+    await Promise.all(
+      mask.collections.map(
+        async (collection): Promise<[string, ReadonlySet<string>]> => [
+          collection.slug,
+          await CallAccess.withheld(ctx.access, collection),
+        ],
+      ),
+    ),
+  );
+  return applyMask(
+    mask.plan,
+    output,
+    ({ collection, field }) => withheld.get(collection)?.has(field) ?? true,
   );
 }

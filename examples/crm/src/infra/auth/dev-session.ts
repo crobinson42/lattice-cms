@@ -1,5 +1,6 @@
 import { unscoped } from '@latticecms/core';
 import type { Credentials } from '../../app/ports/auth/credentials.js';
+import type { Role } from '../../domain/collections/memberships.js';
 import type { CrmApp } from '../../servers/app.js';
 import type { CrmSessions } from './sessions.js';
 
@@ -13,7 +14,12 @@ export async function openDevSession(
     readonly crm: Pick<CrmApp, 'repos'>;
     readonly sessions: CrmSessions;
   },
-  member: { readonly userId: string; readonly organizationId: string },
+  member: {
+    readonly userId: string;
+    readonly organizationId: string;
+    /** The role when the membership is new. Default `member`. */
+    readonly role?: Role;
+  },
 ): Promise<string> {
   const memberships = deps.crm.repos.memberships;
   const where = {
@@ -42,6 +48,7 @@ export async function provisionDevUser(
     readonly email: string;
     readonly password: string;
     readonly organizationId: string;
+    readonly role?: Role;
   },
 ): Promise<string> {
   await deps.credentials.set(
@@ -51,5 +58,6 @@ export async function provisionDevUser(
   return openDevSession(deps, {
     userId: user.userId,
     organizationId: user.organizationId,
+    ...(user.role === undefined ? {} : { role: user.role }),
   });
 }

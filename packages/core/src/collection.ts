@@ -1,5 +1,6 @@
 import { Event, type EventCatalog } from 'hexok';
 import { z } from 'zod';
+import { maskShapes } from './mask.js';
 import {
   type AnyMany,
   type JoinShape,
@@ -104,6 +105,65 @@ function outputOf<Shape extends z.core.$ZodShape, Tenant extends string>(
     ...tenantShapes(tenant).field,
   };
   return schema.extend(stamped);
+}
+
+/**
+ * The document a client receives: `Output`, with each maskable field
+ * optional, since a caller's rules may withhold it. One mapped type over the
+ * output's own shape, so the stored output's type is computed once. The same
+ * type as `Output` when nothing is maskable.
+ */
+export type ClientOutput<
+  Shape extends z.core.$ZodShape,
+  Tenant extends string,
+  M extends string,
+> = [M] extends [never]
+  ? Output<Shape, Tenant>
+  : // Inline, not MaskShape: an app's declarations then name only what
+    // core exports (TS2883).
+    z.ZodObject<
+      {
+        [K in keyof Output<Shape, Tenant>['shape']]: K extends M
+          ? z.ZodOptional<Output<Shape, Tenant>['shape'][K]>
+          : Output<Shape, Tenant>['shape'][K];
+      },
+      z.core.$strip
+    >;
+
+/**
+ * A collection's two output schemas. Each maskable field is a marked clone,
+ * required in `output` and optional in `clientOutput`, so a router can find
+ * it in any output built from either. The overload states their types; the
+ * implementation builds them for any shape.
+ */
+function outputsOf<
+  Shape extends z.core.$ZodShape,
+  Tenant extends string,
+  M extends string,
+>(
+  slug: string,
+  schema: Schema<Shape>,
+  tenant: Tenant | undefined,
+  maskable: readonly M[],
+): {
+  readonly output: Output<Shape, Tenant>;
+  readonly clientOutput: ClientOutput<Shape, Tenant, M>;
+};
+function outputsOf(
+  slug: string,
+  schema: z.ZodObject,
+  tenant: string | undefined,
+  maskable: readonly string[],
+): { readonly output: z.ZodObject; readonly clientOutput: z.ZodObject } {
+  if (maskable.length === 0) {
+    const output = outputOf(schema, tenant);
+    return { output, clientOutput: output };
+  }
+  const { stored, client } = maskShapes(slug, schema.shape, maskable);
+  return {
+    output: outputOf(schema.extend(stored), tenant),
+    clientOutput: outputOf(schema.extend(client), tenant),
+  };
 }
 
 /**
@@ -231,6 +291,7 @@ export interface Collection<
   Shape extends z.core.$ZodShape,
   Tenant extends string = never,
   Relations extends AnyRelations = Record<never, never>,
+  Maskable extends string = never,
 > {
   readonly slug: Slug;
   readonly schema: Schema<Shape>;
@@ -241,6 +302,14 @@ export interface Collection<
   readonly tenant: [Tenant] extends [never] ? undefined : Tenant;
   /** The document a read returns: the schema plus `id`, `createdAt`, `updatedAt` and the tenant field. */
   readonly output: Operations<Shape, Tenant>['get']['output'];
+  /** The fields a caller's `fields` rules may withhold from what it reads. */
+  readonly maskable: readonly Maskable[];
+  /**
+   * The document a client receives: `output`, with each maskable field
+   * optional. A method that returns this collection's documents declares it
+   * as its output.
+   */
+  readonly clientOutput: ClientOutput<Shape, Tenant, Maskable>;
   /**
    * The indexes `build().ensure()` creates: the declared ones, then one per
    * ref field, led by the tenant field.
@@ -261,7 +330,7 @@ export interface Collection<
   /** The same collection with these hooks. A later call replaces a hook it names. */
   hooks(
     hooks: Hooks<Shape, Tenant>,
-  ): Collection<Slug, Shape, Tenant, Relations>;
+  ): Collection<Slug, Shape, Tenant, Relations, Maskable>;
 }
 
 /** A relation as the framework reads it, whatever its collections. */
@@ -377,10 +446,12 @@ type AnyEventClass = Parameters<typeof EventCatalog>[1][string];
  */
 export type AnyCollection = Omit<
   Collection<string, z.core.$ZodShape>,
-  'events' | 'hooks' | 'tenant' | 'relations'
+  'events' | 'hooks' | 'tenant' | 'relations' | 'maskable' | 'clientOutput'
 > & {
   readonly tenant: string | undefined;
   readonly relations: AnyRelations;
+  readonly maskable: readonly string[];
+  readonly clientOutput: Collection<string, z.core.$ZodShape>['output'];
   readonly events: Readonly<
     Record<keyof Events<string, z.core.$ZodShape>, AnyEventClass>
   >;
@@ -528,6 +599,7 @@ export function collection<
   Shape extends z.core.$ZodShape,
   const Tenant extends string = never,
   const R extends Readonly<Record<string, AnyMany>> = Record<never, never>,
+  const M extends keyof Shape & string = never,
 >(
   slug: Slug,
   options: {
@@ -550,11 +622,17 @@ export function collection<
      * `<slug>.<name>.list` and `.set`.
      */
     readonly relations?: R;
+    /**
+     * Schema fields a caller's rules may withhold, such as `['amount']`.
+     * `.collection(C, { fields })` gives each its read rule. Not a ref, and
+     * not in a unique index, which would reveal a value through CONFLICT.
+     */
+    readonly maskable?: readonly M[];
   } & FieldCheck<Shape> &
     RefCheck<Shape> &
     TenantCheck<Shape, Tenant> &
     RelationCheck<Slug, Shape, Tenant, R>,
-): Collection<Slug, Shape, Tenant, RelationsOf<Slug, Tenant, R>> {
+): Collection<Slug, Shape, Tenant, RelationsOf<Slug, Tenant, R>, M> {
   for (const [name, field] of Object.entries(options.schema.shape)) {
     if (reservedFields.some((reserved) => reserved === name)) {
       throw new Error(`Lattice: "${name}" is a reserved field name`);
@@ -599,12 +677,21 @@ export function collection<
       ...(unique === undefined ? {} : { unique }),
     }),
   );
-  return define<Slug, Shape, Tenant, RelationsOf<Slug, Tenant, R>>(
+  const maskable: readonly M[] = options.maskable ?? [];
+  for (const [index, field] of maskable.entries()) {
+    if (!names.includes(field) || maskable.indexOf(field) !== index) {
+      throw new Error(
+        `Lattice: maskable "${field}" is not a field of ${slug}, or is named twice`,
+      );
+    }
+  }
+  return define<Slug, Shape, Tenant, RelationsOf<Slug, Tenant, R>, M>(
     slug,
     options.schema,
     tenant,
     declaredIndexes,
     relationsOf(slug, tenant, options.relations),
+    maskable,
   );
 }
 
@@ -621,14 +708,21 @@ function define<
   Shape extends z.core.$ZodShape,
   Tenant extends string,
   Relations extends AnyRelations,
+  M extends string = never,
 >(
   slug: Slug,
   schema: Schema<Shape>,
   tenant: Tenant | undefined,
   declaredIndexes: readonly Index[],
   relations: Relations,
-): Collection<Slug, Shape, Tenant, Relations> {
-  const output = outputOf<Shape, Tenant>(schema, tenant);
+  maskable: readonly M[] = [],
+): Collection<Slug, Shape, Tenant, Relations, M> {
+  const { output, clientOutput } = outputsOf<Shape, Tenant, M>(
+    slug,
+    schema,
+    tenant,
+    maskable,
+  );
   const fields = Object.keys(output.shape);
   for (const index of declaredIndexes) {
     const keys = Object.keys(index.fields);
@@ -643,6 +737,24 @@ function define<
     }
   }
   const refs = refsOf(slug, schema.shape);
+  for (const field of maskable) {
+    // A populated ref would show the target document a mask hides, and a
+    // unique index answers CONFLICT for a value another row holds.
+    if (refs.some((ref) => ref.field === field)) {
+      throw new Error(
+        `Lattice: ${slug}.${field} is a ref; it cannot be maskable`,
+      );
+    }
+    if (
+      declaredIndexes.some(
+        (index) => index.unique === true && field in index.fields,
+      )
+    ) {
+      throw new Error(
+        `Lattice: ${slug}.${field} is maskable, so it cannot be in a unique index: a CONFLICT would reveal its value`,
+      );
+    }
+  }
   // restrict, cascade and nullify look children up by their ref field,
   // within the tenant: each ref gets an index, unless a declared one starts
   // with the same keys, which serves the lookup as well.
@@ -656,14 +768,14 @@ function define<
     .filter(
       (index) => !declaredIndexes.some((other) => startsWith(other, index)),
     );
-  return declared<Slug, Shape, Tenant, Relations>(
+  return declared<Slug, Shape, Tenant, Relations, M>(
     slug,
     schema,
     tenantShapes(tenant).tenant,
     [...declaredIndexes, ...refIndexes],
     refs,
     relations,
-    output,
+    { output, clientOutput, maskable },
     events(slug, output, tenant),
     {},
   );
@@ -787,6 +899,7 @@ function declared<
   Shape extends z.core.$ZodShape,
   Tenant extends string,
   Relations extends AnyRelations,
+  M extends string,
 >(
   slug: Slug,
   schema: Schema<Shape>,
@@ -794,10 +907,14 @@ function declared<
   indexes: readonly Index[],
   refs: readonly RefField[],
   relations: Relations,
-  output: Operations<Shape, Tenant>['get']['output'],
+  outputs: {
+    readonly output: Operations<Shape, Tenant>['get']['output'];
+    readonly clientOutput: ClientOutput<Shape, Tenant, M>;
+    readonly maskable: readonly M[];
+  },
   events: Events<Slug, Shape, Tenant>,
   hooks: Hooks<Shape, Tenant>,
-): Collection<Slug, Shape, Tenant, Relations> {
+): Collection<Slug, Shape, Tenant, Relations, M> {
   return {
     slug,
     schema,
@@ -805,18 +922,18 @@ function declared<
     indexes,
     refs,
     relations,
-    output,
+    ...outputs,
     events,
     ...hooks,
     hooks: (next) =>
-      declared<Slug, Shape, Tenant, Relations>(
+      declared<Slug, Shape, Tenant, Relations, M>(
         slug,
         schema,
         tenant,
         indexes,
         refs,
         relations,
-        output,
+        outputs,
         events,
         { ...hooks, ...next },
       ),

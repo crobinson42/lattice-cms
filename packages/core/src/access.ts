@@ -25,6 +25,16 @@ export type AccessRequest<Actor> = {
  */
 export abstract class Access<Actor = unknown> extends Port('Access') {
   abstract check(request: AccessRequest<Actor>): Promise<boolean | AnyWhere>;
+  /**
+   * Which of `fields`, a collection's maskable fields, `actor` may read.
+   * A field not in the answer is withheld from what the caller receives,
+   * so an adapter that forgets a field withholds it.
+   */
+  abstract readable(request: {
+    readonly actor: Actor;
+    readonly collection: string;
+    readonly fields: readonly string[];
+  }): Promise<readonly string[]>;
 }
 
 /**
@@ -41,6 +51,14 @@ type AccessFunction = {
 
 /** The access functions given at `.collection()`, by action or method name. */
 export type AccessMap = Readonly<Record<string, AccessFunction>>;
+
+/** One field rule as the default adapter stores it; bivariant, as above. */
+type ReadRule = {
+  fn(args: { readonly actor: unknown }): boolean | Promise<boolean>;
+}['fn'];
+
+/** The `fields` rules given at `.collection()`, by field. */
+export type FieldsMap = Readonly<Record<string, { readonly read: ReadRule }>>;
 
 /** The keys of `access` besides method names. `read` serves find, count and get. */
 type AccessAction = 'read' | 'create' | 'update' | 'delete';
@@ -117,8 +135,30 @@ export type AccessCheck<R, M, C extends AnyCollection> = [
  * `find`, `count` and `get` run `read`. A missing function denies.
  */
 export class CollectionAccess extends Adapter(Access) {
-  constructor(private readonly maps: ReadonlyMap<string, AccessMap>) {
+  constructor(
+    private readonly maps: ReadonlyMap<string, AccessMap>,
+    private readonly fields: ReadonlyMap<string, FieldsMap> = new Map(),
+  ) {
     super();
+  }
+
+  override async readable(request: {
+    readonly actor: unknown;
+    readonly collection: string;
+    readonly fields: readonly string[];
+  }): Promise<readonly string[]> {
+    const rules = this.fields.get(request.collection) ?? {};
+    const answers = await Promise.all(
+      request.fields.map(async (field) => {
+        // Own keys only, as for access; a missing rule withholds.
+        const rule = Object.hasOwn(rules, field) ? rules[field] : undefined;
+        return rule !== undefined &&
+          (await rule.read({ actor: request.actor })) === true
+          ? [field]
+          : [];
+      }),
+    );
+    return answers.flat();
   }
 
   override async check(request: AccessRequest<unknown>) {
@@ -155,6 +195,11 @@ type Caller = {
   tenant(): Tenant | undefined;
   /** Logs a bypassed scope of a tenanted collection. */
   bypassed(collection: string, action: string): void;
+  /** Which of a collection's maskable `fields` the actor may read. */
+  readable(
+    collection: string,
+    fields: readonly string[],
+  ): Promise<readonly string[]>;
 };
 
 /** The generated writes a bypass may not make on a tenanted collection. */
@@ -175,6 +220,8 @@ export class CallAccess {
   #tenant: { readonly value: Tenant | undefined } | undefined;
   /** The bypassed scopes already logged, as `slug action`. */
   readonly #logged = new Set<string>();
+  /** The maskable fields withheld from the caller, by collection slug. */
+  readonly #withheld = new Map<string, Promise<ReadonlySet<string>>>();
 
   /**
    * @param actor The call's actor as the family's schema parsed it, or a
@@ -232,6 +279,34 @@ export class CallAccess {
       ),
       typeof tenant === 'string' ? tenant : undefined,
     );
+  }
+
+  /**
+   * The maskable fields of `collection` the caller of `access` may not read,
+   * asked of `Access.readable` once per call. Empty when nothing is
+   * maskable. Static, like `stampOf`, so it is not on `ctx.access`: the
+   * family guard and the router call it, and apps do not.
+   */
+  static withheld(
+    access: CallAccess,
+    collection: {
+      readonly slug: string;
+      readonly maskable: readonly string[];
+    },
+  ): Promise<ReadonlySet<string>> {
+    const { slug, maskable } = collection;
+    if (maskable.length === 0) return Promise.resolve(new Set());
+    let answer = access.#withheld.get(slug);
+    if (answer === undefined) {
+      answer = access.caller
+        .readable(slug, maskable)
+        .then(
+          (readable) =>
+            new Set(maskable.filter((field) => !readable.includes(field))),
+        );
+      access.#withheld.set(slug, answer);
+    }
+    return answer;
   }
 
   /**
@@ -326,6 +401,8 @@ export function familyContext<Actor>(
         action,
         tenancy: 'bypass',
       }),
+    readable: (collection, fields) =>
+      access.readable({ actor, collection, fields }),
   };
   return {
     ...base,

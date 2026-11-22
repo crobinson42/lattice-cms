@@ -449,6 +449,10 @@ describe('build({ access })', () => {
         requests.push(request);
         return { rank: { gt: 1 } };
       }
+
+      override async readable(): Promise<readonly string[]> {
+        return [];
+      }
     }
     const { app, repos } = framework({ family: AppUseCase })
       .collection(Notes, { access: {} })

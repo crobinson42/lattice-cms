@@ -33,6 +33,12 @@ export const crm = framework({
       delete: live,
       close: live,
     },
+    // A member sees every deal of the organization, without its amount.
+    fields: {
+      amount: {
+        read: ({ actor }) => 'support' in actor || actor.role === 'manager',
+      },
+    },
     methods: { close: CloseDeal },
     overrides: { delete: ArchiveDeal },
   })
