@@ -37,13 +37,12 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 | [0028](0028-relations-delete-in-a-store-transaction-as-system-work.md) | Relations: derived join collections, and `onDelete` as system work inside the parent's tenant and a store transaction | default | A collection lives in a different store from a relation's other side, an app needs per-relation access rules, or a relation outgrows a 1000-link set. |
 | [0029](0029-hexok-and-ts-pf-are-peers.md) | hexok and ts-pf are peers of every `@latticecms/*` package | default | npm or Node gains a reliable way to share one copy of a regular dependency with the app, or hexok and ts-pf stop exposing classes and branded types that must be the app's own. |
 | [0030](0030-the-edge-checks-membership-per-request.md) | The edge picks the active organization from a header and checks membership on every request | default | The pilot's identity provider supplies organizations or roles as claims, or the per-request membership lookup shows up in latency. |
+| [0031](0031-masked-fields-are-withheld-at-the-client-boundary.md) | Masked fields are declared on the collection, decided per actor through the Access port, and withheld at the client boundary | default | An app needs a field's visibility to depend on the row, not just the actor, or a client generator cannot handle optional properties in output. |
 
 ## Proposed
 
 These are not decided yet. Treat them as context, not rules.
 
-| ID | Decision | Strength | Revisit when |
-| --- | --- | --- | --- |
-| [0031](0031-masked-fields-are-withheld-at-the-client-boundary.md) | Masked fields are declared on the collection, decided per actor through the Access port, and withheld at the client boundary | default | An app needs a field's visibility to depend on the row, not just the actor, or a client generator cannot handle optional properties in output. |
+None.
 
 1 superseded record is history and not listed. Do not follow them.

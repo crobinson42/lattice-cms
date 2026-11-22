@@ -51,7 +51,7 @@ Built: [0030](../decisions/0030-the-edge-checks-membership-per-request.md).
 
 ### 4. Field-level read masking **Checkpoint**
 
-Approved design: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundary.md) (proposed). Built; the crm's type-check with tests is 0.56–0.58 s, core sources +0.6% instantiations.
+Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundary.md) (proposed). Built; the crm's type-check with tests is 0.56–0.58 s, core sources +0.6% instantiations.
 
 - [x] `collection({ maskable })`, `clientOutput` and `ClientDoc<C>`; `.collection(C, { fields: { f: { read } } })`; `Access.readable`, failing closed. A withheld field is absent, and optional in client types.
 - [x] Masking at the implemented router covers get, find, list, population, overrides, methods, and create and update responses. Maskable fields are found by a field-schema marker. Repos, direct `useCases` and events stay whole.
@@ -60,7 +60,7 @@ Approved design: [0031](../decisions/0031-masked-fields-are-withheld-at-the-clie
 
 ### 5. Tracing
 
-- [ ] One span per procedure (ts-pf server call interceptor), one per use case (`preExecute` and `onFinally`), and one per store call (inside MongoStore), through `@opentelemetry/api`, following OpenTelemetry names.
+- [ ] One span per procedure (a middleware on Lattice's router, so every caller gets it with no wiring; ts-pf's call interceptors attach to callers, not routers), one per use case (`preExecute` and `onFinally`), and one per store call (inside MongoStore), through `@opentelemetry/api`, following OpenTelemetry names.
 - [ ] Tests use an in-memory exporter. A no-op without an SDK costs nothing measurable.
 
 ### 6. Events out of the product

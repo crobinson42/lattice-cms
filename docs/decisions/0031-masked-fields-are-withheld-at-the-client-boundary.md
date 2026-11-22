@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 strength: default
 date: 2026-11-21
 revisit: An app needs a field's visibility to depend on the row, not just the actor, or a client generator cannot handle optional properties in output.
