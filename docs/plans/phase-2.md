@@ -72,6 +72,7 @@ Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundar
 ### 7. MCP and OpenAPI
 
 - [ ] The crm serves MCP through `@ts-pf/mcp`. Each operation is a tool, under the caller's access and tenancy.
+- [ ] Core attaches per-action metadata to generated procedures, a `docs` summary and an `mcp` effect, with `@ts-pf/docs` and `@ts-pf/mcp` as peers (approved by the maintainer). A maskable field's `where` and `sort` entries say they are refused for a caller who cannot read it (0031).
 - [ ] An OpenAPI document through `@ts-pf/openapi` with `profile: 'codegen'`, including `x-ts-pf-expand` for populated reads.
 
 ### 8. The pilot
@@ -107,5 +108,6 @@ Add a line here when the work teaches something the plan did not know. Each line
 - hexok's `@hexok/auth`, `auth-jose` and `auth-redis` depend on `hexok` directly, not as a peer: the second-copy risk 0029 avoids. A note for hexok, held for the maintainer.
 - ts-pf's call interceptors attach to callers (`FetchHandler`, `createLocalClient`), not routers, so Lattice's procedure span is router middleware. hexok has no around hook, so a use-case span cannot parent its store calls. A note for hexok, held for the maintainer.
 - OpenTelemetry's sdk-trace-base 2.12 caps the API below 1.10, so Lattice's devDependency is `~1.9.1`. Its peer range, `^1.3.0`, accepts both.
+- ts-pf note, held for the maintainer: `@ts-pf/mcp` maps an effect to `readOnlyHint` and `destructiveHint` only, and leaves `openWorldHint` at the MCP default, true, which is wrong for a closed app.
 - hexok notes, held for the maintainer: app-template's subscribe helper casts, and the crm's typed one does not; hexok has no public memory queue that delays and retries, so the crm has one in its tests; no hexok queue, webhooks or integration-events package makes OpenTelemetry spans, so the crm worker makes its own job span.
 - Turbo ignores `peerDependencies` when ordering builds, so store-mongo keeps `@latticecms/core` as a devDependency too.
