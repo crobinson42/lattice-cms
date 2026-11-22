@@ -51,12 +51,12 @@ Built: [0030](../decisions/0030-the-edge-checks-membership-per-request.md).
 
 ### 4. Field-level read masking **Checkpoint**
 
-Approved design: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundary.md) (proposed).
+Approved design: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundary.md) (proposed). Built; the crm's type-check with tests is 0.56–0.58 s, core sources +0.6% instantiations.
 
-- [ ] `collection({ maskable })`, `clientOutput` and `ClientDoc<C>`; `.collection(C, { fields: { f: { read } } })`; `Access.readable`, failing closed. A withheld field is absent, and optional in client types.
-- [ ] Masking at the implemented router covers get, find, list, population, overrides, methods, and create and update responses. Maskable fields are found by a field-schema marker. Repos, direct `useCases` and events stay whole.
-- [ ] A `where` or `sort` on a withheld field is `VALIDATION`, and a unique index on a maskable field throws. A bisection test proves no leak, with teeth.
-- [ ] The crm: a membership `role`. Members see deals without `amount`; managers and support see it.
+- [x] `collection({ maskable })`, `clientOutput` and `ClientDoc<C>`; `.collection(C, { fields: { f: { read } } })`; `Access.readable`, failing closed. A withheld field is absent, and optional in client types.
+- [x] Masking at the implemented router covers get, find, list, population, overrides, methods, and create and update responses. Maskable fields are found by a field-schema marker. Repos, direct `useCases` and events stay whole.
+- [x] A `where` or `sort` on a withheld field is `VALIDATION`, and a unique index on a maskable field throws. A bisection test proves no leak, with teeth.
+- [x] The crm: a membership `role`. Members see deals without `amount`; managers and support see it.
 
 ### 5. Tracing
 

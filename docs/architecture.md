@@ -138,7 +138,7 @@ const { app, useCases, repos, onError } = lattice.build({
 ```
 
 - The definition (`framework({ family, errors })` and `.collection()`) gives `contract` with no store and no publisher. The wiring (`build({ store, events, access?, methods, overrides })`) needs both ([0018](decisions/0018-methods-and-overrides-attach-in-the-framework.md), [0020](decisions/0020-collection-events-join-the-app-catalog.md)).
-- `.collection(C, { access, methods, overrides })` declares the access functions and the classes. `access` is required ([0021](decisions/0021-access-attaches-at-composition.md)). The classes' static schemas type the contract, so the definition module imports the use case classes; they load with no ports or I/O, and a browser client imports the contract with `import type`.
+- `.collection(C, { access, fields, methods, overrides })` declares the access functions, the field rules and the classes. `access` is required ([0021](decisions/0021-access-attaches-at-composition.md)), and `fields` is required exactly when `C` has maskable fields. The classes' static schemas type the contract, so the definition module imports the use case classes; they load with no ports or I/O, and a browser client imports the contract with `import type`.
 - `build()` takes one factory each for methods and overrides. Each receives the typed `repos` and returns one instance per declared class, keyed by slug and then name, the same shape as the contract. Each is required exactly when a collection declared one.
 - A `Repo<C>` has `get(id, scope)`, `getMany(ids, scope)`, `find({ where?, sort?, limit?, after? }, scope)`, `count(where, scope)`, `insert(data, scope)`, `update(id, patch, scope)` and `remove(id, scope)`, typed from `C`. It stamps `id`, `createdAt` and `updatedAt` like the generated operations, and runs no hooks, events or access: it is trusted, like a hexok repository. `insert` takes the schema's input type and parses it as `create` does, so defaults apply and a bad document is `VALIDATION`. `update` writes its typed patch as given, without re-validating the merged document as the generated update does.
 - The scope is required: the call's `Scope<C['slug']>` from `ctx.access.scope(C, action)`, `tenancy.scope(C, tenantId)` for server code inside one tenant, or `unscoped` for trusted code that acts for no caller. A row outside the scope acts as missing, and a scope for another collection throws ([0023](decisions/0023-access-reaches-use-cases-through-the-call-context.md)). On a tenanted collection, `insert` stamps the scope's tenant and does not take `unscoped`, and `update` never writes the tenant field ([0024](decisions/0024-tenant-bypass-is-decided-by-tenant-of.md)).
@@ -186,7 +186,7 @@ export class PublishPost extends AppUseCase('posts.publish', {
 }
 ```
 
-- The family guards check the actor, validate input, and check access for the action (`publish`) before `execute`. A guard cannot hand `execute` a value, so `execute` asks `ctx.access` for its scope; the answer is kept on the context, so access runs once per call. The scope also carries the tenant clause.
+- The family guards check the actor, validate input, check access for the action (`publish`), and refuse a `where` or `sort` on a withheld field, before `execute`. A guard cannot hand `execute` a value, so `execute` asks `ctx.access` for its scope; the answer is kept on the context, so access runs once per call. The scope also carries the tenant clause.
 - The class's `collection` static and its token (`posts.publish`) must match where it is attached. `execute` must take the class's `input` schema output and return its `output` schema output.
 - The app constructs the instance in `build()`'s `methods` or `overrides` factory, as hexok requires, with the typed `repos` it receives. `build()` is a type error when a declared method or override has no instance or an instance of another class, the same completeness check as ts-pf `impl.router()`, and it checks `instanceof` at runtime.
 - `overrides: { delete: ArchivePost }` swaps one generated operation. The class must accept and return the generated operation's types, so clients see no change.
@@ -355,6 +355,8 @@ Access is a hexok port, so the decision engine can be replaced:
 ```ts
 abstract class Access<Actor = unknown> extends Port('Access') {
   abstract check(request: AccessRequest<Actor>): Promise<boolean | AnyWhere>
+  // The subset of `fields` (the collection's maskable fields) this actor may read. Omitted means withheld.
+  abstract readable(request: { actor: Actor; collection: string; fields: readonly string[] }): Promise<readonly string[]>
 }
 
 type AccessRequest<Actor> = {
@@ -380,7 +382,26 @@ interface CallAccess {
 - A `Where` result is ANDed with the caller's `where` in `find`, and is the `where` of `get`, `update` and `delete`. A caller can only narrow it. Access is never checked by loading a row and then deciding.
 - `false` throws one `FORBIDDEN` error. A row outside a `Where` is `NOT_FOUND`, so callers cannot probe for IDs.
 - When `@hexok/authz` ships, it becomes an adapter of this port. Its list checks must return a filter, not only a yes or no.
-- Field-level read masking (`fields: { salary: { read } }`) is Phase 2.
+
+### Field masking
+
+A field can be withheld from some readers ([0031](decisions/0031-masked-fields-are-withheld-at-the-client-boundary.md)):
+
+```ts
+export const Deals = collection('deals', { schema, tenant: 'organizationId', maskable: ['amount'] })
+
+framework({ family: AppUseCase }).collection(Deals, {
+  access,
+  fields: { amount: { read: ({ actor }) => 'support' in actor || actor.role === 'manager' } },
+})
+```
+
+- `maskable` names schema fields only. The collection gains `clientOutput`, which is `output` with those fields optional. `ClientDoc<C>` is its type, and `Doc<C>` stays whole.
+- `fields` is required exactly when the collection has maskable fields, with one rule per field. A rule gets `{ actor }` and returns `boolean | Promise<boolean>`. It runs once per call per collection, through `Access.readable`; the default adapter answers from `fields`, and a missing answer withholds.
+- Masking happens at the implemented router, after `execute` and `afterRead`. So it covers generated operations, overrides, methods, relation `list` and `set`, population (under the target collection's rule) and the documents create and update return. A withheld field is absent. Client types show it as optional for everyone.
+- Each maskable field schema carries a marker, as `ref` does, so a `pick`, `extend` or `shape.amount` clone is still found. At `build()`, Lattice walks every procedure's output. A required maskable field, or a schema it cannot see through (`z.lazy`, a transform or pipe, `z.custom`, `z.unknown`), throws. A method declares `Deals.clientOutput`.
+- A family guard after access refuses a `where` (at any depth) or `sort` on a field withheld from the caller with `VALIDATION`, naming the path. That covers find and count on every path, including direct `useCases`. A cursor carries its sort, so it cannot carry a withheld value. A maskable field cannot be in a unique index, or be a `ref`.
+- Repos, direct `useCases` and events' `doc` are server code and stay whole. A document leaves the product through webhooks, which map it to their own payload.
 
 ### Tenancy
 
@@ -503,7 +524,10 @@ What the built system does not do yet, or does with a known gap. Each is a candi
 - **Auth.**
   - `CallContext<Actor>` types the actor as the schema's output. Lattice parses it once per call, so an actor schema with a transform makes the edge pass an output-shaped value through the transform again. No app uses a transforming actor schema. When one does, `CallContext` should take the schema's input type.
   - The crm's login limit counts failures per email only: concurrent failures can overshoot it, anyone can lock an email for 15 minutes, and per-IP limiting belongs in front of the app.
-  - The `@hexok/authz` adapter and field masking are Phase 2.
+  - The `@hexok/authz` adapter waits for hexok to release it.
+- **Field masking.**
+  - A field rule sees the actor, not the row.
+  - A method field computed from a masked one, an `afterRead` derivation, an object `.refine()` across a maskable field, and an access `Where` on a maskable field can each reveal something about it. The README says not to write them.
 - **Type-check cost.** After Phase 1, a full check takes 0.98 s for core's sources (0.87 s after Phase 0), 0.41 s for the crm's sources (0.38 s), and 0.51 s for the crm with tests. Core's own suite takes 2.2 s, mostly type tests. [0003](decisions/0003-collections-compile-at-runtime.md)'s revisit condition does not hold.
 
 ## Proposed changes to hexok and ts-pf
