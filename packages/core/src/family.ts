@@ -1,4 +1,5 @@
 import type { Logger } from '@hexok/logger';
+import { type Attributes, type Span, SpanKind } from '@opentelemetry/api';
 import { type StandardSchemaV1, UseCase } from 'hexok';
 import type { z } from 'zod';
 import { CallAccess } from './access.js';
@@ -6,6 +7,7 @@ import type { AnyCollection } from './collection.js';
 import { invalid, LatticeError, refusal } from './errors.js';
 import { withheldPaths } from './mask.js';
 import { type Tenant, tenancy } from './tenancy.js';
+import { failed, tracer } from './tracing.js';
 
 /** The statics every use case in a Lattice family declares. */
 export type FamilySpec = {
@@ -222,12 +224,21 @@ export function family<
       }
     })
     .hooks({
-      preExecute: ({ ctx, spec, token }) => ({
-        log: callLogger(ctx.logger, spec, token, caller(ctx.actor)),
-        started: performance.now(),
-      }),
-      postExecute: ({ token }, { log, started }) => {
+      preExecute: ({ ctx, spec, token }) => {
+        const fields = caller(ctx.actor);
+        return {
+          log: callLogger(ctx.logger, spec, token, fields),
+          started: performance.now(),
+          span: useCaseSpan(spec, token, fields),
+        };
+      },
+      // The span ends in postExecute and onCatch, beside the log line,
+      // rather than in its own onFinally: each hook is one more await on
+      // every call, traced or not.
+      postExecute: ({ token }, { log, started, span }) => {
         log.info(token, { outcome: 'ok', durationMs: since(started) });
+        if (span.isRecording()) span.setAttribute('lattice.outcome', 'ok');
+        span.end();
       },
       onCatch: ({ ctx, spec, token, error }, state) => {
         // State is undefined only when preExecute itself threw.
@@ -239,6 +250,17 @@ export function family<
           );
         } else {
           logThrown(state.log, token, error, since(state.started));
+          const refused = refusal(error);
+          if (refused === undefined) {
+            failed(state.span, error);
+          } else if (state.span.isRecording()) {
+            // A refusal is not a failure: the status stays UNSET.
+            state.span.setAttributes({
+              'lattice.outcome': 'refused',
+              'lattice.code': String(refused.code),
+            });
+          }
+          state.span.end();
         }
       },
     });
@@ -249,6 +271,48 @@ export function family<
     actorId: options.actorId,
     tenantOf: options.tenantOf,
   });
+}
+
+/**
+ * The use case's span: a child of the active span, the procedure's or a
+ * direct caller's. hexok has no around hook, so this span cannot be made
+ * active for execute: the store calls execute makes are its siblings, not
+ * its children. Its attributes are set only when a span records, so
+ * without an SDK they cost nothing.
+ */
+function useCaseSpan(
+  spec: FamilySpec,
+  token: string,
+  caller: Readonly<Record<string, string>>,
+): Span {
+  const span = tracer.startSpan(token, { kind: SpanKind.INTERNAL });
+  if (span.isRecording()) span.setAttributes(spanFields(spec, token, caller));
+  return span;
+}
+
+/**
+ * A use case span's attributes: what ran and for whom, never its input or
+ * a document. The caller's fields are its log line's.
+ */
+function spanFields(
+  spec: FamilySpec,
+  token: string,
+  caller: Readonly<Record<string, string>>,
+): Attributes {
+  return {
+    'lattice.use_case': token,
+    'lattice.collection': spec.collection.slug,
+    'lattice.action': actionOf(spec, token),
+    ...(caller.actorId === undefined
+      ? {}
+      : { 'lattice.actor_id': caller.actorId }),
+    ...(caller.tenantId === undefined
+      ? {}
+      : { 'lattice.tenant_id': caller.tenantId }),
+    ...(caller.tenancy === undefined
+      ? {}
+      : { 'lattice.tenancy': caller.tenancy }),
+  };
 }
 
 function since(started: number): number {

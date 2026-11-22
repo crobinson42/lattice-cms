@@ -5,10 +5,10 @@ The MongoDB `CollectionStore` for Lattice CMS. Each collection is a Mongo collec
 ## Install
 
 ```bash
-npm install @latticecms/store-mongo @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server zod @hexok/logger
+npm install @latticecms/store-mongo @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server zod @hexok/logger @opentelemetry/api
 ```
 
-`@latticecms/core`, `hexok`, `zod` and `@hexok/logger` are peer dependencies. Install core's peers too, as above. The `mongodb` driver is this package's own dependency: the store owns its client.
+`@latticecms/core`, `hexok`, `zod`, `@hexok/logger` and `@opentelemetry/api` are peer dependencies. Install core's peers too, as above. The `mongodb` driver is this package's own dependency: the store owns its client.
 
 ## Wiring
 
@@ -105,6 +105,16 @@ At startup, start the store, then migrate, then create indexes, as in [Wiring](#
 
 - **Transactions are opt-in.** With `transaction: true`, `up` gets a `session`, and its writes and its record commit together or not at all. Pass `{ session }` to every write. It needs a replica set, or the run throws `NoTransactions` before anything runs. A long migration can exceed Mongo's transaction limits, which is why it is not the default. The driver may run a transaction's callback again on a transient error, which `up` handles, since it is safe to re-run.
 - **One process at a time.** A lease in `_migrations_lock` keeps two processes from migrating together. It is taken on the server's clock, renewed every third of `lock.ttlMs` (60 s by default), and released by a token, so a process never releases another's lease. A lease whose holder died expires and is taken over. A second process logs `migrations waiting for lock`, waits up to `lock.waitMs` (10 minutes by default), and then finds nothing left to run; past `waitMs` it rejects with `LockTimeout`. If the lease is lost while a migration runs, `signal` aborts, and the run stops with `LockLost` without recording that migration. Pass `signal` to long loops.
+
+## Tracing
+
+Each store call is one OpenTelemetry client span, a child of the active span, through `@opentelemetry/api`. With no SDK registered it is a no-op. The tracer is `@latticecms/store-mongo`.
+
+- The span is named `{operation} {collection}`, such as `find deals`, after the Mongo command the call runs: `find` (find, get, getMany), `aggregate` (count), `insert`, `findAndModify` (update, remove) and `createIndexes` (ensure).
+- Attributes: `db.system.name` (`mongodb`), `db.namespace` (the database), `db.operation.name` and `db.collection.name`.
+- A transaction is one `transaction` span, and the calls in it are its children.
+- A failed call sets status ERROR and `error.type`: Lattice's code, such as `CONFLICT`, or the error's name. It records no exception event, since a driver's message can quote a document's values, such as a duplicate key.
+- There is no `db.query.text`. A Mongo filter has no parameters, so its text would carry the values it matches.
 
 ## Known differences from `MemoryStore`
 

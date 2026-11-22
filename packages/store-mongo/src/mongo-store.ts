@@ -12,6 +12,7 @@ import { type Db, MongoClient, type MongoClientOptions } from 'mongodb';
 import { MongoStoreError } from './errors.js';
 import { MongoDoc } from './mapper.js';
 import { MongoOperations } from './operations.js';
+import { traced } from './tracing.js';
 
 export type MongoStoreOptions = {
   /** A `mongodb://` or `mongodb+srv://` connection string. */
@@ -218,10 +219,15 @@ export class MongoStore extends Adapter(CollectionStore) {
   ): Promise<T> {
     const { client, db, transactions } = this.#connection();
     if (!transactions) return work(this);
-    return client.withSession((session) =>
-      session.withTransaction(() =>
-        work(
-          new TransactionStore(new MongoOperations(db, this.#docs, session)),
+    // One parent span, active while the transaction runs, so each call in it
+    // nests under it. The driver may run `work` again on a transient error;
+    // each run's calls nest under the same span.
+    return traced(db.databaseName, 'transaction', undefined, () =>
+      client.withSession((session) =>
+        session.withTransaction(() =>
+          work(
+            new TransactionStore(new MongoOperations(db, this.#docs, session)),
+          ),
         ),
       ),
     );

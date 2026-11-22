@@ -13,6 +13,7 @@ import type { ClientSession, Collection, Db, Document } from 'mongodb';
 import { writing } from './errors.js';
 import { and, mongoField, toFilter, toSort } from './filter.js';
 import type { MongoDoc, MongoDocument } from './mapper.js';
+import { traced } from './tracing.js';
 
 /**
  * The port's operations on one database, optionally inside a session. The
@@ -38,59 +39,74 @@ export class MongoOperations {
     return this.docs.fromModel(doc);
   }
 
+  /** `work` as one span, named by the Mongo command it runs. */
+  #traced<T>(
+    operation: string,
+    collection: string,
+    work: () => Promise<T>,
+  ): Promise<T> {
+    return traced(this.db.databaseName, operation, collection, work);
+  }
+
   async ensure(collection: string, indexes: readonly Index[]): Promise<void> {
-    const target = this.#collection(collection);
-    // createIndex is a no-op for an index that exists, and rejects one with
-    // the same keys and other options (IndexOptionsConflict or
-    // IndexKeySpecsConflict), or a unique one over duplicates (11000).
-    // Each passes through: changing an index is a migration. An index is
-    // never built inside a transaction, so it takes no session.
-    for (const index of indexes) {
-      const keys = Object.fromEntries(
-        Object.entries(index.fields).map(([field, direction]) => [
-          mongoField(field),
-          direction,
-        ]),
-      );
-      await target.createIndex(
-        keys,
-        index.unique === true ? { unique: true } : {},
-      );
-    }
+    return this.#traced('createIndexes', collection, async () => {
+      const target = this.#collection(collection);
+      // createIndex is a no-op for an index that exists, and rejects one with
+      // the same keys and other options (IndexOptionsConflict or
+      // IndexKeySpecsConflict), or a unique one over duplicates (11000).
+      // Each passes through: changing an index is a migration. An index is
+      // never built inside a transaction, so it takes no session.
+      for (const index of indexes) {
+        const keys = Object.fromEntries(
+          Object.entries(index.fields).map(([field, direction]) => [
+            mongoField(field),
+            direction,
+          ]),
+        );
+        await target.createIndex(
+          keys,
+          index.unique === true ? { unique: true } : {},
+        );
+      }
+    });
   }
 
   async find(query: FindQuery): Promise<Page> {
-    const target = this.#collection(query.collection);
-    const order = orderOf(query.sort);
-    // The keyset is a Where, so it is filtered like any other.
-    const filter = and(
-      toFilter(query.where),
-      query.after === undefined
-        ? undefined
-        : toFilter(after(order, query.after)),
-    );
-    // One more than the page tells whether another page follows.
-    const window = await target
-      .find(filter, this.#session)
-      .sort(toSort(order))
-      .limit(query.limit + 1)
-      .toArray();
-    const docs = window.slice(0, query.limit).map((doc) => this.#toDoc(doc));
-    const last = docs.at(-1);
-    return {
-      docs,
-      next:
-        window.length > query.limit && last !== undefined
-          ? encodeCursor(order, last)
-          : null,
-    };
+    return this.#traced('find', query.collection, async () => {
+      const target = this.#collection(query.collection);
+      const order = orderOf(query.sort);
+      // The keyset is a Where, so it is filtered like any other.
+      const filter = and(
+        toFilter(query.where),
+        query.after === undefined
+          ? undefined
+          : toFilter(after(order, query.after)),
+      );
+      // One more than the page tells whether another page follows.
+      const window = await target
+        .find(filter, this.#session)
+        .sort(toSort(order))
+        .limit(query.limit + 1)
+        .toArray();
+      const docs = window.slice(0, query.limit).map((doc) => this.#toDoc(doc));
+      const last = docs.at(-1);
+      return {
+        docs,
+        next:
+          window.length > query.limit && last !== undefined
+            ? encodeCursor(order, last)
+            : null,
+      };
+    });
   }
 
   async count(collection: string, where?: AnyWhere): Promise<number> {
-    return this.#collection(collection).countDocuments(
-      toFilter(where),
-      this.#session,
-    );
+    return this.#traced('aggregate', collection, async () => {
+      return this.#collection(collection).countDocuments(
+        toFilter(where),
+        this.#session,
+      );
+    });
   }
 
   async get(
@@ -98,11 +114,13 @@ export class MongoOperations {
     id: string,
     where?: AnyWhere,
   ): Promise<StoredDoc | null> {
-    const doc = await this.#collection(collection).findOne(
-      byId(id, where),
-      this.#session,
-    );
-    return doc === null ? null : this.#toDoc(doc);
+    return this.#traced('find', collection, async () => {
+      const doc = await this.#collection(collection).findOne(
+        byId(id, where),
+        this.#session,
+      );
+      return doc === null ? null : this.#toDoc(doc);
+    });
   }
 
   async getMany(
@@ -110,21 +128,25 @@ export class MongoOperations {
     ids: readonly string[],
     where?: AnyWhere,
   ): Promise<StoredDoc[]> {
-    const found = await this.#collection(collection)
-      .find(and({ _id: { $in: [...ids] } }, toFilter(where)), this.#session)
-      .toArray();
-    const byKey = new Map(found.map((doc) => [doc._id, doc]));
-    return ids.flatMap((id) => {
-      const doc = byKey.get(id);
-      return doc === undefined ? [] : [this.#toDoc(doc)];
+    return this.#traced('find', collection, async () => {
+      const found = await this.#collection(collection)
+        .find(and({ _id: { $in: [...ids] } }, toFilter(where)), this.#session)
+        .toArray();
+      const byKey = new Map(found.map((doc) => [doc._id, doc]));
+      return ids.flatMap((id) => {
+        const doc = byKey.get(id);
+        return doc === undefined ? [] : [this.#toDoc(doc)];
+      });
     });
   }
 
   async insert(collection: string, doc: StoredDoc): Promise<void> {
-    const target = this.#collection(collection);
-    await writing(collection, doc.id, () =>
-      target.insertOne(this.docs.toModel(doc), this.#session),
-    );
+    return this.#traced('insert', collection, async () => {
+      const target = this.#collection(collection);
+      await writing(collection, doc.id, () =>
+        target.insertOne(this.docs.toModel(doc), this.#session),
+      );
+    });
   }
 
   async update(
@@ -133,20 +155,22 @@ export class MongoOperations {
     patch: Patch,
     where?: AnyWhere,
   ): Promise<StoredDoc | null> {
-    const target = this.#collection(collection);
-    const filter = byId(id, where);
-    const changes = updateOf(patch);
-    if (changes === undefined) {
-      const doc = await target.findOne(filter, this.#session);
+    return this.#traced('findAndModify', collection, async () => {
+      const target = this.#collection(collection);
+      const filter = byId(id, where);
+      const changes = updateOf(patch);
+      if (changes === undefined) {
+        const doc = await target.findOne(filter, this.#session);
+        return doc === null ? null : this.#toDoc(doc);
+      }
+      const doc = await writing(collection, id, () =>
+        target.findOneAndUpdate(filter, changes, {
+          returnDocument: 'after',
+          ...this.#session,
+        }),
+      );
       return doc === null ? null : this.#toDoc(doc);
-    }
-    const doc = await writing(collection, id, () =>
-      target.findOneAndUpdate(filter, changes, {
-        returnDocument: 'after',
-        ...this.#session,
-      }),
-    );
-    return doc === null ? null : this.#toDoc(doc);
+    });
   }
 
   async remove(
@@ -154,11 +178,13 @@ export class MongoOperations {
     id: string,
     where?: AnyWhere,
   ): Promise<StoredDoc | null> {
-    const doc = await this.#collection(collection).findOneAndDelete(
-      byId(id, where),
-      this.#session,
-    );
-    return doc === null ? null : this.#toDoc(doc);
+    return this.#traced('findAndModify', collection, async () => {
+      const doc = await this.#collection(collection).findOneAndDelete(
+        byId(id, where),
+        this.#session,
+      );
+      return doc === null ? null : this.#toDoc(doc);
+    });
   }
 }
 

@@ -7,10 +7,10 @@ Status: unpublished, before 1.0. The design and the reasons behind it are in [do
 ## Install
 
 ```sh
-npm install @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server zod @hexok/logger
+npm install @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server zod @hexok/logger @opentelemetry/api
 ```
 
-`hexok` 2, `@ts-pf/*` 0.6, `zod` 4 and `@hexok/logger` 0.2 are peer dependencies. The app installs them, so it and Lattice share one copy, and a `UseCase` or `Port` the app imports is the same class Lattice built. Serve the result with `@ts-pf/server-http`, and call it with `@ts-pf/client`.
+`hexok` 2, `@ts-pf/*` 0.6, `zod` 4, `@hexok/logger` 0.2 and `@opentelemetry/api` 1 are peer dependencies. The app installs them, so it and Lattice share one copy, and a `UseCase` or `Port` the app imports is the same class Lattice built. Serve the result with `@ts-pf/server-http`, and call it with `@ts-pf/client`.
 
 ## Example
 
@@ -626,6 +626,21 @@ Masking covers the named field only. These can still reveal it:
 - An access `Where` that filters rows by a maskable field, such as `read: () => ({ amount: { lt: 1000 } })`, reveals a bound through which rows exist.
 - An `afterRead` hook that derives another field from a masked one, or a method that computes a field of its own from it, is not masked.
 
+### Tracing
+
+Lattice traces through `@opentelemetry/api`. With no OpenTelemetry SDK registered, the API is a no-op, and that is the switch: there is no option. An app that registers an SDK, with a context manager such as `@opentelemetry/context-async-hooks`, gets these spans. Their tracer is `@latticecms/core`, at the package's version.
+
+| Span | Kind | Where | Attributes |
+| --- | --- | --- | --- |
+| `deals/find`, one per procedure | server | Lattice's router middleware, on every caller: HTTP, `createLocalClient`, MCP | `rpc.system` (`ts-pf`), `rpc.service` (`deals`), `rpc.method` (`find`; a relation's is `categories/list`), `lattice.outcome`, `lattice.code` |
+| `deals.find`, one per use case | internal | the family's hooks, on every path, `useCases` too | `lattice.use_case`, `lattice.collection`, `lattice.action`, `lattice.actor_id`, `lattice.tenant_id` or `lattice.tenancy: 'bypass'`, `lattice.outcome`, `lattice.code` |
+
+- The procedure span is active while the procedure runs. The use case span is its child, or the caller's span's on a direct `useCases.*.execute`.
+- A store's spans, such as MongoStore's, are children of the active span: the procedure's, or the caller's. hexok has no hook around `execute`, so the use case span cannot be made active: a store call is its sibling, not its child.
+- `lattice.outcome` is `ok`, `refused` or `failed`. A refusal (`FORBIDDEN`, `NOT_FOUND`, `VALIDATION`, any declared code) sets `lattice.code` and leaves the status unset: it is the caller's, not a failure. An unexpected throw sets status ERROR, `error.type`, and an exception event.
+- A guard's refusal, and ts-pf's own input check, happen before the use case's hooks: they show on the procedure span only.
+- A span carries no input, no document and no masked value: only names, ids, codes and outcomes.
+
 ### `CollectionStore` and `MemoryStore`
 
 `CollectionStore` is the hexok port every collection uses: `ensure`, `find`, `count`, `get`, `getMany`, `insert`, `update`, `remove` and `transaction`. A `where` on a single-row call limits the rows it can touch; a row outside it acts as missing. `MemoryStore` is the in-memory adapter, for tests and examples. It stores copies and enforces unique indexes.
@@ -692,5 +707,4 @@ These are not built. See the [phase table](../../docs/architecture.md#phased-bui
 - An `@hexok/authz` adapter for `Access`. Authentication is the app's, at its edge, with `@hexok/auth`; the CRM shows the recipe.
 - `entity`: a collection backed by a hexok `Entity` instead of a schema.
 - A store per collection. One `build({ store })` serves every collection.
-- Tracing spans.
 - The admin UI, the CLI and file uploads.

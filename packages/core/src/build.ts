@@ -1,5 +1,11 @@
 import type { Logger } from '@hexok/logger';
 import {
+  INVALID_SPAN_CONTEXT,
+  context as otel,
+  SpanKind,
+  trace,
+} from '@opentelemetry/api';
+import {
   type ContractProcedure,
   type ContractRouterBrand,
   type ErrorMap,
@@ -76,6 +82,7 @@ import { type CascadeFields, type RefSlugs, referrersOf } from './relations.js';
 import { type ClientDoc, type Repo, repo } from './repo.js';
 import type { CollectionStore } from './store.js';
 import type { TenantField } from './tenancy.js';
+import { failed, tracer } from './tracing.js';
 
 const actions = [
   'find',
@@ -1206,7 +1213,7 @@ export class Framework<
         { ...sliceUseCases, ...relationUseCases[slug] },
       ]),
     );
-    const errors = clientErrors(this.family, this.errors.map);
+    const errors = clientCalls(this.family, this.errors.map);
     return {
       app: rootRouter<CallContext<Actor>>(
         createImplementer(contract).$context<CallContext<Actor>>().use(errors),
@@ -1427,26 +1434,59 @@ function isExecutable<Ctx>(
 }
 
 /**
- * The middleware on every procedure. It replaces a thrown error with the one
- * the client receives (`toClientError`). It logs each refusal no family
- * logged, once, at info: a guard's, and ts-pf's own input check, which runs
- * after `.use()` middleware. An error sent as INTERNAL is the edge's
- * `onError` to log.
+ * The middleware on every procedure, and the only one, so the outermost.
+ *
+ * - It traces the call: one span per procedure, active while the procedure
+ *   runs, so the use case's span and the store's spans nest under it. Its
+ *   outcome is what the client receives.
+ * - It replaces a thrown error with the one the client receives
+ *   (`toClientError`).
+ * - It logs each refusal no family logged, once, at info: a guard's, and
+ *   ts-pf's own input check, which runs after `.use()` middleware. An error
+ *   sent as INTERNAL is the edge's `onError` to log.
+ *
+ * One middleware, because the span and the log both read the error the
+ * client receives.
  */
-function clientErrors<Actor>(
+function clientCalls<Actor>(
   family: Family<Actor>,
   map: (error: unknown) => unknown,
 ): MiddlewareFn<CallContext<Actor>> {
   return async ({ context, next, path }) => {
+    const span = tracer.startSpan(path.join('/'), { kind: SpanKind.SERVER });
+    // A real span, sampled or not, is made active, so the use case's span
+    // and the store's nest under it and share its sampling. The no-op API's
+    // span has no context to pass on, so without an SDK the call makes none.
+    const recording = span.isRecording();
+    // By identity: the no-op span carries the API's one invalid context.
+    const active = span.spanContext() !== INVALID_SPAN_CONTEXT;
+    if (recording) {
+      span.setAttributes({
+        'rpc.system': 'ts-pf',
+        'rpc.service': path[0] ?? '',
+        'rpc.method': path.slice(1).join('/'),
+      });
+    }
     try {
-      return await next();
+      const output = await (active
+        ? otel.with(trace.setSpan(otel.active(), span), next)
+        : next());
+      if (recording) span.setAttribute('lattice.outcome', 'ok');
+      return output;
     } catch (error) {
       const sent = toClientError(error, map);
-      if (
-        isPFError(sent) &&
-        sent.code !== 'INTERNAL' &&
-        loggedByFamily(error) === undefined
-      ) {
+      if (!isPFError(sent) || sent.code === 'INTERNAL') {
+        failed(span, error);
+        throw sent;
+      }
+      // A refusal is the caller's, not a failure: the status stays UNSET.
+      if (recording) {
+        span.setAttributes({
+          'lattice.outcome': 'refused',
+          'lattice.code': sent.code,
+        });
+      }
+      if (loggedByFamily(error) === undefined) {
         const [collection, action] = path;
         // The guards may not have checked the actor yet.
         const actor = validate(family.actor, context.actor);
@@ -1459,6 +1499,8 @@ function clientErrors<Actor>(
         });
       }
       throw sent;
+    } finally {
+      span.end();
     }
   };
 }
