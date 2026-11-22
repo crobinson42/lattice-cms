@@ -65,9 +65,9 @@ Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundar
 
 ### 6. Events out of the product
 
-- [ ] A crm worker process, shaped like `app-template`'s, consumes the domain event queue.
-- [ ] The integration-events recipe: one domain event mapped to a versioned `@hexok/integration-events` message at the edge.
-- [ ] The webhooks recipe: a handler that publishes through `@hexok/webhooks` with its own catalog, so internal fields never reach a customer.
+- [x] A crm worker process, shaped like `app-template`'s, consumes the domain event queue.
+- [ ] The integration-events recipe: one domain event mapped to a versioned `@hexok/integration-events` message at the edge. Blocked: 0.2.1 does not export `MessageClass`, so an app that emits declarations cannot export a message class (TS2883). The `hexok-lattice-fix` session was asked for a patch release.
+- [x] The webhooks recipe: a handler that publishes through `@hexok/webhooks` with its own catalog, so internal fields never reach a customer.
 
 ### 7. MCP and OpenAPI
 
@@ -107,4 +107,5 @@ Add a line here when the work teaches something the plan did not know. Each line
 - hexok's `@hexok/auth`, `auth-jose` and `auth-redis` depend on `hexok` directly, not as a peer: the second-copy risk 0029 avoids. A note for hexok, held for the maintainer.
 - ts-pf's call interceptors attach to callers (`FetchHandler`, `createLocalClient`), not routers, so Lattice's procedure span is router middleware. hexok has no around hook, so a use-case span cannot parent its store calls. A note for hexok, held for the maintainer.
 - OpenTelemetry's sdk-trace-base 2.12 caps the API below 1.10, so Lattice's devDependency is `~1.9.1`. Its peer range, `^1.3.0`, accepts both.
+- hexok notes, held for the maintainer: app-template's subscribe helper casts, and the crm's typed one does not; hexok has no public memory queue that delays and retries, so the crm has one in its tests; no hexok queue, webhooks or integration-events package makes OpenTelemetry spans, so the crm worker makes its own job span.
 - Turbo ignores `peerDependencies` when ordering builds, so store-mongo keeps `@latticecms/core` as a devDependency too.
