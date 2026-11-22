@@ -504,8 +504,19 @@ Every generated operation logs and times itself through the family's hexok `hook
 - One line per call that passes the guards: `info` with `outcome: 'ok'` on return; `info` with `outcome: 'refused'`, `catalog` and `code` for a member of any hexok `Errors` catalog; `error` with the stack for anything else.
 - The family's guards log their own rejections, since hexok runs guards outside hooks. A refusal is logged exactly once on every path: RPC, in process, or `useCases.*.execute`. Lattice's router middleware logs only ts-pf's own input rejections, which no family sees.
 - Errors: `onCatch` logs unexpected errors once. The edge passes `build()`'s `onError(logger)` to `FetchHandler`, so the same error is not logged twice (see [API surfaces](#api-surfaces)).
-- Tracing (Phase 2): one span per procedure (ts-pf server call interceptor), one per use case (`preExecute` / `onFinally`), one per store call (inside the adapter). Spans use `@opentelemetry/api` and follow OpenTelemetry names.
-- Tests: `MemoryLogger` and a no-op tracer, so assertions can read what was logged.
+- Tracing goes through `@opentelemetry/api`, a peer of core and store-mongo. With no SDK registered, the API is a no-op: about 0.1 µs per call. There is no option to turn it off. A call makes this tree:
+
+  ```
+  deals/find      SERVER    router middleware, active
+  ├── deals.find  INTERNAL  family hooks
+  └── find deals  CLIENT    MongoStore
+  ```
+
+  - **Procedure span:** made by Lattice's one router middleware, which also maps errors and logs ts-pf's input rejections, so every caller gets it with no wiring. ts-pf's call interceptors attach to callers, not routers. Attributes: `rpc.system: 'ts-pf'`, `rpc.service` (the slug), `rpc.method`, `lattice.outcome` (`ok`, `refused`, `failed`) and `lattice.code`. Guard refusals and input rejections appear only here.
+  - **Use-case span:** started in `preExecute`, ended in `postExecute` or `onCatch`, on every path, including direct `useCases` calls under a caller's span. Attributes: `lattice.use_case`, `lattice.collection`, `lattice.action`, `lattice.actor_id`, `lattice.tenant_id` or `lattice.tenancy: 'bypass'`, `lattice.outcome` and `lattice.code`. hexok has no around hook, so the span is never active, and a use case's store calls are its siblings.
+  - **Store span:** `{operation} {collection}`, with `db.system.name: 'mongodb'`, `db.namespace`, `db.operation.name` (the Mongo command) and `db.collection.name`. A replica-set transaction is one `transaction` span, with its calls as children.
+  - A refusal leaves the status unset. An unexpected throw is `ERROR`, with `error.type` and an exception event. A store span records no exception event, because a driver's message can quote values. No span carries input, a document, a masked value or query text.
+- Tests: `MemoryLogger`, and an `InMemorySpanExporter` with an async context manager, registered in the test, so assertions can read what was logged and traced.
 
 ## Known limits
 
@@ -525,6 +536,7 @@ What the built system does not do yet, or does with a known gap. Each is a candi
   - `CallContext<Actor>` types the actor as the schema's output. Lattice parses it once per call, so an actor schema with a transform makes the edge pass an output-shaped value through the transform again. No app uses a transforming actor schema. When one does, `CallContext` should take the schema's input type.
   - The crm's login limit counts failures per email only: concurrent failures can overshoot it, anyone can lock an email for 15 minutes, and per-IP limiting belongs in front of the app.
   - The `@hexok/authz` adapter waits for hexok to release it.
+- **Tracing.** A use-case span cannot parent its store calls until hexok has an around hook. The exception event on a procedure or use-case span carries the thrown error's message, so an app error that interpolates a value puts it in the trace. Log lines do not carry trace ids yet; that would best live in `@hexok/logger`.
 - **Field masking.**
   - A field rule sees the actor, not the row.
   - A method field computed from a masked one, an `afterRead` derivation, an object `.refine()` across a maskable field, and an access `Where` on a maskable field can each reveal something about it. The README says not to write them.
@@ -540,7 +552,7 @@ Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the sc
 | `RouterImplCheck` decides each node by the implementation's node, so a contract node that may be a procedure or a router type-checks | ts-pf (`@ts-pf/server` `runtime.ts`) | Nice to have | Build it | Lattice builds its router at runtime, with relation routers inside slices. Today it calls `router()` through `rootRouter()`, which narrows with runtime guards. The fix is a distributive `NodeCheck`; a fixed contract keeps every error it has today |
 | Export `ExpandResult` and `ExpandedOutput` from `@ts-pf/contract` | ts-pf | Nice to have | Build it | A `.d.ts` that names a populating read needs them (TS2883). Lattice exports a `ReadUseCase` interface to work around it |
 | `@hexok/authz` | hexok (already planned) | Phase 2 | Build it; add list checks that return a filter | Every product needs it. Lattice adapts its `Access` port to it |
-| Tracing port | hexok | Phase 2 | No new package. Lattice calls `@opentelemetry/api` directly | The OTel API is already vendor-neutral and a no-op without an SDK, so an app can solve this today (gate question 2) |
+| Tracing port | hexok | Phase 2 (done) | No new package. Lattice calls `@opentelemetry/api` directly | The OTel API is already vendor-neutral and a no-op without an SDK, so an app can solve this today (gate question 2) |
 | Blob storage port, `@hexok/blob` + `@hexok/blob-s3` | hexok | Phase 3 | Build it, shaped like `email` / `sms` | Any product with uploads needs it. S3 covers DigitalOcean Spaces |
 | Mongo client lifecycle | `@latticecms/store-mongo` | Phase 1 (done) | Kept in Lattice | Only the store uses it. Move to hexok when a second package needs it, the way `ioredis-lifecycle` was extracted |
 | Outbox relay | `@latticecms/store-mongo` | Phase 4 | Keep it in Lattice | It is Mongo-specific. `@hexok/integration-events` already accepts a stable `id` |

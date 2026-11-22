@@ -60,8 +60,8 @@ Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundar
 
 ### 5. Tracing
 
-- [ ] One span per procedure (a middleware on Lattice's router, so every caller gets it with no wiring; ts-pf's call interceptors attach to callers, not routers), one per use case (`preExecute` and `onFinally`; hexok has no around hook, so a use case's store calls are its siblings under the procedure span, not its children), and one per store call (inside MongoStore), through `@opentelemetry/api`, following OpenTelemetry names.
-- [ ] Tests use an in-memory exporter. A no-op without an SDK costs nothing measurable.
+- [x] One span per procedure (a middleware on Lattice's router, so every caller gets it with no wiring; ts-pf's call interceptors attach to callers, not routers), one per use case (`preExecute` and `onFinally`; hexok has no around hook, so a use case's store calls are its siblings under the procedure span, not its children), and one per store call (inside MongoStore), through `@opentelemetry/api`, following OpenTelemetry names.
+- [x] Tests use an in-memory exporter. A no-op without an SDK costs nothing measurable.
 
 ### 6. Events out of the product
 
@@ -106,4 +106,5 @@ Add a line here when the work teaches something the plan did not know. Each line
 - Lattice validated the actor but passed the raw object on, so a non-strict schema let a stripped key (such as `support`) reach `tenantOf`. Task 2.2b parses it once and passes the parsed actor on.
 - hexok's `@hexok/auth`, `auth-jose` and `auth-redis` depend on `hexok` directly, not as a peer: the second-copy risk 0029 avoids. A note for hexok, held for the maintainer.
 - ts-pf's call interceptors attach to callers (`FetchHandler`, `createLocalClient`), not routers, so Lattice's procedure span is router middleware. hexok has no around hook, so a use-case span cannot parent its store calls. A note for hexok, held for the maintainer.
+- OpenTelemetry's sdk-trace-base 2.12 caps the API below 1.10, so Lattice's devDependency is `~1.9.1`. Its peer range, `^1.3.0`, accepts both.
 - Turbo ignores `peerDependencies` when ordering builds, so store-mongo keeps `@latticecms/core` as a devDependency too.
