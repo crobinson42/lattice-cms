@@ -66,7 +66,7 @@ Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundar
 ### 6. Events out of the product
 
 - [x] A crm worker process, shaped like `app-template`'s, consumes the domain event queue.
-- [ ] The integration-events recipe: one domain event mapped to a versioned `@hexok/integration-events` message at the edge. Blocked: 0.2.1 does not export `MessageClass`, so an app that emits declarations cannot export a message class (TS2883). The `hexok-lattice-fix` session was asked for a patch release.
+- [x] The integration-events recipe: one domain event mapped to a versioned `@hexok/integration-events` message at the edge. It needed `@hexok/integration-events` 0.2.2, which exports `MessageClass` (hexok PR #33).
 - [x] The webhooks recipe: a handler that publishes through `@hexok/webhooks` with its own catalog, so internal fields never reach a customer.
 
 ### 7. MCP and OpenAPI
