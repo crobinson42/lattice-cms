@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: Lint, type-check, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      # mongodb-memory-server's postinstall would download its own default
+      # mongod. The tests download the version they pin, into the cache below.
+      MONGOMS_DISABLE_POSTINSTALL: '1'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # The mongod the store-mongo and crm tests pin, in package.json
+      # (config.mongodbMemoryServer.version). Both pin the same one.
+      - name: Read the pinned MongoDB version
+        id: mongod
+        run: echo "version=$(node -p "require('./packages/store-mongo/package.json').config.mongodbMemoryServer.version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache mongod
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/mongodb-binaries
+          key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.mongod.outputs.version }}
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run type-check
+      - run: npm run test
+      - run: npm run build
