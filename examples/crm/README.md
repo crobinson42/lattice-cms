@@ -4,23 +4,46 @@ A CRM on Lattice: companies, contacts and deals, each organization's own, on Mon
 
 ## Run it
 
-It runs as two processes: the HTTP server and the worker. Both need MongoDB (a replica set, for transactions) and Redis, for sessions and the event queues.
+It runs as two processes: the HTTP server and the worker. Both need MongoDB, as a replica set for transactions, and Redis, for sessions and the event queues. You need Node 24 and Docker, or MongoDB 8 and Redis 7 installed another way.
+
+Start MongoDB as a one-node replica set, and Redis:
 
 ```bash
-npm run build -w @latticecms/example-crm
-export MONGODB_URL=mongodb://localhost:27017/?replicaSet=rs0
+docker run -d --name crm-mongo -p 27017:27017 mongo:8 --replSet rs0
+docker exec crm-mongo mongosh --quiet --eval "rs.initiate()"   # once mongod is up; repeat if it is not yet
+docker run -d --name crm-redis -p 6379:6379 redis:7
+```
+
+Install and build from the repository root. The crm runs on the built `@latticecms/core` and `@latticecms/store-mongo`, so build them all:
+
+```bash
+npm install
+npm run build
+```
+
+Set the configuration, in each terminal you run a process from. `directConnection=true` talks to the container directly, since the replica set names its member by the container's host name:
+
+```bash
+export MONGODB_URL='mongodb://localhost:27017/?directConnection=true'
 export REDIS_URL=redis://localhost:6379
-export AUTH_TOKEN_SECRETS=$(node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))")
+export AUTH_TOKEN_SECRETS=<one secret, the same in every terminal>   # make one: node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 export AUTH_TOKEN_ISSUER=crm AUTH_TOKEN_AUDIENCE=crm
+```
+
+Create a user with a password and a membership, then start the server and, in a second terminal, the worker:
+
+```bash
 npm run dev:user -w @latticecms/example-crm -- ann ann@example.com 'a long password' org-a manager
 npm start -w @latticecms/example-crm
-npm run worker -w @latticecms/example-crm   # in another terminal
+npm run worker -w @latticecms/example-crm
 ```
+
+`dev:user` prints a session token. The server logs `http listening`, and the worker `worker subscribed` with its two handlers. Then [call it](#calling-it).
 
 | Variable | Meaning |
 | --- | --- |
 | `MONGODB_URL`, `MONGODB_DATABASE` | The store. The database defaults to `crm`. |
-| `REDIS_URL` | The session store, and the domain event and webhook queues. |
+| `REDIS_URL` | The session store, and the domain event, webhook and integration queues. |
 | `AUTH_TOKEN_SECRETS`, `AUTH_TOKEN_ISSUER`, `AUTH_TOKEN_AUDIENCE` | The session token's signing secrets, newest first, and its claims. Required. |
 | `AUTH_SESSION_IDLE_SECONDS`, `AUTH_SESSION_ABSOLUTE_SECONDS` | Session lifetimes. Default 30 minutes idle, 8 hours absolute. |
 | `CRM_SUPPORT_USER_IDS` | User ids that act as support, comma separated. |
@@ -103,6 +126,23 @@ When a deal closes, its organization's endpoints that list `deal.closed` get, si
 - `GET /openapi.json` is the API's OpenAPI 3.1 document, for a signed-in user. See [OpenAPI and other clients](#openapi-and-other-clients).
 - `GET /health` answers `{ ok: true }`.
 
+With the server from [Run it](#run-it):
+
+```bash
+TOKEN=$(curl -s localhost:3000/auth/login -H 'content-type: application/json' \
+  -d '{"input":{"email":"ann@example.com","password":"a long password"}}' \
+  | node -pe 'JSON.parse(require("fs").readFileSync(0)).output.token')
+H=(-H "authorization: Bearer $TOKEN" -H 'x-organization-id: org-a' -H 'content-type: application/json')
+
+curl -s localhost:3000/rpc/companies/create "${H[@]}" -d '{"input":{"name":"Acme"}}'
+curl -s localhost:3000/rpc/deals/create "${H[@]}" -d '{"input":{"title":"Big one","companyId":"<the company id>","amount":4242}}'
+curl -s localhost:3000/rpc/deals/close "${H[@]}" -d '{"input":{"id":"<the deal id>","outcome":"won"}}'
+curl -s localhost:3000/rpc/deals/find "${H[@]}" -d '{"input":{"populate":["companyId"]}}'
+curl -s localhost:3000/openapi.json -H "authorization: Bearer $TOKEN"
+```
+
+Each answer is `{ "ok": true, "output": … }` or `{ "ok": false, "error": { "code", "message" } }`. Closing the deal publishes `deal.closed`: the worker publishes it on `integration:crm.deals`, which `docker exec crm-redis redis-cli XRANGE integration:crm.deals - +` shows, and sends a webhook to any endpoint `CRM_WEBHOOK_ENDPOINTS` lists for org-a.
+
 `npm run dev:user -- <userId> <email> <password> <organizationId> [member|manager]` sets a user's password (12 characters or more), adds the membership with that role (default `member`), and prints a token. `npm run dev:session -- <userId> <organizationId> [member|manager]` prints a token without a password. Both are for local development. There is no signup and no password reset.
 
 ## MCP
@@ -171,3 +211,5 @@ The reason is logged, never sent. Logs carry no password and no email; a login r
 ## Tests
 
 `npm test -w @latticecms/example-crm` runs every test on `MemoryStore` and on MongoDB, through mongodb-memory-server. Sessions run in memory with real signed tokens, and the queues on `MemoryQueue` ([`src/test/memory-queue.ts`](src/test/memory-queue.ts)), an adapter of the `@hexok/queue` port with the same delivery rules as RedisQueue. Redis is not needed. Webhooks are sent to a real HTTP server on this machine. MCP tests connect the MCP SDK's own client to `/mcp`.
+
+Two tests keep the package READMEs honest. [`readme-quotes.test.ts`](src/readme-quotes.test.ts) checks that every README code block whose first line names a file, such as `// examples/crm/src/servers/app.ts`, is that file's text, line for line, allowing only a uniform indent to be removed. [`quickstart.test.ts`](src/quickstart/quickstart.test.ts) runs core's quick start, which lives in [`src/quickstart`](src/quickstart).

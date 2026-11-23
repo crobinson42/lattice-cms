@@ -1,16 +1,22 @@
 # @latticecms/store-mongo
 
-The MongoDB `CollectionStore` for Lattice CMS. Each collection is a Mongo collection of the same name, and a document's `id` is its `_id`. Filters translate one to one into Mongo queries, and the store passes the conformance suite every Lattice store passes.
+The MongoDB `CollectionStore` for [`@latticecms/core`](../core). Each collection is a Mongo collection of the same name, and a document's `id` is its `_id`. Filters translate one to one into Mongo queries, and the store passes the conformance suite every Lattice store passes. It also runs the app's data migrations.
+
+Status: unpublished, before 1.0.
 
 ## Install
 
 ```bash
-npm install @latticecms/store-mongo @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server zod @hexok/logger @opentelemetry/api
+npm install @latticecms/store-mongo @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server @ts-pf/docs @ts-pf/mcp zod @hexok/logger @opentelemetry/api
 ```
 
-`@latticecms/core`, `hexok`, `zod`, `@hexok/logger` and `@opentelemetry/api` are peer dependencies. Install core's peers too, as above. The `mongodb` driver is this package's own dependency: the store owns its client.
+`@latticecms/core`, `hexok`, `zod`, `@hexok/logger` and `@opentelemetry/api` are peer dependencies, shared with the app for the reasons [core's README](../core#install) gives. Install core's own peers too, as above. The `mongodb` driver is this package's own dependency: the store owns its client.
+
+The tests run against MongoDB 8.0. Transactions need a replica set or a sharded cluster; see [Transactions](#transactions).
 
 ## Wiring
+
+Create the store:
 
 ```ts
 // examples/crm/src/servers/http/main.ts
@@ -20,14 +26,22 @@ const store = new MongoStore({
   url,
   database: process.env.MONGODB_DATABASE ?? 'crm',
 });
+```
 
+Start it, migrate, create the indexes, then serve:
+
+```ts
 // examples/crm/src/servers/http/server.ts
 const crm = createApp({ store, events: deps.events });
 await store.start();
 await migrate(store, migrations, { logger });
 await crm.ensure();
+```
 
-// ... serve, then on shutdown, after the server stops taking requests:
+On shutdown, stop the server taking requests, then the store:
+
+```ts
+// examples/crm/src/servers/http/server.ts
 await server.close();
 await store.stop();
 ```
@@ -44,7 +58,15 @@ The store owns its `MongoClient`.
 
 Start the store before the app serves traffic, and stop it after the server closes.
 
-## What it does
+## Transactions
+
+Lattice uses `store.transaction(work)` for a delete that cascades or nullifies refs, and for a relation's `set`.
+
+- On a replica set or a mongos, `work` runs in one Mongo transaction, with a view of the store whose every call carries the session. It commits, or on a throw writes nothing. The driver's `withTransaction` may run `work` again on a transient error.
+- A standalone server has no transactions, so there `work` runs in order, on the store itself, without atomicity. Lattice's deletes write the parent last, so a failure partway leaves the parent in place, and the children already changed stay changed. Run production on a replica set; a single-node replica set is enough.
+- An index is never built inside a transaction.
+
+## Queries
 
 - `where` translates operator by operator: `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt` and `lte` become their `$` operators. `contains` is a case-insensitive regex with every metacharacter escaped. `exists: true` is `{ $ne: null }` and `exists: false` is `{ $eq: null }`, because in Lattice null does not exist. `and` and `or` become `$and` and `$or`.
 - Filters are combined with `$and`, never merged into one object, so a filter on `id` cannot replace the call's own id match.
@@ -53,7 +75,6 @@ Start the store before the app serves traffic, and stop it after the server clos
 - `ensure(collection, indexes)` creates each index with `createIndex` and never drops one. `build().ensure()` calls it for every collection that declares indexes. An index with the same keys and other options rejects, and so does a unique index over existing duplicates: changing an index is a migration.
 - `count` is `countDocuments`.
 - `has` is equality on the array field, which Mongo matches against any element.
-- `transaction(work)` runs `work` in one Mongo transaction on a replica set or a mongos, with a view of the store whose every call carries the session. A standalone server has no transactions, so there `work` runs in order; Lattice's deletes put the parent last. An index is never built inside a transaction.
 
 ## Migrations
 
@@ -115,6 +136,18 @@ Each store call is one OpenTelemetry client span, a child of the active span, th
 - A transaction is one `transaction` span, and the calls in it are its children.
 - A failed call sets status ERROR and `error.type`: Lattice's code, such as `CONFLICT`, or the error's name. It records no exception event, since a driver's message can quote a document's values, such as a duplicate key.
 - There is no `db.query.text`. A Mongo filter has no parameters, so its text would carry the values it matches.
+
+## Errors
+
+| Error | Code | When |
+| --- | --- | --- |
+| `LatticeError` | `CONFLICT` | A duplicate key on `insert` or `update`, from the id or a unique index. `data` is `{ collection, id }` of the document being written; the driver's message is never parsed or sent |
+| `MongoStoreError` | `NotStarted`, `Starting`, `Stopped` | A call before `start()`, during it, or after `stop()`. Fix the call order; do not retry |
+| `MigrationError` | `Gap`, `Duplicate`, `Unknown`, `Renamed` | The migration list does not match itself or what ran. Thrown before any migration runs |
+| `MigrationError` | `NoTransactions` | A migration asks for a transaction on a deployment without them. Thrown before any migration runs |
+| `MigrationError` | `LockTimeout`, `LockLost` | Another process held the lock past `waitMs`, or the lease was lost while a migration ran |
+
+Each is a hexok `Errors` catalog, so `MongoStoreError.is(error)` and `error.code` narrow it. Anything else, such as a network error, passes through from the driver.
 
 ## Known differences from `MemoryStore`
 
