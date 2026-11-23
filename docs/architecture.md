@@ -33,24 +33,24 @@ Lattice owns only the rows marked **Lattice** ([0001](decisions/0001-build-on-he
 | Concern | Owner | How Lattice uses it |
 | --- | --- | --- |
 | Entities, use cases, errors | `hexok` (`Entity`, `UseCase`, `Errors`, `Result`) | Generated CRUD operations are `UseCase` classes in the app's `UseCase.context` family |
-| Use case lifecycle hooks | `hexok` `UseCase.context().guard().hooks()` | Access, tenancy and input checks are family guards. Tracing and logging use `preExecute` / `onFinally` |
+| Use case lifecycle hooks | `hexok` `UseCase.context().guard().hooks()` | Actor, input, access and masked-field checks are family guards. Logging and the use-case span use `preExecute`, `postExecute` and `onCatch` |
 | Storage | **Lattice** `CollectionStore` port, built with hexok `Port` / `Adapter` / `Mapper` | One port for every collection; Mongo and memory adapters |
 | Query filter (`Where`) | **Lattice** | A small typed filter that each store translates |
 | Relations, join collections | **Lattice** | Ref fields, join collections, batched population |
 | Tenancy | **Lattice** collection option, fed by the app's actor | Scopes reads and stamps writes with the tenant field |
-| Authentication | `@hexok/auth`, `-redis`, `-jose` | The app builds the actor at the edge. Lattice never imports auth |
-| Authorization | **Lattice** `Access` port now; `@hexok/authz` adapter when that package ships | Default: per-collection access functions returning `boolean` or a filter |
+| Authentication | `@hexok/auth`, `-redis`, `-jose` | The app builds the actor at the edge and checks membership per request ([0030](decisions/0030-the-edge-checks-membership-per-request.md)). Lattice never imports auth |
+| Authorization | **Lattice** `Access` port; an `@hexok/authz` adapter when that package ships | Default: per-collection access functions returning `boolean` or a filter, and field rules for masked fields |
 | Events | `hexok` `Event` / `EventCatalog` / `EventHandler` + `@hexok/queue` (durable) + `@hexok/broadcast` (at most once) | Each collection carries generated `Event` classes; the app lists them in its own catalog |
 | Cross-product events | `@hexok/integration-events` | The app maps a collection event to a versioned contract at the edge |
 | Outbound webhooks | `@hexok/webhooks` | An event handler publishes a webhook; no Lattice code |
 | Jobs, schedules | `@hexok/queue` + `@hexok/schedule-coordinator` | Scheduled use cases, as in hexok's `app-template` |
 | Logger, error capture | `@hexok/logger`, `-sentry`, `-newrelic` | On the call context: `ctx.logger`, built at the edge |
-| Tracing | `@opentelemetry/api`, called directly (Phase 2) | ts-pf call interceptors + use case hooks |
+| Tracing | `@opentelemetry/api`, a peer, called directly | A router middleware span per procedure, use case hooks, and a span per MongoStore call |
 | Custom methods | `hexok` `UseCase` | `.collection(Posts, { methods: { publish: PublishPost } })` adds it to the collection's router slice |
 | HTTP | `@ts-pf/server-http` `FetchHandler` | Mount on srvx, Hono, Bun, Next or Astro |
 | In-process calls | `@ts-pf/server` `createLocalClient`, or calling use cases directly | Same middleware and errors as HTTP |
 | GraphQL | Not planned | ts-pf is RPC; OpenAPI covers outside callers |
-| MCP tools | `@ts-pf/mcp` | Every collection becomes MCP tools |
+| MCP tools | `@ts-pf/mcp` | Every operation becomes a tool, described by Lattice's procedure meta |
 | OpenAPI, other languages | `@ts-pf/openapi`, `@ts-pf/codegen` | Codegen profile for non-TypeScript clients |
 | Typed clients | `@ts-pf/client` + `client-http`, `@ts-pf/swr`, `@ts-pf/mvc-kit` | Web and admin clients use the same contract |
 | File uploads | `@ts-pf/file` (multipart) + a blob storage port (missing) | Phase 3 |
@@ -552,7 +552,7 @@ Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the sc
 | Expandable outputs: `procedure.output(Wide).expand({ key, at, fields })`, so the output type follows a list in the input | ts-pf | Phase 1 step 9 | Released in 0.6.0 and used | Population changes a read's output per call. ts-pf's client is one non-generic signature per procedure, so no Lattice-side type reaches swr, mvc-kit or codegen clients |
 | `RouterImplCheck` decides each node by the implementation's node, so a contract node that may be a procedure or a router type-checks | ts-pf (`@ts-pf/server` `runtime.ts`) | Nice to have | Build it | Lattice builds its router at runtime, with relation routers inside slices. Today it calls `router()` through `rootRouter()`, which narrows with runtime guards. The fix is a distributive `NodeCheck`; a fixed contract keeps every error it has today |
 | Export `ExpandResult` and `ExpandedOutput` from `@ts-pf/contract` | ts-pf | Nice to have | Build it | A `.d.ts` that names a populating read needs them (TS2883). Lattice exports a `ReadUseCase` interface to work around it |
-| `@hexok/authz` | hexok (already planned) | Phase 2 | Build it; add list checks that return a filter | Every product needs it. Lattice adapts its `Access` port to it |
+| `@hexok/authz` | hexok (three unmerged designs) | When released | Build it; add list checks that return a filter | Every product needs it. Lattice adapts its `Access` port to it |
 | `openWorldHint` and `idempotentHint` from procedure meta | ts-pf (`@ts-pf/mcp`) | Nice to have | Build it | It maps an effect to `readOnlyHint` and `destructiveHint` only, so every tool is open-world, which is wrong for a closed app. Tools from `all()` also advertise no output schema |
 | `Sessions.authenticate` returns when the session ends | hexok (`@hexok/auth`) | Nice to have | Build it | The MCP SDK's `requireBearerAuth` needs `expiresAt`, so the crm answers its own 401 challenge |
 | Tracing port | hexok | Phase 2 (done) | No new package. Lattice calls `@opentelemetry/api` directly | The OTel API is already vendor-neutral and a no-op without an SDK, so an app can solve this today (gate question 2) |
