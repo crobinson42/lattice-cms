@@ -1456,6 +1456,7 @@ function contractOf(
           label,
           op: 'list',
           relation: name,
+          target: relation.target,
           populate: listed ? [] : Object.keys(fields),
         }),
       );
@@ -1473,6 +1474,7 @@ function contractOf(
               label,
               op: 'set',
               relation: name,
+              target: relation.target,
               populate: [],
             }),
           )

@@ -6,7 +6,7 @@ import { ArchivePost } from './fixtures/archive-post.js';
 import { AppUseCase, allowAll } from './fixtures/context.js';
 import { Posts } from './fixtures/posts.js';
 import { PublishPost } from './fixtures/publish-post.js';
-import { collection, framework, many, ref } from './index.js';
+import { collection, family, framework, many, ref } from './index.js';
 
 const Deals = collection('deals', {
   schema: z.object({
@@ -194,12 +194,14 @@ describe('procedure meta', () => {
         label: label('person', 'people'),
         operation: 'list',
         relation: 'boards',
+        target: 'posts',
       },
       'people/boards/set': {
         collection: 'people',
         label: label('person', 'people'),
         operation: 'set',
         relation: 'boards',
+        target: 'posts',
       },
     });
   });
@@ -416,6 +418,41 @@ describe('a ref', () => {
         'postsId',
       ]),
     ).toEqual({ type: 'string', 'x-lattice-ref': 'posts' });
+  });
+});
+
+describe('the tenant field', () => {
+  it('says so in the output, as x-lattice-tenant', () => {
+    const Tenanted = family({
+      actor: z.object({ userId: z.string(), orgId: z.string() }),
+      actorId: (actor) => actor.userId,
+      tenantOf: (actor) => actor.orgId,
+    });
+    const Notes = collection('notes', {
+      schema: z.object({ text: z.string() }),
+      tenant: 'orgId',
+    });
+    const tenanted = catalog(
+      framework({ family: Tenanted }).collection(Notes, { access: allowAll })
+        .contract,
+    ).procedures;
+    const schemaOf = (key: string, side: 'input' | 'output') => {
+      const schema = tenanted.find((procedure) => procedure.key === key)?.[
+        side
+      ];
+      return schema?.kind === 'json' ? schema.jsonSchema : {};
+    };
+    const output = schemaOf('notes/get', 'output');
+    expect(at(output, ['properties', 'orgId'])).toEqual({
+      type: 'string',
+      'x-lattice-tenant': true,
+    });
+    expect(
+      at(output, ['properties', 'text', 'x-lattice-tenant']),
+    ).toBeUndefined();
+    // Create never takes it: Lattice stamps it.
+    const input = schemaOf('notes/create', 'input');
+    expect(at(input, ['properties', 'orgId'])).toBeUndefined();
   });
 });
 

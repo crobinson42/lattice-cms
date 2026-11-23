@@ -1,0 +1,80 @@
+{
+  "name": "@latticecms/admin",
+  "version": "0.0.0",
+  "description": "An admin for a Lattice app, rendered from the catalog it serves.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crobinson42/lattice-cms.git",
+    "directory": "packages/admin"
+  },
+  "homepage": "https://github.com/crobinson42/lattice-cms/tree/main/packages/admin#readme",
+  "bugs": {
+    "url": "https://github.com/crobinson42/lattice-cms/issues"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./admin.css": "./dist/admin.css",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts",
+    "!src/**/*.test.tsx",
+    "!src/test"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b && tailwindcss -i src/admin.css -o dist/admin.css --minify",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit -p tsconfig.check.json && tsc -p tsconfig.dist.json",
+    "lint": "biome check .",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "peerDependencies": {
+    "@ts-pf/client-http": "^0.6.0",
+    "@ts-pf/protocol": "^0.6.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "dependencies": {
+    "@shadalaya/react": "0.1.0",
+    "swr": "^2.5.1"
+  },
+  "devDependencies": {
+    "@hexok/logger": "^0.2.0",
+    "@latticecms/core": "*",
+    "@opentelemetry/api": "~1.9.1",
+    "@shadalaya/theme": "^0.1.0",
+    "@tailwindcss/cli": "^4.3.5",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@ts-pf/client": "^0.6.0",
+    "@ts-pf/client-http": "^0.6.0",
+    "@ts-pf/contract": "^0.6.0",
+    "@ts-pf/docs": "^0.6.0",
+    "@ts-pf/mcp": "^0.6.0",
+    "@ts-pf/protocol": "^0.6.0",
+    "@ts-pf/server": "^0.6.0",
+    "@ts-pf/server-http": "^0.6.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "happy-dom": "^21.0.4",
+    "hexok": "^2.2.7",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.5",
+    "zod": "^4.1.0"
+  }
+}

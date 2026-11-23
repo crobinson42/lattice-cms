@@ -399,6 +399,7 @@ const Notes = collection('notes', {
 
 - `family({ tenantOf })` gives each call's tenant. A tenanted collection in a framework whose family has no `tenantOf` is a compile error and a throw.
 - The tenant field is in `Doc` and `Where`, never in create or update input. Create stamps it after `beforeChange`, update never writes it, and a client cannot set or change it.
+- In the output's JSON Schema, and so in OpenAPI and MCP, the tenant field carries `x-lattice-tenant: true`, so a client such as the admin shows it read-only.
 - Every scope is the tenant clause ANDed with the access `Where`. Another tenant's row is `NOT_FOUND` on get, update and delete, and `find` never returns it, page after page.
 - A schema field with the tenant's name, or a reserved name, is a compile error and a throw.
 
@@ -628,7 +629,7 @@ Each generated procedure carries `docs({ summary })` and `mcp({ effect })` in it
 - The `populate` sentence appears only when the read can populate.
 - `@ts-pf/mcp` turns `read` into `readOnlyHint: true`, and `destructive` into `destructiveHint: true`. The effect is a literal in the contract's type too, so `all(tk.deals, { effect: 'read' })` selects in types what it selects at runtime.
 - A method's meta comes from its `summary` and `effect` statics; see [The family](#the-family). An override keeps its procedure's meta.
-- Every procedure also carries a `lattice` key: its collection, the collection's label, and its operation. A relation's `list` and `set` name the relation, and a method names itself: `{ collection: 'deals', label: { singular: 'deal', plural: 'deals' }, operation: 'method', method: 'close' }`. `LatticeMeta` is its type. A client such as the admin reads it from `catalog()`, instead of guessing from a procedure's path.
+- Every procedure also carries a `lattice` key: its collection, the collection's label, and its operation. A relation's `list` and `set` name the relation and its `target` collection, and a method names itself: `{ collection: 'deals', label: { singular: 'deal', plural: 'deals' }, operation: 'method', method: 'close' }`. `LatticeMeta` is its type. A client such as the admin reads it from `catalog()`, instead of guessing from a procedure's path.
 
 A maskable field says in its JSON Schema that it may be withheld, and that a query on it may be refused; see [Field masking](#field-masking). A populated read has ts-pf's `x-ts-pf-expand` in OpenAPI. The crm serves both; see [Serving MCP and OpenAPI](#serving-mcp-and-openapi).
 

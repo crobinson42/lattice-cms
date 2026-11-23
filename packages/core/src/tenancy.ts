@@ -62,7 +62,9 @@ export function tenantShapes(tenant: string | undefined): {
     ? { tenant, field: {}, event: {} }
     : {
         tenant,
-        field: { [tenant]: z.string() },
+        // The meta says which field is the tenant's, so a client such as
+        // the admin shows it read-only without guessing.
+        field: { [tenant]: z.string().meta({ 'x-lattice-tenant': true }) },
         event: { tenantId: z.string() },
       };
 }

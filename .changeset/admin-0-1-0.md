@@ -1,0 +1,12 @@
+---
+'@latticecms/admin': minor
+---
+
+First release. `<Admin>` renders an admin for a Lattice app from the catalog the app serves, with no per-collection code, and `@latticecms/admin/admin.css` styles it with no Tailwind in the app.
+
+- Props: `fetch` (the app's, with its session and organization), `catalogUrl`, `basePath` and an optional `header`. The app keys it by organization.
+- The catalog is read with a type guard over what the admin uses, and an unreadable one names what it lacks. Procedures are grouped by their `lattice` meta, and called by path through a ts-pf `FetchLink` and swr, refetched on focus.
+- Pages on the History API under `basePath`: the collection index, a list (columns from the schema, a filter per field, a one-column sort, Next and Back over cursors, and a count, kept in the URL), and a document (populated refs and relations as links, withheld fields absent, system fields read-only). Unknown routes and missing documents show not-found.
+- Refusals show: a `VALIDATION` on a filter or sort at that control, with the server's message, and any other code with its message.
+
+Install the peers in the app: `npm install @latticecms/admin react react-dom @ts-pf/client-http @ts-pf/protocol`. See the [README](./README.md#install).

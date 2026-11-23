@@ -1,0 +1,14 @@
+/*
+  The admin's stylesheet, built into dist/admin.css. Tailwind scans the
+  admin's own sources and the shadalaya components it uses, so an app needs
+  no Tailwind of its own. Only those components: scanning all of shadalaya's
+  dist makes this file five times bigger. admin-css.test.ts checks that the
+  list is the admin's imports and the components they import, and that the
+  path, to the workspace's hoisted node_modules, finds each one.
+*/
+@import "tailwindcss" source(none);
+@import "@shadalaya/theme/tokens.css";
+@import "@shadalaya/theme/tailwind.css";
+
+@source "./**/*.tsx";
+@source "../../../node_modules/@shadalaya/react/dist/components/{alert,badge,button,card,empty,field,input,label,native-select,separator,skeleton,table}.js";

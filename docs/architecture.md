@@ -411,7 +411,7 @@ framework({ family: AppUseCase }).collection(Deals, {
 Row-level tenancy is the only built-in strategy ([0009](decisions/0009-strict-tenant-isolation-in-v1.md)). It covers the team's organization model.
 
 - `family({ actor, actorId, tenantOf })` names the actor's active organization, or returns `tenancy.bypass` for a platform actor. The edge picks the organization, and sets the platform flag, from the session or a header. The actor schema validates both. `Family<Actor, Tenanted>` records whether `tenantOf` exists, and a tenanted collection in a family without it is a compile error ([0024](decisions/0024-tenant-bypass-is-decided-by-tenant-of.md)).
-- A collection with `tenant: 'organizationId'` gets that field in its output, `Doc`, `Where` and `Sort`, never in create or update input. Create stamps it after `beforeChange`, and update never writes it. A schema field with the tenant's name is a compile error.
+- A collection with `tenant: 'organizationId'` gets that field in its output, `Doc`, `Where` and `Sort`, never in create or update input. Its JSON Schema carries `x-lattice-tenant: true`, so a client shows it read-only. Create stamps it after `beforeChange`, and update never writes it. A schema field with the tenant's name is a compile error.
 - Every `Scope` is the tenant clause ANDed with the access `Where`, and carries `tenantId`. Another tenant's row is `NOT_FOUND`. A `tenantOf` that returns no tenant id fails the call, so a missing tenant never widens a filter.
 - Join collections inherit the parent's tenant field.
 - A collection without `tenant` is global, such as a lookup table.
@@ -458,7 +458,7 @@ The write goes to Mongo and the event goes to Redis. A crash between the two los
 
 ## API surfaces
 
-One generated contract serves every surface. Lattice writes no transport code. Each procedure carries `.meta()` with a `docs` summary and an `mcp` effect, written in one place (`describe.ts`), so MCP tools, OpenAPI operations and codegen comments describe themselves. A summary names the collection by its label ("Get one deal by id."), and a method's comes from its statics. Each procedure also carries `lattice` meta, typed as the exported `LatticeMeta`: its collection, label and operation, plus a relation or method name. The admin reads it from the catalog instead of guessing from paths ([0033](decisions/0033-the-catalog-carries-lattice-facts-and-the-admin-derives-its-ui.md)). `@ts-pf/docs` and `@ts-pf/mcp` are peers of core.
+One generated contract serves every surface. Lattice writes no transport code. Each procedure carries `.meta()` with a `docs` summary and an `mcp` effect, written in one place (`describe.ts`), so MCP tools, OpenAPI operations and codegen comments describe themselves. A summary names the collection by its label ("Get one deal by id."), and a method's comes from its statics. Each procedure also carries `lattice` meta, typed as the exported `LatticeMeta`: its collection, label and operation, plus a relation and its target collection, or a method name. The admin reads it from the catalog instead of guessing from paths ([0033](decisions/0033-the-catalog-carries-lattice-facts-and-the-admin-derives-its-ui.md)). `@ts-pf/docs` and `@ts-pf/mcp` are peers of core.
 
 ```ts
 const handler = new FetchHandler(app, { onError: onError(logger) })
@@ -498,6 +498,16 @@ Errors are a hexok `Errors` catalog mapped once to ts-pf errors, as `app-templat
 - One function in `errors.ts` decides whether a thrown value is an expected refusal: a member of any hexok `Errors` catalog, or a hexok `CodedError` `VALIDATION`. The family's logging uses it. Whether a refusal is shown to clients is the transport mapping's decision; one it sends as `INTERNAL` is logged by the edge's `onError`.
 
 REST with path parameters is not offered. If an outside partner needs it, it is a projection plus an executor beside `FetchHandler`, the way ts-pf already plans one.
+
+### Admin
+
+`@latticecms/admin` exports `<Admin fetch catalogUrl basePath header />` and `@latticecms/admin/admin.css` ([0032](decisions/0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md)). It renders the served catalog, so its types import no app contract and its type-check does not grow with collections.
+
+- It loads the catalog through the app's `fetch` and narrows it with a type guard over only what it reads. An unreadable catalog names the first thing it could not read. Procedures group by `lattice.collection`, and a relation's target comes from `lattice.target`. Nothing is read from paths.
+- It calls procedures by path through `FetchLink`, with swr keys `[path, input]` and its own cache per mount. A refusal is never retried. Focus refetches.
+- Its router runs on the History API under `basePath`. It follows back, forward and its own links, not the app's `pushState`. A list keeps its filters, sort and cursors in its query, so back and reload return to them.
+- Everything is derived, as 0033 says. Columns are the title field, then required scalars up to six, then `updatedAt`. A maskable field that no loaded document carries is withheld from this caller, because field rules are per actor, so its column is left out. A `VALIDATION` on a filter or sort shows at that control.
+- `admin.css` is compiled at the admin's build over its own classes and the shadalaya components it imports. A test checks that list against the imports. It is 7.8 KB gzipped, and the bundle is 37.6 KB gzipped without React.
 
 ## Observability
 
@@ -585,7 +595,7 @@ packages/
                                                field masking, procedure meta, catalog facts, spans;
                                                /store (adapter surface), /store/conformance
   store-mongo/     @latticecms/store-mongo     MongoStore, Where translation, migrate(), spans
-  admin/           @latticecms/admin           <Admin>: renders the served catalog, on @shadalaya + swr (Phase 3)
+  admin/           @latticecms/admin           <Admin>: renders the served catalog, on @shadalaya + swr
   cli/             @latticecms/cli             scaffold collection, run migrations (Phase 3)
   store-postgres/  @latticecms/store-postgres  (Phase 4)
 examples/
@@ -597,7 +607,7 @@ examples/
 | --- | --- | --- |
 | `@latticecms/core` | none | `hexok`, `@ts-pf/contract`, `@ts-pf/server`, `@ts-pf/protocol`, `@ts-pf/docs`, `@ts-pf/mcp`, `zod` 4, `@hexok/logger`, `@opentelemetry/api` |
 | `@latticecms/store-mongo` | `mongodb` | `@latticecms/core` `^0.1.0`, `hexok`, `zod` 4, `@hexok/logger`, `@opentelemetry/api` |
-| `@latticecms/admin` | `@shadalaya/react` `^0.1.0`, `swr` `^2` | `react` and `react-dom` `^19`, `@latticecms/core` (types), `@ts-pf/client`, `@ts-pf/client-http`, `@ts-pf/docs`, `@ts-pf/protocol` (Phase 3) |
+| `@latticecms/admin` | `@shadalaya/react` `0.1.0` (exact: the prebuilt CSS matches it), `swr` `^2` | `react` and `react-dom` `^19`, `@ts-pf/client-http`, `@ts-pf/protocol`. Core, `@ts-pf/docs` and `@ts-pf/client` are types only, so devDependencies |
 
 - hexok and ts-pf are peers, so the app and Lattice share one copy of each class and type ([0029](decisions/0029-hexok-and-ts-pf-are-peers.md)). An adapter's peer range on core is a caret range, never `*`. Every package publishes public.
 - Each published package's `type-check` also checks its built declarations, as an app sees them through `exports`, with `skipLibCheck` off (`tsconfig.dist.json` over `dist-check/`). Root `skipLibCheck: true` once hid a declaration that failed for every app.

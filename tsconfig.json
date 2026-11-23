@@ -8,6 +8,9 @@
       "path": "packages/store-mongo"
     },
     {
+      "path": "packages/admin"
+    },
+    {
       "path": "examples/crm"
     }
   ]

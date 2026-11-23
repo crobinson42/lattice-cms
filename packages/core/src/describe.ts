@@ -74,6 +74,8 @@ export type LatticeMeta =
       readonly label: Label;
       readonly operation: 'list' | 'set';
       readonly relation: string;
+      /** The slug of the collection the relation's links point to. */
+      readonly target: string;
     }
   | {
       readonly collection: string;
@@ -133,6 +135,7 @@ export type Described =
       readonly label: Label;
       readonly op: 'list' | 'set';
       readonly relation: string;
+      readonly target: string;
       readonly populate: readonly string[];
     };
 
@@ -180,6 +183,7 @@ function latticeOf(described: Described): LatticeMeta {
         label,
         operation: described.op,
         relation: described.relation,
+        target: described.target,
       };
     default:
       return { collection: slug, label, operation: described.op };
