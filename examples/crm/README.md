@@ -34,17 +34,48 @@ A missing or bad setting fails at startup and names each one. Startup is: start 
 
 ```
 HTTP process                 Redis                         worker process
-deals.close ──publish──▶  crm:domain: deal.closed  ──▶  process deal.closed (crm:deals.send-closed-webhook)
-                                                          │  reads the deal inside the event's organization
-                                                          ▼
-                          crm:webhooks: webhooks   ──▶  @hexok/webhooks sender ──POST──▶ the organization's endpoints
+deals.close ──publish──▶  crm:domain: deal.closed  ──┬▶  process deal.closed (crm:deals.send-closed-webhook)
+                                                      │    │  reads the deal inside the event's organization
+                                                      │    ▼
+                          crm:webhooks: webhooks   ◀──┼── @hexok/webhooks sender ──POST──▶ the organization's endpoints
+                                                      │
+                                                      └▶  process deal.closed (crm:deals.publish-closed)
+                                                           │  reads the deal inside the event's organization
+                                                           ▼
+                          integration: crm.deals   ◀──── IntegrationPublisher(CrmDeals) ──▶ the company's other products
 ```
 
 - The HTTP process publishes every domain event to the queue, on a topic named by its token: Lattice's `deals.created` and the rest, and `deal.closed` from `deals.close`. It only publishes.
 - The worker subscribes each handler in its own consumer group, `crm:<handler token>`, so each handler gets every event. A handler that throws is retried, up to 10 deliveries, then given up. A payload the event schema rejects is logged and dropped.
 - Handlers are system code: they read and write through repos with `tenancy.scope(C, event.tenantId)`, never an actor's access. `deal.closed` carries `tenantId` for that.
 - `SIGINT` and `SIGTERM` stop the worker taking events, wait for the handlers in flight, stop the webhook sender, then close the queues and the store.
-- Each handled event is one OpenTelemetry consumer span, `process deal.closed`, and the handler's store calls are its children.
+- Each handled event is one OpenTelemetry consumer span per handler, `process deal.closed`, and the handler's store calls are its children.
+
+### The integration contract
+
+The crm publishes one contract for the company's other products, [`src/integration/deals.ts`](src/integration/deals.ts), through `@hexok/integration-events`. It imports nothing from the crm, so it can be published as a package or copied.
+
+- `CrmDeals` is the contract `crm`, with one topic, `crm.deals`, holding `DealClosedV1` (`deal.closed`, version 1).
+- When a deal closes, the worker maps it field by field ([`deal-closed-integration.ts`](src/app/event-handlers/deal-closed-integration.ts)) and publishes it on the Redis queue with the shared prefix `integration:`, as a CloudEvents envelope:
+
+```json
+{
+  "specversion": "1.0",
+  "id": "deal.closed:<dealId>",
+  "source": "crm",
+  "type": "deal.closed",
+  "version": 1,
+  "time": "2026-11-22T00:00:00.000Z",
+  "subject": "<dealId>",
+  "data": { "dealId": "…", "organizationId": "org-a", "companyId": "…", "outcome": "won", "amount": 4242, "closedAt": "2026-11-22T00:00:00.000Z" }
+}
+```
+
+- It carries `amount`: an internal contract between the company's products, not a customer one.
+- The domain event is never published to other products; only this mapping is. A field added to Deals changes no contract until it is added there.
+- `id` is the same for a redelivery, so a consumer dedupes on it. A deal closes once.
+- A consumer subscribes with `new IntegrationSubscriber(CrmDeals, { queue, service: '<its name>' })` on a RedisQueue with the prefix `integration:`.
+- A breaking change is `DealClosedV2` with a downgrade to v1; the contract file says where it goes.
 
 ### Webhooks
 

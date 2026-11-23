@@ -35,16 +35,25 @@ const webhooksQueue = new RedisQueue({
   stopTimeoutMs: 35_000,
   logger: logger.child({ component: 'webhooks-queue' }),
 });
+// Integration events, read by the company's other products: their prefix
+// is shared, not the crm's own. Topics are `<contract>.<key>`, `crm.deals`.
+const integrationQueue = new RedisQueue({
+  redis,
+  keyPrefix: 'integration:',
+  logger: logger.child({ component: 'integration-queue' }),
+});
 // Plain http and private addresses only for a receiver on this machine.
 const allowPrivate = process.env.WEBHOOKS_ALLOW_PRIVATE === '1';
 
 await store.start();
 await domainQueue.start();
 await webhooksQueue.start();
+await integrationQueue.start();
 const worker = await startWorker({
   store,
   domainQueue,
   webhooksQueue,
+  integrationQueue,
   endpoints: new ConfigWebhookEndpoints(
     configuredEndpoints(process.env.CRM_WEBHOOK_ENDPOINTS),
   ),
@@ -59,6 +68,7 @@ async function shutdown(signal: string): Promise<void> {
   await worker.stop();
   await domainQueue.stop();
   await webhooksQueue.stop();
+  await integrationQueue.stop();
   await store.stop();
 }
 process.once('SIGINT', () => void shutdown('SIGINT'));

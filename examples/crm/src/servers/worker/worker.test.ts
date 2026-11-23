@@ -4,6 +4,7 @@ import { generateSecret, verify } from '@hexok/webhooks';
 import { type CollectionStore, MemoryStore, tenancy } from '@latticecms/core';
 import type { AnyWhere, StoredDoc } from '@latticecms/core/store';
 import { afterEach, describe, expect, it } from 'vitest';
+import { dealClosedV1 } from '../../app/event-handlers/deal-closed-integration.js';
 import { dealClosedWebhook } from '../../app/event-handlers/deal-closed-webhook.js';
 import { Deals } from '../../domain/collections/deals.js';
 import { DealClosedEvent } from '../../domain/events/deal-closed.js';
@@ -72,7 +73,7 @@ function header(headers: IncomingHttpHeaders, name: string): string {
 }
 
 /**
- * A worker over `store`, its two memory queues, and org-a's one endpoint
+ * A worker over `store`, its three memory queues, and org-a's one endpoint
  * for `deal.closed`. The webhook sender retries fast, for tests.
  */
 async function worker(
@@ -86,11 +87,13 @@ async function worker(
   const secret = generateSecret();
   const domainQueue = new MemoryQueue();
   const webhooksQueue = new MemoryQueue();
+  const integrationQueue = new MemoryQueue();
   const logger = new MemoryLogger();
   const running = await startWorker({
     store,
     domainQueue,
     webhooksQueue,
+    integrationQueue,
     endpoints: new ConfigWebhookEndpoints([
       {
         organizationId: 'org-a',
@@ -115,12 +118,14 @@ async function worker(
     if (!stopped) await running.stop();
     await domainQueue.stop();
     await webhooksQueue.stop();
+    await integrationQueue.stop();
   });
   return {
     ...target,
     secret,
     domainQueue,
     webhooksQueue,
+    integrationQueue,
     logger,
     async stop() {
       stopped = true;
@@ -222,6 +227,38 @@ describe.each(backends)('the worker on $name', (backend) => {
     });
   });
 
+  it('publishes deal.closed v1 on crm.deals, mapped from the deal, in a CloudEvents envelope', async () => {
+    const w = await worker(store());
+    const deal = await closedDeal(store(), 'org-a');
+
+    await publishClosed(w.domainQueue, { dealId: deal.id, tenantId: 'org-a' });
+    await w.domainQueue.idle();
+
+    expect(w.integrationQueue.published).toEqual([
+      {
+        topic: 'crm.deals',
+        payload: {
+          specversion: '1.0',
+          id: `deal.closed:${deal.id}`,
+          source: 'crm',
+          type: 'deal.closed',
+          version: 1,
+          time: expect.any(String),
+          subject: deal.id,
+          // An internal contract: unlike the webhook, it carries the amount.
+          data: {
+            dealId: deal.id,
+            organizationId: 'org-a',
+            companyId: 'c1',
+            outcome: 'won',
+            amount: 4242,
+            closedAt: '2026-11-22T00:00:00.000Z',
+          },
+        },
+      },
+    ]);
+  });
+
   it('retries an endpoint that fails, with the same webhook-id', async () => {
     const w = await worker(store(), { statuses: [500] });
     const deal = await closedDeal(store(), 'org-a');
@@ -250,15 +287,42 @@ describe.each(backends)('the worker on $name', (backend) => {
 
     expect(w.webhooksQueue.published).toEqual([]);
     expect(w.received).toEqual([]);
-    expect(
-      w.logger.records.find(
-        (record) => record.message === 'deal.closed webhook skipped',
-      )?.fields,
-    ).toMatchObject({
-      dealId: theirs.id,
-      tenantId: 'org-a',
-      reason: 'not-found',
-    });
+    expect(w.integrationQueue.published).toEqual([]);
+    for (const message of [
+      'deal.closed webhook skipped',
+      'deal.closed integration skipped',
+    ]) {
+      expect(
+        w.logger.records.find((record) => record.message === message)?.fields,
+      ).toMatchObject({
+        dealId: theirs.id,
+        tenantId: 'org-a',
+        reason: 'not-found',
+      });
+    }
+  });
+});
+
+describe('the integration payload', () => {
+  it('takes only its own fields from a deal, whatever else the deal holds', async () => {
+    const deal = await closedDeal(new MemoryStore(), 'org-a');
+    const widened = Object.assign({}, deal, { internalNote: 'secret' });
+
+    const payload = dealClosedV1(
+      widened,
+      'org-a',
+      'won',
+      '2026-11-22T00:00:00.000Z',
+    );
+
+    expect(Object.keys(payload).sort()).toEqual([
+      'amount',
+      'closedAt',
+      'companyId',
+      'dealId',
+      'organizationId',
+      'outcome',
+    ]);
   });
 });
 
@@ -324,18 +388,24 @@ describe('the worker’s delivery rules', () => {
     await publishClosed(w.domainQueue, { dealId: 'd1', tenantId: 'org-a' });
     await w.domainQueue.idle();
 
-    expect(store.gets).toBe(3);
-    expect(w.domainQueue.gaveUp).toEqual([
-      {
-        topic: 'deal.closed',
-        group: 'crm:deals.send-closed-webhook',
-        payload: expect.objectContaining({ dealId: 'd1' }),
-      },
-    ]);
+    // Each handler has its own group, so each retries on its own: 3 each.
+    expect(store.gets).toBe(6);
+    expect(
+      [...w.domainQueue.gaveUp].sort((a, b) => a.group.localeCompare(b.group)),
+    ).toEqual(
+      ['crm:deals.publish-closed', 'crm:deals.send-closed-webhook'].map(
+        (group) => ({
+          topic: 'deal.closed',
+          group,
+          payload: expect.objectContaining({ dealId: 'd1' }),
+        }),
+      ),
+    );
     expect(w.webhooksQueue.published).toEqual([]);
+    expect(w.integrationQueue.published).toEqual([]);
   });
 
-  it('stopping waits for the handler in flight, which still sends its webhook', async () => {
+  it('stopping waits for the handlers in flight, which still send the webhook and the integration event', async () => {
     const store = new HeldStore();
     // Writing the deal never reads it, so it does not wait on the store.
     const held = await closedDeal(store, 'org-a');
@@ -355,6 +425,9 @@ describe('the worker’s delivery rules', () => {
 
     expect(w.webhooksQueue.published).toEqual([
       expect.objectContaining({ topic: 'webhooks' }),
+    ]);
+    expect(w.integrationQueue.published).toEqual([
+      expect.objectContaining({ topic: 'crm.deals' }),
     ]);
   });
 });

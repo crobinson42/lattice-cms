@@ -1,3 +1,4 @@
+import { IntegrationPublisher } from '@hexok/integration-events';
 import type { Logger } from '@hexok/logger';
 import type { Queue, QueueMaxDeliveries } from '@hexok/queue';
 import {
@@ -6,9 +7,11 @@ import {
   type WebhooksConfig,
 } from '@hexok/webhooks';
 import type { CollectionStore } from '@latticecms/core';
+import { PublishDealClosed } from '../../app/event-handlers/deal-closed-integration.js';
 import { SendDealClosedWebhook } from '../../app/event-handlers/deal-closed-webhook.js';
 import { WebhookEvents } from '../../domain/events/webhook-events.js';
 import { QueueDomainEventPublisher } from '../../infra/events/queue-domain-events.js';
+import { CrmDeals } from '../../integration/deals.js';
 import { createApp } from '../app.js';
 import { subscribeHandler } from './subscribe.js';
 
@@ -28,7 +31,8 @@ export type RunningWorker = {
 
 /**
  * Starts the worker over started ports: it consumes the domain events the
- * HTTP process publishes, and sends webhooks on its own queue. The worker is
+ * HTTP process publishes, sends webhooks on its own queue, and publishes the
+ * crm's integration contract on the queue other products read. The worker is
  * system code: its handlers use repos with the event's tenant, never an
  * actor's access.
  */
@@ -36,6 +40,8 @@ export async function startWorker(deps: {
   readonly store: CollectionStore;
   readonly domainQueue: Queue;
   readonly webhooksQueue: Queue;
+  /** The queue the company's products share for integration events. */
+  readonly integrationQueue: Queue;
   readonly endpoints: WebhookEndpoints;
   readonly logger: Logger;
   /** How often a failing handler runs before the queue gives up. */
@@ -60,8 +66,13 @@ export async function startWorker(deps: {
   );
   await webhooks.start();
 
+  const integration = new IntegrationPublisher(CrmDeals, {
+    queue: deps.integrationQueue,
+  });
+
   const handlers = [
     new SendDealClosedWebhook({ deals: repos.deals, webhooks, logger }),
+    new PublishDealClosed({ deals: repos.deals, integration, logger }),
   ];
   const subscriptions: { topic: string; group: string }[] = [];
   for (const handler of handlers) {

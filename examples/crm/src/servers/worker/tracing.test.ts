@@ -37,17 +37,19 @@ afterAll(() => {
 });
 
 describe('a handled event, traced, on MongoStore', () => {
-  it('is one consumer job span, with the handler’s store calls under it', async () => {
+  it('is one consumer job span per handler, with its store calls under it', async () => {
     const url = inject('mongoUrl');
     const database = `crm_${crypto.randomUUID().replaceAll('-', '')}`;
     const store = new MongoStore({ url, database });
     await store.start();
     const domainQueue = new MemoryQueue();
     const webhooksQueue = new MemoryQueue();
+    const integrationQueue = new MemoryQueue();
     const worker = await startWorker({
       store,
       domainQueue,
       webhooksQueue,
+      integrationQueue,
       endpoints: new ConfigWebhookEndpoints([]),
       logger: new MemoryLogger(),
     });
@@ -73,25 +75,34 @@ describe('a handled event, traced, on MongoStore', () => {
       await domainQueue.idle();
 
       const spans = exporter.getFinishedSpans();
-      const job = spans.find((span) => span.name === 'process deal.closed');
-      if (job === undefined) throw new Error('no job span');
-      expect(job.kind).toBe(SpanKind.CONSUMER);
-      expect(job.attributes).toMatchObject({
-        'messaging.system': 'hexok.queue',
-        'messaging.operation.type': 'process',
-        'messaging.destination.name': 'deal.closed',
-        'messaging.consumer.group.name': 'crm:deals.send-closed-webhook',
-        'hexok.queue.deliveries': 1,
-        'hexok.queue.outcome': 'ok',
-      });
-      expect(
-        spans
-          .filter(
-            (span) =>
-              span.parentSpanContext?.spanId === job.spanContext().spanId,
-          )
-          .map((span) => span.name),
-      ).toEqual(['find deals']);
+      // One job per handler: each has its own consumer group.
+      for (const group of [
+        'crm:deals.send-closed-webhook',
+        'crm:deals.publish-closed',
+      ]) {
+        const job = spans.find(
+          (span) =>
+            span.name === 'process deal.closed' &&
+            span.attributes['messaging.consumer.group.name'] === group,
+        );
+        if (job === undefined) throw new Error(`no job span for ${group}`);
+        expect(job.kind).toBe(SpanKind.CONSUMER);
+        expect(job.attributes).toMatchObject({
+          'messaging.system': 'hexok.queue',
+          'messaging.operation.type': 'process',
+          'messaging.destination.name': 'deal.closed',
+          'hexok.queue.deliveries': 1,
+          'hexok.queue.outcome': 'ok',
+        });
+        expect(
+          spans
+            .filter(
+              (span) =>
+                span.parentSpanContext?.spanId === job.spanContext().spanId,
+            )
+            .map((span) => span.name),
+        ).toEqual(['find deals']);
+      }
       expect(
         JSON.stringify(spans.map((span) => span.attributes)),
       ).not.toContain('4242');
@@ -99,6 +110,7 @@ describe('a handled event, traced, on MongoStore', () => {
       await worker.stop();
       await domainQueue.stop();
       await webhooksQueue.stop();
+      await integrationQueue.stop();
       await store.stop();
       const client = new MongoClient(url);
       await client.db(database).dropDatabase();
