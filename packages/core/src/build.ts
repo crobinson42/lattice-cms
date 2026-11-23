@@ -717,7 +717,13 @@ type GeneratedUseCase<Col extends AnyCollection, A extends Action, Ctx> = {
 };
 
 /** A generated relation operation as a direct caller sees it. */
-type GeneratedRelationUseCase<Schemas_ extends Schemas, Ctx> = {
+type GeneratedRelationUseCase<
+  Schemas_ extends {
+    readonly input: z.core.$ZodType;
+    readonly output: z.core.$ZodType;
+  },
+  Ctx,
+> = {
   execute(
     ctx: Ctx,
     input: z.input<Schemas_['input']>,

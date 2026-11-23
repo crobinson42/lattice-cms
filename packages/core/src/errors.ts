@@ -71,11 +71,11 @@ export function invalid(issues: readonly z.core.$ZodIssue[]) {
 }
 
 /** `value` parsed by `schema`, or a VALIDATION error naming each path. */
-export function parse<S extends z.ZodType>(
+export function parse<S extends z.core.$ZodType>(
   schema: S,
   value: unknown,
 ): z.output<S> {
-  const result = schema.safeParse(value);
+  const result = z.safeParse(schema, value);
   if (!result.success) throw invalid(result.error.issues);
   return result.data;
 }

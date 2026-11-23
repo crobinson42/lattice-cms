@@ -339,7 +339,12 @@ export interface Collection<
   ): Collection<Slug, Shape, Tenant, Relations, Maskable>;
 }
 
-/** A relation as the framework reads it, whatever its collections. */
+/**
+ * A relation as the framework reads it, whatever its collections. Its
+ * schemas are Zod core's `$ZodType`, not classic `ZodType`: every
+ * collection with a relation is checked against this type once, and
+ * against classic `ZodType` that check compares every classic method.
+ */
 export type AnyRelation = {
   readonly target: string;
   readonly onDelete: ManyOnDelete;
@@ -347,7 +352,7 @@ export type AnyRelation = {
   readonly parentField: string;
   readonly targetField: string;
   readonly list: {
-    readonly input: z.ZodType<
+    readonly input: z.core.$ZodType<
       {
         readonly id: string;
         readonly where?: AnyWhere | undefined;
@@ -359,14 +364,14 @@ export type AnyRelation = {
       // The input type too: the contract's expansion reads `populate` there.
       { readonly populate?: readonly string[] | undefined }
     >;
-    readonly output: z.ZodType;
+    readonly output: z.core.$ZodType;
   };
   readonly set: {
-    readonly input: z.ZodType<{
+    readonly input: z.core.$ZodType<{
       readonly id: string;
       readonly links: readonly Readonly<Record<string, unknown>>[];
     }>;
-    readonly output: z.ZodType;
+    readonly output: z.core.$ZodType;
   };
 };
 

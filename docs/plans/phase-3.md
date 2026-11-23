@@ -46,7 +46,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 - [ ] `@latticecms/admin` as decided at steps 1 and 2, on `@ts-pf/client`.
 - [x] The crm serves `/catalog.json` behind a session, and adds the global `organizations` collection (a member reads its own; memberships ref it), the `/auth` `organizations` procedure (a session, no organization), and a deal `contacts` relation with a `role`. The dev scripts take an organization name.
-- [ ] Profile and cut a `many()` relation's type cost (about 35k instantiations, three times a collection), so the crm's budget can return toward 0.75 s.
+- [x] Profile and cut a `many()` relation's type cost. Constraints use `z.core.$ZodType` (core −5.7%, crm −8.3% in instantiations). The crm's check skips declaration emit. Its budget stays 0.85 s: it measures 0.76–0.84 s.
 - [ ] The crm mounts the admin at `/admin`, with the switcher.
 - [ ] The browser test and the bundle budget, as decided at step 1.
 - [ ] A withheld field is absent in forms and tables, and a `VALIDATION` on a filter is shown, not swallowed. A `REFERENCED` delete explains which children block it.
@@ -99,4 +99,5 @@ Add a line here when the work teaches something the plan did not know. Each line
 - `@shadalaya/react` 0.1.0 needs React 19 despite its `>=18` peer range. `@shadalaya/theme` installs the shadcn CLI. The admin keeps the theme in devDependencies. A brief for shadalaya is in the maintainer's hands.
 - The mask marker's clone dropped the app's Zod meta on a maskable field, including a `title` or `.describe()`. It now keeps it (`parent: true`), which 0033's field labels need. In `architecture.md`.
 - A `many()` relation costs an app about 35k type instantiations, a plain collection about 12k. The crm with tests went over 0.75 s, and the maintainer raised its budget to 0.85 s, with a profiling task next. In `architecture.md`.
+- Profiled: a plain tenanted collection costs about 36k instantiations and a relation about 44k, much of it in ts-pf's MCP toolkit and hexok's `Event()` types. Briefs for both are with the maintainer. Wall time varies about 10% between days, so a budget in instantiations would be steadier. In `architecture.md`.
 - Tests that checked a JSON body for a secret number as a substring were flaky: random hex ids and database names can contain it. Secrets now have a fraction (`4242.5`), which no hex id holds.

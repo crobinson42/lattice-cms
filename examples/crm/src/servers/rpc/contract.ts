@@ -44,8 +44,10 @@ export const crm = framework({
     overrides: { delete: ArchiveDeal },
   })
   .collection(Memberships, {
-    // A caller lists its own memberships, such as for an organization
-    // switcher. No create, update or delete: only trusted code writes them.
+    // A caller lists its own memberships, in every organization. An
+    // organization switcher uses /auth organizations instead, since /rpc
+    // needs an organization first. No create, update or delete: only
+    // trusted code writes them.
     access: { read: ({ actor }) => ({ userId: { eq: actor.userId } }) },
   })
   .collection(Organizations, {

@@ -2,7 +2,7 @@ import type { Logger } from '@hexok/logger';
 import { type Attributes, type Span, SpanKind } from '@opentelemetry/api';
 import type { Effect } from '@ts-pf/mcp/meta';
 import { type StandardSchemaV1, UseCase } from 'hexok';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { CallAccess } from './access.js';
 import type { AnyCollection } from './collection.js';
 import { invalid, LatticeError, refusal } from './errors.js';
@@ -18,8 +18,8 @@ import { failed, tracer } from './tracing.js';
  */
 export type FamilySpec = {
   readonly collection: AnyCollection;
-  readonly input?: z.ZodType;
-  readonly output?: z.ZodType;
+  readonly input?: z.core.$ZodType;
+  readonly output?: z.core.$ZodType;
   readonly summary?: string;
   readonly effect?: Effect;
 };
@@ -192,7 +192,7 @@ export function family<
       // case parses its own input inside execute to strip unknown keys and
       // apply defaults.
       if (spec.input === undefined) return;
-      const result = spec.input.safeParse(input);
+      const result = z.safeParse(spec.input, input);
       if (!result.success) {
         const log = callLogger(ctx.logger, spec, token, caller(ctx.actor));
         throw logThrown(log, token, invalid(result.error.issues));
@@ -209,7 +209,7 @@ export function family<
           ? undefined
           : spec.input === undefined
             ? input
-            : spec.input.parse(input);
+            : z.parse(spec.input, input);
       try {
         await ctx.access.scope(spec.collection, action, data);
       } catch (error) {
