@@ -20,7 +20,6 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 | [0010](0010-collection-events-stay-in-the-product.md) | Collection events stay inside the product | lock | Only with the maintainer. |
 | [0011](0011-no-read-events.md) | Reads are logged and traced, not published as events | default | A product needs an audit trail of reads. |
 | [0013](0013-zod-4-for-collection-schemas.md) | Collection schemas are Zod 4 | default | Standard Schema gains a way to extend and introspect object shapes. |
-| [0014](0014-api-first-admin-later.md) | API first; the admin is Phase 3 | default | Phase 2 exits. |
 | [0015](0015-versions-in-a-separate-collection.md) | Versions and drafts live in a separate collection | default | Phase 4 starts, or a product needs versions earlier. |
 | [0016](0016-new-internal-tools-first.md) | New internal tools adopt Lattice first | default | Phase 2 exits with one internal tool in production. |
 | [0017](0017-breaking-changes-are-free-before-1-0.md) | Before 1.0, breaking changes are free | lock | The first `@latticecms/*` release that another repository depends on. |
@@ -38,6 +37,7 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 | [0029](0029-hexok-and-ts-pf-are-peers.md) | hexok and ts-pf are peers of every `@latticecms/*` package | default | npm or Node gains a reliable way to share one copy of a regular dependency with the app, or hexok and ts-pf stop exposing classes and branded types that must be the app's own. |
 | [0030](0030-the-edge-checks-membership-per-request.md) | The edge picks the active organization from a header and checks membership on every request | default | The pilot's identity provider supplies organizations or roles as claims, or the per-request membership lookup shows up in latency. |
 | [0031](0031-masked-fields-are-withheld-at-the-client-boundary.md) | Masked fields are declared on the collection, decided per actor through the Access port, and withheld at the client boundary | default | An app needs a field's visibility to depend on the row, not just the actor, or a client generator cannot handle optional properties in output. |
+| [0032](0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md) | The admin is a React package that renders the catalog the app serves | default | An app needs typed per-collection UI code, an app cannot serve JSON next to its RPC endpoint, or shadalaya ships a data table or schema-driven forms. |
 
 ## Proposed
 
@@ -45,4 +45,4 @@ These are not decided yet. Treat them as context, not rules.
 
 None.
 
-1 superseded record is history and not listed. Do not follow them.
+2 superseded records are history and not listed. Do not follow them.

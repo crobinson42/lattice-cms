@@ -28,23 +28,23 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 1. The admin's scope **Checkpoint**
 
-- [ ] What the admin does in Phase 3:
-  - a list with filter, sort, cursor pages and a `count`;
-  - detail with population;
-  - create and edit forms from input schemas;
-  - delete, and relation `list` and `set`;
-  - masked fields;
-  - methods.
-  Name what it leaves out.
-- [ ] How it is delivered: a React package an app mounts (routes, a provider and the typed client), or a standalone SPA that reads the contract. How it reads the contract: `import type` and `catalog()`, or OpenAPI.
-- [ ] `@shadalaya/react`: read it (npm 0.1.0). Decide what it provides, whether it is a dependency or a peer, and what is missing for tables and forms.
-- [ ] How the admin signs in and picks an organization. It reuses the app's `/auth` and `x-organization-id`, and imports no auth code into Lattice (0006).
-- [ ] How it is tested: component tests, a browser test, or both.
-
-Propose before building.
+- [x] Decided in [0032](../decisions/0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md), which supersedes 0014:
+  - **Features.** A list with a filter per field, one-column sort, Next and Back over cursors, and a count. Detail with population and links to referenced documents. Create and edit forms, where edit sends only the changed fields. Delete, which asks for confirmation and explains a `REFERENCED` refusal. Relation `list` and `set`. Withheld fields are absent. A method with an `id` input is a document action, and one without is a collection action. `VALIDATION` issues are shown at their fields.
+  - **Left out.** Bulk actions, OR groups and multi-column sort, CSV import and export, saved views, dashboards, audit history, i18n, client-side validation, and per-collection custom pages or renderers.
+  - **Delivery.** `<Admin fetch catalogUrl basePath header />` plus `@latticecms/admin/admin.css`, and nothing else public. The app serves the catalog JSON behind a session and keys `<Admin>` by organization.
+  - **Dependencies.** Approved: peers `react` and `react-dom` `^19` and `@ts-pf/client`, `client-http`, `docs` and `protocol` `^0.6.0`. Dependencies `@shadalaya/react` `^0.1.0` and `swr` `^2`. devDependencies `tailwindcss`, `@tailwindcss/cli`, `@shadalaya/theme`, Testing Library, `happy-dom` and `@types/react`. The crm adds `react`, `react-dom` and `@latticecms/admin`, plus `vite` and `playwright` as devDependencies.
+  - **Sign-in.** The crm signs in through `/auth`. A new `/auth` `organizations` procedure needs a session but no organization, and returns the caller's organizations with their names. The names come from a new crm `organizations` collection.
+  - **Testing.** Component tests in `packages/admin` (vitest, Testing Library and happy-dom) against an in-memory app over `FetchLink`. One Chromium test in the crm, driven by the `playwright` library from vitest, against the HTTP server and mongod. CI installs Chromium from a cache.
+  - **Budgets.** A test gzips the Vite build and asserts a size budget, set from the first measurement. The crm's admin UI gets its own tsconfig project, so the crm's 0.75 s server budget still measures the server.
 
 ### 2. UI metadata **Checkpoint**
 
+- [ ] Catalog facts core already knows but does not emit, found at step 1:
+  - a ref's target collection;
+  - a machine-readable mark on a maskable field;
+  - the sortable fields;
+  - a method's summary and effect, declared once for the admin and MCP (the crm describes `deals.close` only in its MCP toolset);
+  - the collection, operation and relation of each generated procedure, so no client guesses from path segments.
 - [ ] Decide what the admin needs from a collection that the schema does not say: labels, a title field for references, list columns, field widgets and ordering.
 - [ ] Decide where it is declared: on the collection, in Zod `.meta()`, or in procedure `.meta()` (which already flows into `catalog()`). It must not grow type-check cost per field (0003).
 - [ ] A decision record.
@@ -52,7 +52,9 @@ Propose before building.
 ### 3. The admin package
 
 - [ ] `@latticecms/admin` as decided at steps 1 and 2, on `@ts-pf/client`.
-- [ ] The crm mounts it, with the organization switcher.
+- [ ] The crm mounts it at `/admin`, serves `/catalog.json` behind a session, and adds the `organizations` collection, the `/auth` `organizations` procedure and the switcher.
+- [ ] The crm gains a `many()` relation (deal contacts), so the browser test covers relation `list` and `set`.
+- [ ] The browser test and the bundle budget, as decided at step 1.
 - [ ] A withheld field is absent in forms and tables, and a `VALIDATION` on a filter is shown, not swallowed. A `REFERENCED` delete explains which children block it.
 
 ### 4. Uploads **Checkpoint**
@@ -98,4 +100,6 @@ Candidates, not commitments. Each needs a reason from this phase's work before i
 
 Add a line here when the work teaches something the plan did not know. Each line says what was found and where it went.
 
-- None yet.
+- `catalog()` cannot run in a browser: an app's runtime contract imports its methods' use cases. The admin renders the catalog the app serves ([0032](../decisions/0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md)).
+- `/rpc` refuses every call without an organization, so `memberships.find` cannot feed a switcher. The crm adds an `/auth` procedure (step 3).
+- `@shadalaya/react` 0.1.0 needs React 19 despite its `>=18` peer range. `@shadalaya/theme` installs the shadcn CLI. The admin keeps the theme in devDependencies. A brief for shadalaya is in the maintainer's hands.

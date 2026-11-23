@@ -54,7 +54,7 @@ Lattice owns only the rows marked **Lattice** ([0001](decisions/0001-build-on-he
 | OpenAPI, other languages | `@ts-pf/openapi`, `@ts-pf/codegen` | Codegen profile for non-TypeScript clients |
 | Typed clients | `@ts-pf/client` + `client-http`, `@ts-pf/swr`, `@ts-pf/mvc-kit` | Web and admin clients use the same contract |
 | File uploads | `@ts-pf/file` (multipart) + a blob storage port (missing) | Phase 3 |
-| Admin UI | **Lattice** `admin` package, reading `@ts-pf/docs` `catalog()` + procedure `.meta()` | Phase 3 |
+| Admin UI | **Lattice** `admin` package: a React component that renders the `catalog()` JSON the app serves ([0032](decisions/0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md)) | Phase 3 |
 | CLI | **Lattice** `cli` | Scaffolding and migrations only, Phase 3 |
 
 ## Core model: a collection compiles into hexok and ts-pf
@@ -581,7 +581,7 @@ packages/
                                                field masking, procedure meta, spans;
                                                /store (adapter surface), /store/conformance
   store-mongo/     @latticecms/store-mongo     MongoStore, Where translation, migrate(), spans
-  admin/           @latticecms/admin           React admin on @shadalaya + @ts-pf/client (Phase 3)
+  admin/           @latticecms/admin           <Admin>: renders the served catalog, on @shadalaya + swr (Phase 3)
   cli/             @latticecms/cli             scaffold collection, run migrations (Phase 3)
   store-postgres/  @latticecms/store-postgres  (Phase 4)
 examples/
@@ -593,7 +593,7 @@ examples/
 | --- | --- | --- |
 | `@latticecms/core` | none | `hexok`, `@ts-pf/contract`, `@ts-pf/server`, `@ts-pf/protocol`, `@ts-pf/docs`, `@ts-pf/mcp`, `zod` 4, `@hexok/logger`, `@opentelemetry/api` |
 | `@latticecms/store-mongo` | `mongodb` | `@latticecms/core` `^0.1.0`, `hexok`, `zod` 4, `@hexok/logger`, `@opentelemetry/api` |
-| `@latticecms/admin` | `@ts-pf/client`, `@ts-pf/client-http`, `@ts-pf/docs` | `react`, `@shadalaya/react` |
+| `@latticecms/admin` | `@shadalaya/react` `^0.1.0`, `swr` `^2` | `react` and `react-dom` `^19`, `@ts-pf/client`, `@ts-pf/client-http`, `@ts-pf/docs`, `@ts-pf/protocol` (Phase 3) |
 
 - hexok and ts-pf are peers, so the app and Lattice share one copy of each class and type ([0029](decisions/0029-hexok-and-ts-pf-are-peers.md)). An adapter's peer range on core is a caret range, never `*`. Every package publishes public.
 - Each published package's `type-check` also checks its built declarations, as an app sees them through `exports`, with `skipLibCheck` off (`tsconfig.dist.json` over `dist-check/`). Root `skipLibCheck: true` once hid a declaration that failed for every app.
@@ -615,5 +615,5 @@ Each phase ends at a gate; the next starts when its exit holds. Phase 0 builds t
 | 0. Kernel, in memory (done) | `collection()`, `family()`, `framework()`, `build()`, `MemoryStore`; generated CRUD use cases, contract slice, event classes; overrides, custom methods, family guards, logging | A three-collection example serves `/rpc` and all tests pass on `MemoryStore` |
 | 1. Mongo, relations, access, tenancy (done) | `MongoStore`, `Where` translation, indexes, migrations runner; `ref()`, `many()`, join collections, batched population; `Access` port with default functions, row-level tenancy, `count` | `examples/crm` runs on Mongo; tenant isolation tests pass |
 | 2. Production wiring (done) | `@hexok/auth` recipe, field masking; integration-events and webhooks recipes, a worker, MCP, OpenAPI; OpenTelemetry spans; CI and the release path. The `@hexok/authz` adapter waits for hexok | Core and store-mongo 0.1.0 are ready to publish; `examples/crm` is the reference app |
-| 3. Admin and CLI ([plan](plans/phase-3.md)) | Admin SPA from `catalog()` and `.meta()`, on `@shadalaya`; CLI scaffolding and migrations; uploads through `@ts-pf/file` and a blob port | A new tool reaches CRUD, auth and admin in under one day |
+| 3. Admin and CLI ([plan](plans/phase-3.md)) | Admin package that renders the served `catalog()` and `.meta()`, on `@shadalaya`; CLI scaffolding and migrations; uploads through `@ts-pf/file` and a blob port | A new tool reaches CRUD, auth and admin in under one day |
 | 4. Hardening | Outbox relay, versions and drafts, Postgres store, index and performance tooling, security review | Ongoing; picked up as products need it |

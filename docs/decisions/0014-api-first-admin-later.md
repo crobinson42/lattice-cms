@@ -1,5 +1,6 @@
 ---
-status: accepted
+status: superseded
+superseded_by: 0032
 strength: default
 date: 2026-11-20
 revisit: Phase 2 exits.
