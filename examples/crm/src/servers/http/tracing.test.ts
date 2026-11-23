@@ -1,4 +1,5 @@
 import { MemoryLogger } from '@hexok/logger';
+import { unscoped } from '@latticecms/core';
 import { MongoStore } from '@latticecms/store-mongo';
 import { context, trace } from '@opentelemetry/api';
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
@@ -22,7 +23,7 @@ import { openDevSession } from '../../infra/auth/dev-session.js';
 import { MemoryDomainEventPublisher } from '../../infra/events/memory-domain-events.js';
 import { mcpClient } from '../../test/mcp.js';
 import { testSessions } from '../../test/sessions.js';
-import { createApp } from '../app.js';
+import { type CrmApp, createApp } from '../app.js';
 import { organizationHeader } from './handler.js';
 import { type Running, start } from './server.js';
 
@@ -57,6 +58,21 @@ function childrenOf(parent: ReadableSpan): string[] {
     .sort();
 }
 
+/** The id of the organization the dev script made with `name`. */
+async function organizationNamed(
+  crm: Pick<CrmApp, 'repos'>,
+  name: string,
+): Promise<string> {
+  const [found] = (
+    await crm.repos.organizations.find(
+      { where: { name: { eq: name } }, limit: 1 },
+      unscoped,
+    )
+  ).docs;
+  if (found === undefined) throw new Error(`no organization ${name}`);
+  return found.id;
+}
+
 describe('tracing through the server, on MongoStore', () => {
   const url = inject('mongoUrl');
   const database = `crm_${crypto.randomUUID().replaceAll('-', '')}`;
@@ -84,8 +100,9 @@ describe('tracing through the server, on MongoStore', () => {
     const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
     const token = await openDevSession(
       { crm, sessions },
-      { userId: 'ann', organizationId: 'org-a' },
+      { userId: 'ann', organization: 'Org A' },
     );
+    const org = await organizationNamed(crm, 'Org A');
     exporter.reset();
 
     const response = await fetch(new URL('/rpc/deals/find', running.url), {
@@ -93,7 +110,7 @@ describe('tracing through the server, on MongoStore', () => {
       headers: {
         'content-type': 'application/json',
         authorization: `Bearer ${token}`,
-        [organizationHeader]: 'org-a',
+        [organizationHeader]: org,
       },
       body: JSON.stringify({ input: {} }),
     });
@@ -111,7 +128,7 @@ describe('tracing through the server, on MongoStore', () => {
         ?.attributes,
     ).toMatchObject({
       'lattice.actor_id': 'ann',
-      'lattice.tenant_id': 'org-a',
+      'lattice.tenant_id': org,
       'lattice.outcome': 'ok',
     });
   });
@@ -131,11 +148,11 @@ describe('tracing through the server, on MongoStore', () => {
     const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
     const token = await openDevSession(
       { crm, sessions },
-      { userId: 'ann', organizationId: 'org-a' },
+      { userId: 'ann', organization: 'Org A' },
     );
     const client = await mcpClient(
       (request) => fetch(request),
-      { token, org: 'org-a' },
+      { token, org: await organizationNamed(crm, 'Org A') },
       new URL('/mcp', running.url).href,
     );
     exporter.reset();

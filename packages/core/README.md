@@ -194,6 +194,7 @@ import { Companies } from '../../domain/collections/companies.js';
 import { Contacts } from '../../domain/collections/contacts.js';
 import { Deals } from '../../domain/collections/deals.js';
 import { Memberships } from '../../domain/collections/memberships.js';
+import { Organizations } from '../../domain/collections/organizations.js';
 import { clientErrors, toRpcError } from './errors.js';
 
 /** Any signed-in caller may do this. The edge has already checked the actor. */
@@ -202,7 +203,7 @@ const anyone = () => true;
 // An archived deal is hidden from every read and can no longer change.
 const live = () => ({ archived: { eq: false } });
 
-/** The CRM's API: four collections, one override and one method. No ports. */
+/** The CRM's API: five collections, one override and one method. No ports. */
 export const crm = framework({
   family: AppUseCase,
   errors: { declared: clientErrors, map: toRpcError },
@@ -234,12 +235,20 @@ export const crm = framework({
     // A caller lists its own memberships, such as for an organization
     // switcher. No create, update or delete: only trusted code writes them.
     access: { read: ({ actor }) => ({ userId: { eq: actor.userId } }) },
+  })
+  .collection(Organizations, {
+    // A member reads the organization it acts in, and support every one.
+    // No create, update or delete: only trusted code writes them.
+    access: {
+      read: ({ actor }) =>
+        'support' in actor ? true : { id: { eq: actor.organizationId } },
+    },
   });
 
 /** What clients and codegen import. */
 export const contract = crm.contract;
 
-export { AppUseCase, Companies, Contacts, Deals, Memberships };
+export { AppUseCase, Companies, Contacts, Deals, Memberships, Organizations };
 ```
 
 `framework({ family, errors? })` starts a definition. `errors` is the app's `{ declared, map }`; an app with no domain errors leaves it out.
@@ -520,6 +529,14 @@ export const Deals = collection('deals', {
     closedAt: z.iso.datetime().optional(),
   }),
   tenant: 'organizationId',
+  // The people on a deal, and what each is to it. A contact on a deal
+  // cannot be deleted: restrict, the default.
+  relations: {
+    contacts: many('contacts', {
+      through: 'deal_contacts',
+      fields: z.object({ role: contactRole }),
+    }),
+  },
   // Only managers and support see amounts: the contract's fields rule.
   maskable: ['amount'],
   // The pipeline view: one organization's deals in a stage, newest first.
@@ -561,6 +578,12 @@ export class DomainEvents extends EventCatalog('domain-events', {
   membershipsCreated: Memberships.events.created,
   membershipsUpdated: Memberships.events.updated,
   membershipsDeleted: Memberships.events.deleted,
+  organizationsCreated: Organizations.events.created,
+  organizationsUpdated: Organizations.events.updated,
+  organizationsDeleted: Organizations.events.deleted,
+  dealContactsCreated: Deals.relations.contacts.through.events.created,
+  dealContactsUpdated: Deals.relations.contacts.through.events.updated,
+  dealContactsDeleted: Deals.relations.contacts.through.events.deleted,
   dealClosed: DealClosedEvent,
 }) {}
 ```
@@ -707,7 +730,7 @@ The reason is logged, never sent. A switched or revoked membership takes effect 
 
 ### Login on its own router
 
-Sign-in is not a Lattice procedure: every Lattice procedure has an actor, and a caller signing in has none yet. The crm serves it at `/auth`, beside `/rpc`, as a plain ts-pf router:
+Sign-in is not a Lattice procedure: every Lattice procedure has an actor, and a caller signing in has none yet. The crm serves it at `/auth`, beside `/rpc`, as a plain ts-pf router, with sign-out and the caller's organizations:
 
 ```ts
 // examples/crm/src/servers/auth/contract.ts
@@ -719,6 +742,17 @@ export const authContract = router({
       UNAUTHORIZED: { status: 401, message: 'The credentials are not valid' },
     }),
   logout: procedure.input(z.object({})).output(z.null()),
+  /**
+   * The organizations the signed-in user is a member of, by name, for an
+   * organization switcher. It needs a session and no organization header:
+   * the caller has not picked one yet. Support acts in none, so it gets none.
+   */
+  organizations: procedure
+    .input(z.object({}))
+    .output(z.array(z.object({ id: z.string(), name: z.string() })))
+    .errors({
+      UNAUTHORIZED: { status: 401, message: 'The actor is missing or invalid' },
+    }),
 });
 ```
 
@@ -744,6 +778,7 @@ export const authContract = router({
 ```
 
 - The `Login` use case checks the password and the lockout; the router opens the session. The use case never sees a token.
+- `organizations` lists the signed-in user's organizations, `{ id, name }`, sorted by name, for an organization switcher. It needs a session and no organization header, since the caller has not picked one yet. It runs the edge's own session check, and reads memberships and organizations through their repos as trusted edge code, as the membership check does. Support gets none.
 - Password hashes and failed attempts live in store collections Lattice never registers, `credentials` and `login_attempts`, so no procedure, MCP tool or OpenAPI document can reach them.
 - The crm's [README](../../examples/crm/README.md#passwords-and-their-limits) gives the hashing and lockout rules.
 
@@ -845,6 +880,9 @@ const alwaysDenied = [
   tk.memberships.create,
   tk.memberships.update,
   tk.memberships.delete,
+  tk.organizations.create,
+  tk.organizations.update,
+  tk.organizations.delete,
 ];
 
 /**
@@ -890,19 +928,19 @@ The tools run in process through the implemented router, so access, tenancy, mas
   });
 ```
 
-The OpenAPI document is a projection of the same contract, with ts-pf's `codegen` profile for generators in other languages:
+The OpenAPI document is a projection of the contract's catalog, with ts-pf's `codegen` profile for generators in other languages:
 
 ```ts
 // examples/crm/src/servers/rpc/openapi.ts
 export function openapiDocument() {
-  return openapi(catalog(contract, { prefix: '/rpc' }), {
+  return openapi(catalogDocument(), {
     info: { title: 'Lattice CRM', version: '0.0.0' },
     profile: 'codegen',
   });
 }
 ```
 
-The crm serves it at `GET /openapi.json` to signed-in users only, since it says which fields are masked. A TypeScript client in another repo uses `@ts-pf/codegen` on the same catalog instead; the crm's [`codegen.test.ts`](../../examples/crm/src/servers/rpc/codegen.test.ts) is that client, with no casts.
+The crm serves it at `GET /openapi.json`, and the catalog itself at `GET /catalog.json`, to signed-in users only, since both say which fields are masked. The catalog carries each procedure's `lattice` meta and the `x-lattice-*` keys; the admin builds its views from it. A TypeScript client in another repo uses `@ts-pf/codegen` on the same catalog instead; the crm's [`codegen.test.ts`](../../examples/crm/src/servers/rpc/codegen.test.ts) is that client, with no casts.
 
 ## Reference
 

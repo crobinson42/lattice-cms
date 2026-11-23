@@ -7,18 +7,19 @@ import { LoggingDomainEventPublisher } from '../../infra/events/logging-domain-e
 import { createApp } from '../app.js';
 
 /**
- * Prints a session token for a user in an organization, adding the
- * membership if needed. Local development only: it checks no password.
+ * Prints a session token for a user in an organization, by its name,
+ * creating the organization and adding the membership if needed. Local
+ * development only: it checks no password.
  *
- * npm run dev:session -w @latticecms/example-crm -- <userId> <organizationId> [member|manager]
+ * npm run dev:session -w @latticecms/example-crm -- <userId> <organization> [member|manager]
  */
-const [userId = '', organizationId = '', given = 'member'] = process.argv
+const [userId = '', organization = '', given = 'member'] = process.argv
   .slice(2)
   .map((arg) => arg.trim());
 const parsed = role.safeParse(given);
-if (userId === '' || organizationId === '' || !parsed.success) {
+if (userId === '' || organization === '' || !parsed.success) {
   console.error(
-    'usage: npm run dev:session -- <userId> <organizationId> [member|manager]',
+    'usage: npm run dev:session -- <userId> <organization> [member|manager]',
   );
   process.exit(1);
 }
@@ -50,7 +51,7 @@ try {
   console.log(
     await openDevSession(
       { crm, sessions },
-      { userId, organizationId, role: parsed.data },
+      { userId, organization, role: parsed.data },
     ),
   );
 } finally {

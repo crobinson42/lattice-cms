@@ -349,7 +349,7 @@ The edge's context is `CallContext<Actor>`, `{ actor, logger }`; Lattice adds `a
 
 The active organization comes from a request header, `x-organization-id` in `examples/crm`. The edge checks membership on every request, with one indexed `count` on the app's `memberships` collection, before the actor exists. So `tenantOf` reads only a checked organization ([0030](decisions/0030-the-edge-checks-membership-per-request.md)). No organization, not a member, and no such organization are one 403 `FORBIDDEN`. Each refusal's reason is logged, never sent. The session holds only the user. A support actor comes from server config, never from the request.
 
-Procedures with no actor, such as login and logout, live on the app's own small ts-pf router (`/auth` in the crm), outside the Lattice families. In the crm, password hashes live in a store collection that Lattice never registers, so no contract, MCP tool or OpenAPI document can describe them.
+Procedures with no actor, such as login and logout, live on the app's own small ts-pf router (`/auth` in the crm), outside the Lattice families. So does the crm's `organizations`, which lists the caller's organizations by name for a switcher: it needs a session but no organization, and reads memberships and the global `organizations` collection as trusted edge code. In the crm, password hashes live in a store collection that Lattice never registers, so no contract, MCP tool or OpenAPI document can describe them.
 
 ### Access
 
@@ -543,7 +543,7 @@ What the built system does not do yet, or does with a known gap. Each is a candi
 - **Field masking.**
   - A field rule sees the actor, not the row.
   - A method field computed from a masked one, an `afterRead` derivation, an object `.refine()` across a maskable field, and an access `Where` on a maskable field can each reveal something about it. The README says not to write them.
-- **Type-check cost.** After Phase 2 step 7, core's sources take 1.04–1.06 s (0.98 s after Phase 1), the crm's 0.52–0.54 s, and the crm with tests 0.67–0.71 s, within its 0.75 s limit. The crm's growth since Phase 1 is its own MCP, SDK and codegen surface, not Lattice's per-collection types. Core's sources grew 0.6% for field masking, 0.6% for procedure meta, and 0.2% in instantiations for the catalog facts of Phase 3 step 2, which left the crm with tests at 0.65–0.69 s. [0003](decisions/0003-collections-compile-at-runtime.md)'s revisit condition does not hold.
+- **Type-check cost.** Core's sources take 1.04–1.09 s (0.98 s after Phase 1). The crm's sources take 0.58–0.62 s, and the crm with tests 0.72–0.77 s, within its 0.85 s limit (0.75 s until Phase 3 step 3). Each plain collection costs an app about 12k type instantiations, and each `many()` relation about 35k (about 0.03 s), through the contract slice, repos, expanded outputs and MCP's toolkit. A relation costing three collections is being profiled. Core's sources grew 0.6% for field masking, 0.6% for procedure meta, and 0.2% for the catalog facts. [0003](decisions/0003-collections-compile-at-runtime.md)'s revisit condition does not hold yet.
 - **Labels and meta.** The slug-to-singular default handles common English endings only; `news` or `people` declare a label. Zod meta keys are not checked for typos, because Zod's JSON Schema meta has an index signature.
 - **OpenAPI names.** The codegen profile makes up component names for unnamed schemas, such as a where field or Lattice's `Withheld` shape. They can change when the contract changes. Named schemas (`.meta({ id })`) would make them stable.
 
@@ -589,7 +589,7 @@ packages/
   cli/             @latticecms/cli             scaffold collection, run migrations (Phase 3)
   store-postgres/  @latticecms/store-postgres  (Phase 4)
 examples/
-  crm/             The reference app, not a product: HTTP (/rpc, /mcp, /auth, /openapi.json)
+  crm/             The reference app, not a product: HTTP (/rpc, /mcp, /auth, /openapi.json, /catalog.json)
                    and a worker (webhooks, integration events), shaped like hexok's app-template
 ```
 

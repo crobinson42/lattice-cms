@@ -12,23 +12,31 @@ import { StoreCredentials } from './store-credentials.js';
 describe.each(backends)('openDevSession on $name', (backend) => {
   const store = storeOf(backend);
 
-  it('adds the membership once, and opens a session for the user', async () => {
+  it('creates the organization and the membership once, and opens a session for the user', async () => {
     const crm = createApp({
       store: store(),
       events: new MemoryDomainEventPublisher(),
     });
     await crm.ensure();
     const sessions = testSessions();
-    const member = { userId: 'ada', organizationId: 'org-a' };
+    const member = { userId: 'ada', organization: 'Org A' };
 
     const token = await openDevSession({ crm, sessions }, member);
     await openDevSession({ crm, sessions }, member);
 
     const found = await sessions.authenticate(token);
     expect(found.ok && found.value).toEqual({ userId: 'ada' });
+    const { docs: organizations } = await crm.repos.organizations.find(
+      {},
+      unscoped,
+    );
+    expect(organizations).toMatchObject([{ name: 'Org A' }]);
+    const [organization] = organizations;
+    if (organization === undefined) throw new Error('no organization');
+    // The membership refers to the organization the script made.
     expect(
       await crm.repos.memberships.count(
-        { userId: { eq: 'ada' }, organizationId: { eq: 'org-a' } },
+        { userId: { eq: 'ada' }, organizationId: { eq: organization.id } },
         unscoped,
       ),
     ).toBe(1);
@@ -47,7 +55,7 @@ describe.each(backends)('openDevSession on $name', (backend) => {
       userId: 'ann',
       email: 'ann@x.com',
       password: 'correct horse battery',
-      organizationId: 'org-a',
+      organization: 'Org A',
     };
 
     const token = await provisionDevUser({ crm, sessions, credentials }, user);

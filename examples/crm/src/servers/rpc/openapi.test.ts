@@ -88,9 +88,10 @@ describe('GET /openapi.json', () => {
   it('marks populated reads with x-ts-pf-expand', async () => {
     const { document } = await fetchDocument();
 
+    // get populates refs and many() relations; find, refs only.
     expect(
       at(document, ['paths', '/rpc/deals/get', 'post', 'x-ts-pf-expand']),
-    ).toEqual({ key: 'populate', at: [], fields: ['companyId'] });
+    ).toEqual({ key: 'populate', at: [], fields: ['companyId', 'contacts'] });
     expect(
       at(document, ['paths', '/rpc/deals/find', 'post', 'x-ts-pf-expand']),
     ).toEqual({ key: 'populate', at: ['docs'], fields: ['companyId'] });

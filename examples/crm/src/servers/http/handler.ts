@@ -15,8 +15,9 @@ import type { Login } from '../../app/use-cases/auth/login.js';
 import type { Actor } from '../../app/use-cases/context.js';
 import type { CrmSessions } from '../../infra/auth/sessions.js';
 import type { CrmApp } from '../app.js';
-import { createAuthRouter } from '../auth/router.js';
+import { type AuthRpcCtx, createAuthRouter } from '../auth/router.js';
 import { crmTools } from '../mcp/toolset.js';
+import { catalogDocument } from '../rpc/catalog.js';
 import { openapiDocument } from '../rpc/openapi.js';
 
 /** The header that names the organization a call acts in. */
@@ -55,7 +56,7 @@ function requestIdOf(request: Request): string {
 }
 
 /** Where a call came in, as its refusal lines name it. */
-type Edge = 'rpc' | 'mcp' | 'openapi';
+type Edge = 'rpc' | 'mcp' | 'auth' | 'openapi' | 'catalog';
 
 /**
  * The user the request's bearer token names, with that token, or undefined
@@ -194,8 +195,9 @@ function mcpEdge(deps: HttpDeps, onError: (error: unknown) => void) {
 
 /**
  * The server as one fetch function: the API at `/rpc`, the same API as MCP
- * tools at `/mcp`, its OpenAPI document at `/openapi.json` for a signed-in
- * user, sign-in and sign-out at `/auth`, and `/health`. srvx, Bun, Deno,
+ * tools at `/mcp`, its OpenAPI document at `/openapi.json` and its catalog
+ * at `/catalog.json` for a signed-in user, sign-in, sign-out and the
+ * caller's organizations at `/auth`, and `/health`. srvx, Bun, Deno,
  * Hono or a test calls it with a `Request`.
  */
 export function createHttpHandler(
@@ -212,32 +214,59 @@ export function createHttpHandler(
     if (user === undefined) throw refusal('UNAUTHORIZED');
     return contextOf(user.userId, request, logger, 'rpc');
   };
-  const authContext = (request: Request) => ({
-    logger: deps.logger.child({ requestId: requestIdOf(request) }),
-    token: bearerToken(request.headers.get('authorization')),
-  });
+  const authContext = (request: Request): AuthRpcCtx => {
+    const logger = deps.logger.child({ requestId: requestIdOf(request) });
+    return {
+      logger,
+      token: bearerToken(request.headers.get('authorization')),
+      // The same check, log line and refusal as /rpc.
+      async signedIn() {
+        const user = await signedIn(deps, request, logger, 'auth');
+        if (user === undefined) throw refusal('UNAUTHORIZED');
+        return user.userId;
+      },
+    };
+  };
   const mcp = mcpEdge(deps, onError);
   // Built on the first request and kept: the contract does not change
   // while serving.
-  let document: ReturnType<typeof openapiDocument> | undefined;
+  let openapi: ReturnType<typeof openapiDocument> | undefined;
+  let catalog: ReturnType<typeof catalogDocument> | undefined;
+  /**
+   * A document about the API, for signed-in users only: its schemas say
+   * which fields are masked. Any of them, so no organization is needed.
+   */
+  const forSignedIn = async (
+    request: Request,
+    edge: 'openapi' | 'catalog',
+    document: () => unknown,
+  ): Promise<Response> => {
+    const logger = deps.logger.child({ requestId: requestIdOf(request) });
+    if ((await signedIn(deps, request, logger, edge)) === undefined) {
+      // The body /rpc sends for the same refusal.
+      return Response.json(
+        { ok: false, error: refusal('UNAUTHORIZED').toJSON() },
+        { status: 401 },
+      );
+    }
+    return Response.json(document());
+  };
   return async (request) => {
     const { pathname } = new URL(request.url);
     if (request.method === 'GET' && pathname === '/health') {
       return Response.json({ ok: true });
     }
     if (request.method === 'GET' && pathname === '/openapi.json') {
-      // The schema says which fields are masked: only for signed-in users.
-      // Any of them, so no organization is needed.
-      const logger = deps.logger.child({ requestId: requestIdOf(request) });
-      if ((await signedIn(deps, request, logger, 'openapi')) === undefined) {
-        // The body /rpc sends for the same refusal.
-        return Response.json(
-          { ok: false, error: refusal('UNAUTHORIZED').toJSON() },
-          { status: 401 },
-        );
-      }
-      document ??= openapiDocument();
-      return Response.json(document);
+      return forSignedIn(request, 'openapi', () => {
+        openapi ??= openapiDocument();
+        return openapi;
+      });
+    }
+    if (request.method === 'GET' && pathname === '/catalog.json') {
+      return forSignedIn(request, 'catalog', () => {
+        catalog ??= catalogDocument();
+        return catalog;
+      });
     }
     if (pathname === '/mcp') return mcp(request);
     const rpc = await api.handle(request, {

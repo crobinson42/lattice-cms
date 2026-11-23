@@ -33,7 +33,7 @@ export AUTH_TOKEN_ISSUER=crm AUTH_TOKEN_AUDIENCE=crm
 Create a user with a password and a membership, then start the server and, in a second terminal, the worker:
 
 ```bash
-npm run dev:user -w @latticecms/example-crm -- ann ann@example.com 'a long password' org-a manager
+npm run dev:user -w @latticecms/example-crm -- ann ann@example.com 'a long password' Acme manager
 npm start -w @latticecms/example-crm
 npm run worker -w @latticecms/example-crm
 ```
@@ -90,7 +90,7 @@ The crm publishes one contract for the company's other products, [`src/integrati
   "version": 1,
   "time": "2026-11-22T00:00:00.000Z",
   "subject": "<dealId>",
-  "data": { "dealId": "…", "organizationId": "org-a", "companyId": "…", "outcome": "won", "amount": 4242, "closedAt": "2026-11-22T00:00:00.000Z" }
+  "data": { "dealId": "…", "organizationId": "…", "companyId": "…", "outcome": "won", "amount": 4242, "closedAt": "2026-11-22T00:00:00.000Z" }
 }
 ```
 
@@ -121,9 +121,10 @@ When a deal closes, its organization's endpoints that list `deal.closed` get, si
 
 - `POST /auth/login` with `{ "input": { "email", "password" } }` returns `{ token }`.
 - `POST /auth/logout` with the token ends its session.
+- `POST /auth/organizations` with the token and `{ "input": {} }` returns the user's organizations, `[{ id, name }]` by name, for an organization switcher. It needs no organization header. Support gets none.
 - `POST /rpc/<collection>/<operation>` is the Lattice API. Send `Authorization: Bearer <token>` and `x-organization-id: <organization>`.
 - `/mcp` serves the same API as MCP tools. See [MCP](#mcp).
-- `GET /openapi.json` is the API's OpenAPI 3.1 document, for a signed-in user. See [OpenAPI and other clients](#openapi-and-other-clients).
+- `GET /openapi.json` is the API's OpenAPI 3.1 document, and `GET /catalog.json` its ts-pf catalog, for a signed-in user. See [OpenAPI and other clients](#openapi-and-other-clients).
 - `GET /health` answers `{ ok: true }`.
 
 With the server from [Run it](#run-it):
@@ -132,7 +133,9 @@ With the server from [Run it](#run-it):
 TOKEN=$(curl -s localhost:3000/auth/login -H 'content-type: application/json' \
   -d '{"input":{"email":"ann@example.com","password":"a long password"}}' \
   | node -pe 'JSON.parse(require("fs").readFileSync(0)).output.token')
-H=(-H "authorization: Bearer $TOKEN" -H 'x-organization-id: org-a' -H 'content-type: application/json')
+ORG=$(curl -s localhost:3000/auth/organizations -H "authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"input":{}}' | node -pe 'JSON.parse(require("fs").readFileSync(0)).output[0].id')
+H=(-H "authorization: Bearer $TOKEN" -H "x-organization-id: $ORG" -H 'content-type: application/json')
 
 curl -s localhost:3000/rpc/companies/create "${H[@]}" -d '{"input":{"name":"Acme"}}'
 curl -s localhost:3000/rpc/deals/create "${H[@]}" -d '{"input":{"title":"Big one","companyId":"<the company id>","amount":4242}}'
@@ -141,24 +144,24 @@ curl -s localhost:3000/rpc/deals/find "${H[@]}" -d '{"input":{"populate":["compa
 curl -s localhost:3000/openapi.json -H "authorization: Bearer $TOKEN"
 ```
 
-Each answer is `{ "ok": true, "output": … }` or `{ "ok": false, "error": { "code", "message" } }`. Closing the deal publishes `deal.closed`: the worker publishes it on `integration:crm.deals`, which `docker exec crm-redis redis-cli XRANGE integration:crm.deals - +` shows, and sends a webhook to any endpoint `CRM_WEBHOOK_ENDPOINTS` lists for org-a.
+Each answer is `{ "ok": true, "output": … }` or `{ "ok": false, "error": { "code", "message" } }`. Closing the deal publishes `deal.closed`: the worker publishes it on `integration:crm.deals`, which `docker exec crm-redis redis-cli XRANGE integration:crm.deals - +` shows, and sends a webhook to any endpoint `CRM_WEBHOOK_ENDPOINTS` lists for that organization's id.
 
-`npm run dev:user -- <userId> <email> <password> <organizationId> [member|manager]` sets a user's password (12 characters or more), adds the membership with that role (default `member`), and prints a token. `npm run dev:session -- <userId> <organizationId> [member|manager]` prints a token without a password. Both are for local development. There is no signup and no password reset.
+`npm run dev:user -- <userId> <email> <password> <organization> [member|manager]` sets a user's password (12 characters or more), creates the organization with that name if there is none, adds the membership with that role (default `member`), and prints a token. `npm run dev:session -- <userId> <organization> [member|manager]` prints a token without a password. An organization's id is a UUID; `POST /auth/organizations` gives it. Both are for local development. There is no signup and no password reset.
 
 ## MCP
 
 `/mcp` is an MCP server over Streamable HTTP, through `@ts-pf/mcp` and the MCP SDK ([`handler.ts`](src/servers/http/handler.ts)). It is stateless: each POST is answered on its own, and it serves clients of both the 2026-07-28 protocol and the 2025 one.
 
-- Every procedure at `/rpc` that a caller may use is a tool named by its path: `deals.find` is `deals_find`. Memberships' create, update and delete are left out, since no access rule allows them. The `/auth` router is not a tool, so a model cannot log in.
+- Every procedure at `/rpc` that a caller may use is a tool named by its path: `deals.find` is `deals_find`. Memberships' and organizations' create, update and delete are left out, since no access rule allows them. The `/auth` router is not a tool, so a model cannot log in.
 - A tool call runs in process through the same router as `/rpc`: the same access rules, tenancy, masking, errors and spans. A member's `deals_find` has no `amount`, and a `where` on it is `VALIDATION`.
-- Lattice describes each generated tool and sets its annotations: reads are `readOnlyHint: true`, `delete` is `destructiveHint: true`, and `create` and `update` are neither. `deals.close` is the crm's own, so it describes itself in [`toolset.ts`](src/servers/mcp/toolset.ts).
+- Lattice describes each generated tool and sets its annotations: reads are `readOnlyHint: true`, `delete` is `destructiveHint: true`, and `create` and `update` are neither. `deals.close` is the crm's own, so it describes itself with `summary` and `effect` on its use case, [`close-deal.ts`](src/app/use-cases/deals/close-deal.ts).
 
 An MCP client authenticates as `/rpc` does: with a session token and an organization header. There is no OAuth sign-in. Get a token from `POST /auth/login` (or `npm run dev:user`), then configure the client with both headers. In Claude Code:
 
 ```bash
 claude mcp add --transport http crm http://localhost:3000/mcp \
   --header "Authorization: Bearer $TOKEN" \
-  --header "x-organization-id: org-a"
+  --header "x-organization-id: $ORG"
 ```
 
 - A missing, bad or ended session is a `401` with a `WWW-Authenticate: Bearer error="invalid_token"` challenge, before any MCP message is read. The client needs a new token.

@@ -201,6 +201,8 @@ describe.each(backends)('on $name', (backend) => {
         family: AppUseCase,
       })
         .collection(Companies, { access: open })
+        // Deals relates to contacts, so the framework needs them.
+        .collection(Contacts, { access: open })
         .collection(Deals, {
           access: open,
           fields: { amount: { read: () => true } },

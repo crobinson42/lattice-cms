@@ -9,6 +9,7 @@ describe('the contract module', () => {
       'contacts',
       'deals',
       'memberships',
+      'organizations',
     ]);
     expect(Object.keys(contract.deals)).toEqual([
       'find',
@@ -18,6 +19,7 @@ describe('the contract module', () => {
       'update',
       'delete',
       'close',
+      'contacts',
     ]);
   });
 

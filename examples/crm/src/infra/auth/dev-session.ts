@@ -5,9 +5,10 @@ import type { CrmApp } from '../../servers/app.js';
 import type { CrmSessions } from './sessions.js';
 
 /**
- * For local development: makes `userId` a member of `organizationId` when
- * it is not one yet, and opens a session for it. Returns the token. It
- * skips any password: that is what login checks.
+ * For local development: finds the organization named `organization`, or
+ * creates it, makes `userId` a member of it when it is not one yet, and
+ * opens a session for it. Returns the token. It skips any password: that is
+ * what login checks.
  */
 export async function openDevSession(
   deps: {
@@ -16,18 +17,35 @@ export async function openDevSession(
   },
   member: {
     readonly userId: string;
-    readonly organizationId: string;
+    /** The organization's name. */
+    readonly organization: string;
     /** The role when the membership is new. Default `member`. */
     readonly role?: Role;
   },
 ): Promise<string> {
-  const memberships = deps.crm.repos.memberships;
+  const { memberships, organizations } = deps.crm.repos;
+  const [found] = (
+    await organizations.find(
+      { where: { name: { eq: member.organization } }, limit: 1 },
+      unscoped,
+    )
+  ).docs;
+  const { id: organizationId } =
+    found ??
+    (await organizations.insert({ name: member.organization }, unscoped));
   const where = {
     userId: { eq: member.userId },
-    organizationId: { eq: member.organizationId },
+    organizationId: { eq: organizationId },
   };
   if ((await memberships.count(where, unscoped)) === 0) {
-    await memberships.insert(member, unscoped);
+    await memberships.insert(
+      {
+        userId: member.userId,
+        organizationId,
+        ...(member.role === undefined ? {} : { role: member.role }),
+      },
+      unscoped,
+    );
   }
   return deps.sessions.open({ userId: member.userId });
 }
@@ -47,7 +65,8 @@ export async function provisionDevUser(
     readonly userId: string;
     readonly email: string;
     readonly password: string;
-    readonly organizationId: string;
+    /** The organization's name. */
+    readonly organization: string;
     readonly role?: Role;
   },
 ): Promise<string> {
@@ -57,7 +76,7 @@ export async function provisionDevUser(
   );
   return openDevSession(deps, {
     userId: user.userId,
-    organizationId: user.organizationId,
+    organization: user.organization,
     ...(user.role === undefined ? {} : { role: user.role }),
   });
 }

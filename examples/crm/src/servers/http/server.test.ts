@@ -2,6 +2,7 @@ import { MemoryLogger } from '@hexok/logger';
 import { MongoStore } from '@latticecms/store-mongo';
 import { MongoClient } from 'mongodb';
 import { afterEach, describe, expect, inject, it } from 'vitest';
+import { z } from 'zod';
 import { openDevSession } from '../../infra/auth/dev-session.js';
 import { MemoryDomainEventPublisher } from '../../infra/events/memory-domain-events.js';
 import { testSessions } from '../../test/sessions.js';
@@ -37,16 +38,32 @@ describe('the server, over the network, on MongoStore', () => {
     const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
     const token = await openDevSession(
       { crm, sessions },
-      { userId: 'ada', organizationId: 'org-a' },
+      { userId: 'ada', organization: 'Org A' },
     );
     const base = running.url;
+    // The organization's id, as a switcher reads it: no organization header.
+    const listed = await fetch(new URL('/auth/organizations', base), {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ input: {} }),
+    });
+    const [org] = z
+      .object({
+        output: z.array(z.object({ id: z.string(), name: z.string() })),
+      })
+      .parse(await listed.json()).output;
+    if (org === undefined) throw new Error('no organization');
+    expect(org.name).toBe('Org A');
     const rpc = (path: string, input: unknown) =>
       fetch(new URL(`/rpc/${path}`, base), {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${token}`,
-          [organizationHeader]: 'org-a',
+          [organizationHeader]: org.id,
         },
         body: JSON.stringify({ input }),
       });
@@ -61,7 +78,7 @@ describe('the server, over the network, on MongoStore', () => {
     const found = await rpc('deals/find', {});
     expect(await found.json()).toMatchObject({
       ok: true,
-      output: { docs: [{ title: 'Big one', organizationId: 'org-a' }] },
+      output: { docs: [{ title: 'Big one', organizationId: org.id }] },
     });
 
     const logout = await fetch(new URL('/auth/logout', base), {

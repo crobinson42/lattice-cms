@@ -35,7 +35,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
   - **Dependencies.** Approved: peers `react` and `react-dom` `^19` and `@ts-pf/client`, `client-http`, `docs` and `protocol` `^0.6.0`. Dependencies `@shadalaya/react` `^0.1.0` and `swr` `^2`. devDependencies `tailwindcss`, `@tailwindcss/cli`, `@shadalaya/theme`, Testing Library, `happy-dom` and `@types/react`. The crm adds `react`, `react-dom` and `@latticecms/admin`, plus `vite` and `playwright` as devDependencies.
   - **Sign-in.** The crm signs in through `/auth`. A new `/auth` `organizations` procedure needs a session but no organization, and returns the caller's organizations with their names. The names come from a new crm `organizations` collection.
   - **Testing.** Component tests in `packages/admin` (vitest, Testing Library and happy-dom) against an in-memory app over `FetchLink`. One Chromium test in the crm, driven by the `playwright` library from vitest, against the HTTP server and mongod. CI installs Chromium from a cache.
-  - **Budgets.** A test gzips the Vite build and asserts a size budget, set from the first measurement. The crm's admin UI gets its own tsconfig project, so the crm's 0.75 s server budget still measures the server.
+  - **Budgets.** A test gzips the Vite build and asserts a size budget, set from the first measurement. The crm's admin UI gets its own tsconfig project, so the crm's server budget (0.85 s since step 3, was 0.75 s) still measures the server.
 
 ### 2. UI metadata **Checkpoint**
 
@@ -45,8 +45,9 @@ Each step ends with its tests passing. Tick it in this file when it does.
 ### 3. The admin package
 
 - [ ] `@latticecms/admin` as decided at steps 1 and 2, on `@ts-pf/client`.
-- [ ] The crm mounts it at `/admin`, serves `/catalog.json` behind a session, and adds the `organizations` collection, the `/auth` `organizations` procedure and the switcher.
-- [ ] The crm gains a `many()` relation (deal contacts), so the browser test covers relation `list` and `set`.
+- [x] The crm serves `/catalog.json` behind a session, and adds the global `organizations` collection (a member reads its own; memberships ref it), the `/auth` `organizations` procedure (a session, no organization), and a deal `contacts` relation with a `role`. The dev scripts take an organization name.
+- [ ] Profile and cut a `many()` relation's type cost (about 35k instantiations, three times a collection), so the crm's budget can return toward 0.75 s.
+- [ ] The crm mounts the admin at `/admin`, with the switcher.
 - [ ] The browser test and the bundle budget, as decided at step 1.
 - [ ] A withheld field is absent in forms and tables, and a `VALIDATION` on a filter is shown, not swallowed. A `REFERENCED` delete explains which children block it.
 
@@ -97,4 +98,5 @@ Add a line here when the work teaches something the plan did not know. Each line
 - `/rpc` refuses every call without an organization, so `memberships.find` cannot feed a switcher. The crm adds an `/auth` procedure (step 3).
 - `@shadalaya/react` 0.1.0 needs React 19 despite its `>=18` peer range. `@shadalaya/theme` installs the shadcn CLI. The admin keeps the theme in devDependencies. A brief for shadalaya is in the maintainer's hands.
 - The mask marker's clone dropped the app's Zod meta on a maskable field, including a `title` or `.describe()`. It now keeps it (`parent: true`), which 0033's field labels need. In `architecture.md`.
+- A `many()` relation costs an app about 35k type instantiations, a plain collection about 12k. The crm with tests went over 0.75 s, and the maintainer raised its budget to 0.85 s, with a profiling task next. In `architecture.md`.
 - Tests that checked a JSON body for a secret number as a substring were flaky: random hex ids and database names can contain it. Secrets now have a fraction (`4242.5`), which no hex id holds.

@@ -1,4 +1,4 @@
-import { collection } from '@latticecms/core';
+import { collection, ref } from '@latticecms/core';
 import { z } from 'zod';
 
 /** What a member may do in an organization. A manager sees deal amounts. */
@@ -14,7 +14,7 @@ export type Role = z.output<typeof role>;
 export const Memberships = collection('memberships', {
   schema: z.object({
     userId: z.string().min(1),
-    organizationId: z.string().min(1),
+    organizationId: ref('organizations').min(1),
     role: role.default('member'),
   }),
   // The edge's lookup, and one membership per pair.

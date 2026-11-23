@@ -1,7 +1,10 @@
-import { collection, ref } from '@latticecms/core';
+import { collection, many, ref } from '@latticecms/core';
 import { z } from 'zod';
 
 export const dealStages = ['lead', 'proposal', 'won', 'lost'] as const;
+
+/** What a contact is to a deal. */
+export const contactRole = z.enum(['decision_maker', 'champion', 'other']);
 
 export const Deals = collection('deals', {
   schema: z.object({
@@ -15,6 +18,14 @@ export const Deals = collection('deals', {
     closedAt: z.iso.datetime().optional(),
   }),
   tenant: 'organizationId',
+  // The people on a deal, and what each is to it. A contact on a deal
+  // cannot be deleted: restrict, the default.
+  relations: {
+    contacts: many('contacts', {
+      through: 'deal_contacts',
+      fields: z.object({ role: contactRole }),
+    }),
+  },
   // Only managers and support see amounts: the contract's fields rule.
   maskable: ['amount'],
   // The pipeline view: one organization's deals in a stage, newest first.

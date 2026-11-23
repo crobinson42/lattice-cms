@@ -1,6 +1,5 @@
-import { catalog } from '@ts-pf/docs';
 import { openapi } from '@ts-pf/openapi';
-import { contract } from './contract.js';
+import { catalogDocument } from './catalog.js';
 
 /**
  * The API at `/rpc` as an OpenAPI 3.1 document, shaped for code generators
@@ -8,7 +7,7 @@ import { contract } from './contract.js';
  * separate router, so login and its collections never appear.
  */
 export function openapiDocument() {
-  return openapi(catalog(contract, { prefix: '/rpc' }), {
+  return openapi(catalogDocument(), {
     info: { title: 'Lattice CRM', version: '0.0.0' },
     profile: 'codegen',
   });
