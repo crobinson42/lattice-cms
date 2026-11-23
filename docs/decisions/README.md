@@ -38,6 +38,7 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 | [0030](0030-the-edge-checks-membership-per-request.md) | The edge picks the active organization from a header and checks membership on every request | default | The pilot's identity provider supplies organizations or roles as claims, or the per-request membership lookup shows up in latency. |
 | [0031](0031-masked-fields-are-withheld-at-the-client-boundary.md) | Masked fields are declared on the collection, decided per actor through the Access port, and withheld at the client boundary | default | An app needs a field's visibility to depend on the row, not just the actor, or a client generator cannot handle optional properties in output. |
 | [0032](0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md) | The admin is a React package that renders the catalog the app serves | default | An app needs typed per-collection UI code, an app cannot serve JSON next to its RPC endpoint, or shadalaya ships a data table or schema-driven forms. |
+| [0033](0033-the-catalog-carries-lattice-facts-and-the-admin-derives-its-ui.md) | The catalog carries Lattice's facts, and the admin derives its UI from the schema | default | An app needs a widget, title field or column that the schema cannot imply, or Zod's meta stops reaching the JSON Schema that ts-pf emits. |
 
 ## Proposed
 

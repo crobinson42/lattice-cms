@@ -39,15 +39,8 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 2. UI metadata **Checkpoint**
 
-- [ ] Catalog facts core already knows but does not emit, found at step 1:
-  - a ref's target collection;
-  - a machine-readable mark on a maskable field;
-  - the sortable fields;
-  - a method's summary and effect, declared once for the admin and MCP (the crm describes `deals.close` only in its MCP toolset);
-  - the collection, operation and relation of each generated procedure, so no client guesses from path segments.
-- [ ] Decide what the admin needs from a collection that the schema does not say: labels, a title field for references, list columns, field widgets and ordering.
-- [ ] Decide where it is declared: on the collection, in Zod `.meta()`, or in procedure `.meta()` (which already flows into `catalog()`). It must not grow type-check cost per field (0003).
-- [ ] A decision record.
+- [x] Decided in [0033](../decisions/0033-the-catalog-carries-lattice-facts-and-the-admin-derives-its-ui.md): `x-lattice-ref` and `x-lattice-maskable` in Zod meta, an enum of sort keys, `lattice` procedure meta typed as the exported `LatticeMeta`, required `summary` and `effect` statics on a method, an optional `label` on `collection()`, and summaries that use it. The admin derives field labels, the title field, columns, order and widgets from the schema.
+- [ ] Core emits them. The crm's `CloseDeal` declares its summary and effect, and its MCP toolset drops its own entry for `deals.close`. Codegen's snapshot, the summaries' tests and README quotes follow.
 
 ### 3. The admin package
 
