@@ -6,7 +6,7 @@ This plan is a working document. It is deleted when the exit holds, after anythi
 
 ## Exit
 
-- [ ] One internal tool, named by the maintainer before step 8, runs in production on published `@latticecms/*` packages.
+- [ ] `@latticecms/core` and `@latticecms/store-mongo` 0.1.0 are ready to publish through CI, and `examples/crm` is the reference app, runnable locally from its README. The maintainer chose this over a production pilot: the crm is an example, not a product.
 - [ ] `examples/crm` authenticates through `@hexok/auth`, with no dev headers outside tests.
 - [ ] Authorization runs through the `Access` port, with an `@hexok/authz` adapter if hexok ships it in this phase, and list checks stay query filters (0005).
 - [ ] Every procedure, use case and store call emits an OpenTelemetry span. A test reads them from an in-memory exporter.
@@ -27,7 +27,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 1. The pilot and the release path **Checkpoint**
 
-- [ ] The maintainer names the internal tool that exits this phase, and what it needs from Lattice that this plan lacks. Deferred by the maintainer: name it before step 8 starts. Steps 2–7 go ahead without it.
+- [x] The pilot: the maintainer chose the crm, and then kept it an example (step 8).
 - [x] Settle the dependency ranges for the first publish ([0029](../decisions/0029-hexok-and-ts-pf-are-peers.md)):
   - `hexok` and the `@ts-pf/*` packages core imports become peers (and devDependencies) of core, and `hexok` of store-mongo;
   - store-mongo's peer range on core becomes `^0.1.0`, from `*`;
@@ -75,10 +75,12 @@ Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundar
 - [x] Core attaches per-action metadata to generated procedures, a `docs` summary and an `mcp` effect, with `@ts-pf/docs` and `@ts-pf/mcp` as peers (approved by the maintainer). A maskable field's `where` and `sort` entries say they are refused for a caller who cannot read it (0031).
 - [x] An OpenAPI document through `@ts-pf/openapi` with `profile: 'codegen'`, including `x-ts-pf-expand` for populated reads.
 
-### 8. The pilot
+### 8. The release path
 
-- [ ] Before this step starts, the maintainer names the tool (deferred from step 1), and what it needs that steps 2–7 did not build.
-- [ ] The tool runs in production on the published packages. Record what it needed that Lattice lacked, in Discoveries.
+The maintainer chose the crm as the pilot, then decided it stays an example, not a production tool. This step became the release path instead.
+
+- [x] CI runs the four checks on pull requests and pushes to main. The Release workflow opens "Version Packages" from `.changeset/`, and merging it publishes with provenance, as hexok does.
+- [ ] Both packages carry `repository` for `crobinson42/lattice-cms`, which provenance requires. The changelog is `@changesets/changelog-github`.
 
 ### 9. Docs
 

@@ -76,6 +76,8 @@ npm run decisions    # regenerate docs/decisions/README.md
 
 Scope a task with a Turbo filter: `npx turbo run test --filter=@latticecms/core`. Format and fix with `npx biome check --write .`.
 
+CI (`.github/workflows/ci.yml`) runs `lint`, `type-check`, `test` and `build` on every pull request and push to main. A release is the "Version Packages" pull request that the Release workflow opens from `.changeset/`; merging it publishes to npm.
+
 ## Before you finish
 
 Run `lint`, `type-check`, `test` and `build`, in that order. All four must pass. Then update, in the same change:
