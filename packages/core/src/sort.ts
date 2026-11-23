@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { refusedSort } from './describe.js';
 import { invalid, LatticeError } from './errors.js';
+import { markOf } from './marker.js';
 import {
   type AnyWhere,
   compare,
@@ -66,7 +68,11 @@ export function sortSchema(schema: z.ZodObject): z.ZodType {
       sortable(field),
     ]),
   );
-  return z
+  // Only a field that can be sorted at all is refused for being withheld.
+  const maskable = Object.entries(schema.shape)
+    .filter(([, field]) => markOf(field) !== undefined && sortable(field))
+    .map(([name]) => name);
+  const sort = z
     .array(z.string())
     .superRefine((keys, ctx) => {
       const seen = new Set<string>();
@@ -97,6 +103,8 @@ export function sortSchema(schema: z.ZodObject): z.ZodType {
       });
     })
     .default(() => [...defaultSort]);
+  // As on where: the description says a sort on a maskable field may be refused.
+  return maskable.length === 0 ? sort : sort.describe(refusedSort(maskable));
 }
 
 /** Parses a `Sort` on documents of `schema`, or throws `VALIDATION` naming each path. */

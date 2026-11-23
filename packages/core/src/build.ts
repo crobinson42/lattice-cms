@@ -18,6 +18,8 @@ import {
   procedure,
   router,
 } from '@ts-pf/contract';
+import type { DocsMeta } from '@ts-pf/docs';
+import type { Effect } from '@ts-pf/mcp/meta';
 import { isPFError, isUnexpectedError } from '@ts-pf/protocol';
 import {
   createImplementer,
@@ -52,6 +54,7 @@ import {
   generated,
   generatedRelation,
 } from './crud.js';
+import { type EffectOf, generatedMeta } from './describe.js';
 import {
   declaredErrors,
   type LatticeCode,
@@ -334,13 +337,28 @@ type Declared<D extends ErrorMap> = typeof declaredErrors & D;
  * caller sends the input schema's input type, so a defaulted field is
  * optional, and the handler receives its output type.
  */
-type Procedure<In, Out, D extends ErrorMap> = ContractProcedure<
+type Procedure<
+  In,
+  Out,
+  D extends ErrorMap,
+  Fx extends Effect = never,
+> = ContractProcedure<
   InferSchemaInput<In>,
   InferSchemaOutput<Out>,
   Declared<D>,
-  Record<never, never>,
+  MetaOf<Fx>,
   InferSchemaOutput<In>
 >;
+
+/**
+ * A procedure's meta: a generated one's summary and MCP effect, or none
+ * for a method. The effect is literal, so `@ts-pf/mcp`'s toolkit filters by
+ * it in types as the server does. Written out, not named, so an app's
+ * declarations name only what ts-pf exports (TS2883).
+ */
+type MetaOf<Fx extends Effect> = [Fx] extends [never]
+  ? Record<never, never>
+  : { readonly docs: DocsMeta; readonly mcp: { readonly effect: Fx } };
 
 type Flat<T> = { [K in keyof T]: T[K] } & {};
 
@@ -449,7 +467,7 @@ type Read<
         ? Wide<E, Col, R>
         : { docs: Wide<E, Col, R>[]; next: string | null },
       Declared<D>,
-      Record<never, never>,
+      MetaOf<EffectOf<R>>,
       Flat<
         InferSchemaOutput<In> & {
           populate?: PopulateKey<Col, R>[] | undefined;
@@ -471,7 +489,7 @@ type ReadOr<
   R extends PopulatingRead,
   D extends ErrorMap,
 > = [Read<E, Col, In, R, D>] extends [never]
-  ? Procedure<In, Out, D>
+  ? Procedure<In, Out, D, EffectOf<R>>
   : Read<E, Col, In, R, D>;
 
 /**
@@ -488,7 +506,8 @@ type Operation<
     ? Procedure<
         Ops<S['collection']>[A]['input'],
         ClientOut<S['collection'], A>,
-        D
+        D,
+        EffectOf<A>
       >
     : ReadOr<
         E,
@@ -501,7 +520,8 @@ type Operation<
   : Procedure<
       Ops<S['collection']>[A]['input'],
       ClientOut<S['collection'], A>,
-      D
+      D,
+      EffectOf<A>
     >;
 
 /** Operation `Op` of relation `R` of entry `S`. An overridden list is plain. */
@@ -517,14 +537,16 @@ type RelationOperation<
       ? Procedure<
           S['collection']['relations'][R]['list']['input'],
           S['collection']['relations'][R]['list']['output'],
-          D
+          D,
+          EffectOf<'list'>
         >
       : RelationList<E, S, R, D>
     : RelationList<E, S, R, D>
   : Procedure<
       S['collection']['relations'][R][Op]['input'],
       S['collection']['relations'][R][Op]['output'],
-      D
+      D,
+      EffectOf<Op>
     >;
 
 type RelationList<
@@ -1276,6 +1298,7 @@ function contractOf(
     const slice: Record<string, RuntimeProcedure | RuntimeRelation> = {};
     const ops = operations(collection.schema, collection.output);
     const doc = collection.clientOutput;
+    const { slug } = collection;
     for (const action of actions) {
       const output =
         action === 'count'
@@ -1283,7 +1306,10 @@ function contractOf(
           : action === 'find'
             ? page(doc)
             : doc;
-      slice[action] = call.input(ops[action].input).output(output);
+      slice[action] = call
+        .meta(generatedMeta({ slug, op: action, populate: [] }))
+        .input(ops[action].input)
+        .output(output);
     }
     // A read's output follows its `populate` list, through ts-pf's
     // expandable outputs (0022): the output is the wide document.
@@ -1294,6 +1320,13 @@ function contractOf(
     ) {
       const { fields, wide } = expansionOf(collection, outputs, 'get');
       slice.get = call
+        .meta(
+          generatedMeta({
+            slug,
+            op: 'get',
+            populate: populateKeys(collection, 'get'),
+          }),
+        )
         .input(
           ops.get.input.extend(populateShape(populateKeys(collection, 'get'))),
         )
@@ -1306,6 +1339,13 @@ function contractOf(
     ) {
       const { fields, wide } = expansionOf(collection, outputs, 'find');
       slice.find = call
+        .meta(
+          generatedMeta({
+            slug,
+            op: 'find',
+            populate: populateKeys(collection, 'find'),
+          }),
+        )
         .input(
           ops.find.input.extend(
             populateShape(populateKeys(collection, 'find')),
@@ -1320,15 +1360,29 @@ function contractOf(
     for (const [name, relation] of Object.entries(collection.relations)) {
       const declared = overrides[name];
       const { fields, wide } = expansionOf(relation.through, outputs, 'find');
+      const listed =
+        typeof declared === 'object' && declared.list !== undefined;
+      const list = call.meta(
+        generatedMeta({
+          slug,
+          op: 'list',
+          relation: name,
+          populate: listed ? [] : Object.keys(fields),
+        }),
+      );
       slice[name] = {
-        list:
-          typeof declared === 'object' && declared.list !== undefined
-            ? call.input(relation.list.input).output(relation.list.output)
-            : call
-                .input(relation.list.input)
-                .output(page(wide))
-                .expand({ key: 'populate', at: ['docs'], fields }),
-        set: call.input(relation.set.input).output(relation.set.output),
+        list: listed
+          ? list.input(relation.list.input).output(relation.list.output)
+          : list
+              .input(relation.list.input)
+              .output(page(wide))
+              .expand({ key: 'populate', at: ['docs'], fields }),
+        set: call
+          .meta(
+            generatedMeta({ slug, op: 'set', relation: name, populate: [] }),
+          )
+          .input(relation.set.input)
+          .output(relation.set.output),
       };
     }
     slices[collection.slug] = slice;

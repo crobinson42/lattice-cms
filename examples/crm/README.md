@@ -68,13 +68,46 @@ When a deal closes, its organization's endpoints that list `deal.closed` get, si
 - `POST /auth/login` with `{ "input": { "email", "password" } }` returns `{ token }`.
 - `POST /auth/logout` with the token ends its session.
 - `POST /rpc/<collection>/<operation>` is the Lattice API. Send `Authorization: Bearer <token>` and `x-organization-id: <organization>`.
+- `/mcp` serves the same API as MCP tools. See [MCP](#mcp).
+- `GET /openapi.json` is the API's OpenAPI 3.1 document, for a signed-in user. See [OpenAPI and other clients](#openapi-and-other-clients).
 - `GET /health` answers `{ ok: true }`.
 
 `npm run dev:user -- <userId> <email> <password> <organizationId> [member|manager]` sets a user's password (12 characters or more), adds the membership with that role (default `member`), and prints a token. `npm run dev:session -- <userId> <organizationId> [member|manager]` prints a token without a password. Both are for local development. There is no signup and no password reset.
 
+## MCP
+
+`/mcp` is an MCP server over Streamable HTTP, through `@ts-pf/mcp` and the MCP SDK ([`handler.ts`](src/servers/http/handler.ts)). It is stateless: each POST is answered on its own, and it serves clients of both the 2026-07-28 protocol and the 2025 one.
+
+- Every procedure at `/rpc` that a caller may use is a tool named by its path: `deals.find` is `deals_find`. Memberships' create, update and delete are left out, since no access rule allows them. The `/auth` router is not a tool, so a model cannot log in.
+- A tool call runs in process through the same router as `/rpc`: the same access rules, tenancy, masking, errors and spans. A member's `deals_find` has no `amount`, and a `where` on it is `VALIDATION`.
+- Lattice describes each generated tool and sets its annotations: reads are `readOnlyHint: true`, `delete` is `destructiveHint: true`, and `create` and `update` are neither. `deals.close` is the crm's own, so it describes itself in [`toolset.ts`](src/servers/mcp/toolset.ts).
+
+An MCP client authenticates as `/rpc` does: with a session token and an organization header. There is no OAuth sign-in. Get a token from `POST /auth/login` (or `npm run dev:user`), then configure the client with both headers. In Claude Code:
+
+```bash
+claude mcp add --transport http crm http://localhost:3000/mcp \
+  --header "Authorization: Bearer $TOKEN" \
+  --header "x-organization-id: org-a"
+```
+
+- A missing, bad or ended session is a `401` with a `WWW-Authenticate: Bearer error="invalid_token"` challenge, before any MCP message is read. The client needs a new token.
+- The organization is checked on every tool call, as on `/rpc`. A call with no header, or for an organization the user is not a member of, is a `FORBIDDEN` tool error.
+- A session ends after 30 minutes idle and 8 hours in all, by default, so a long-lived client needs a fresh token.
+
+## OpenAPI and other clients
+
+`GET /openapi.json` with `Authorization: Bearer <token>` (any signed-in user; no organization needed), or `npm run openapi -w @latticecms/example-crm` to write `openapi.json`, gives the API as OpenAPI 3.1 with ts-pf's `codegen` profile, for generators in other languages (openapi-generator, Kiota, swagger_parser). Every path is `POST /rpc/...` with `{ "input": … }`; generate the models and write the call layer, as ts-pf's guide to other languages says.
+
+- Operations carry Lattice's summaries. A populated read (`deals.get`, `deals.find`, `contacts.get`, `contacts.find`) has `x-ts-pf-expand`: its `companyId` is an id, or the company when `populate` names it.
+- `amount` is optional, with "Withheld when the caller may not read it.", and its `where` entry says a caller who may not read it is refused.
+- Only the `/rpc` contract is in it: no `/auth` route, and no credentials or login attempts.
+- It says which fields are masked, so it is not public: without a live session the answer is the `401` `/rpc` sends.
+
+A TypeScript client in another repo uses `@ts-pf/codegen` instead: `emit(catalog(contract))` prints a `contract.d.ts`, and `createClient<Contract>(new FetchLink(…))` is typed per call, `populate` included, with no casts. [`codegen.test.ts`](src/servers/rpc/codegen.test.ts) is that client, against a committed [`contract.d.ts`](src/test/client/contract.d.ts); when the contract changes, it fails until `vitest -u` rewrites the file.
+
 ## How a request is authenticated
 
-The edge builds the actor before Lattice sees it ([`handler.ts`](src/servers/http/handler.ts)):
+The edge builds the actor before Lattice sees it ([`handler.ts`](src/servers/http/handler.ts)), the same way for `/rpc` and `/mcp`:
 
 1. The bearer token must name a live session. The session holds only the user id.
 2. A user listed in `CRM_SUPPORT_USER_IDS` acts as support: every call reads across organizations and changes nothing, and each is logged.
@@ -90,8 +123,8 @@ A membership has a role: `member` (the default) or `manager`. A deal's `amount` 
 
 | Case | Answer |
 | --- | --- |
-| No token, a bad or expired one, or an ended session | `401 UNAUTHORIZED`, one body for all |
-| No organization header, not a member, or no such organization | `403 FORBIDDEN`, one body for all |
+| No token, a bad or expired one, or an ended session | `401 UNAUTHORIZED`, one body for all (on `/mcp`, a `401` bearer challenge) |
+| No organization header, not a member, or no such organization | `403 FORBIDDEN`, one body for all (on `/mcp`, a `FORBIDDEN` tool error) |
 | A wrong password, an unknown email, or a locked email at login | `401 UNAUTHORIZED`, one body for all |
 
 The reason is logged, never sent. Logs carry no password and no email; a login refusal names a hash of the email instead.
@@ -106,4 +139,4 @@ The reason is logged, never sent. Logs carry no password and no email; a login r
 
 ## Tests
 
-`npm test -w @latticecms/example-crm` runs every test on `MemoryStore` and on MongoDB, through mongodb-memory-server. Sessions run in memory with real signed tokens, and the queues on `MemoryQueue` ([`src/test/memory-queue.ts`](src/test/memory-queue.ts)), an adapter of the `@hexok/queue` port with the same delivery rules as RedisQueue. Redis is not needed. Webhooks are sent to a real HTTP server on this machine.
+`npm test -w @latticecms/example-crm` runs every test on `MemoryStore` and on MongoDB, through mongodb-memory-server. Sessions run in memory with real signed tokens, and the queues on `MemoryQueue` ([`src/test/memory-queue.ts`](src/test/memory-queue.ts)), an adapter of the `@hexok/queue` port with the same delivery rules as RedisQueue. Redis is not needed. Webhooks are sent to a real HTTP server on this machine. MCP tests connect the MCP SDK's own client to `/mcp`.

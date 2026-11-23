@@ -1,5 +1,7 @@
 import { z } from 'zod';
+import { refusedWhere } from './describe.js';
 import { invalid } from './errors.js';
+import { markOf } from './marker.js';
 
 export type Kind = 'string' | 'number' | 'boolean' | 'enum' | 'array' | 'other';
 
@@ -307,10 +309,17 @@ export function whereSchema<S extends z.ZodObject>(
 ): z.ZodType<Where<z.output<S>>, Where<z.output<S>>>;
 export function whereSchema(schema: z.ZodObject): z.ZodType {
   const fields = Object.fromEntries(
-    Object.entries(schema.shape).map(([name, field]) => [
-      name,
-      z.optional(fieldSchema(field)),
-    ]),
+    Object.entries(schema.shape).map(([name, field]) => {
+      const entry = z.optional(fieldSchema(field));
+      // The family guard refuses it for a caller who may not read it; the
+      // description reaches JSON Schema, so OpenAPI and MCP say so.
+      return [
+        name,
+        markOf(field) === undefined
+          ? entry
+          : entry.describe(refusedWhere(name)),
+      ];
+    }),
   );
   const clauses = z.optional(z.array(z.lazy(() => where)).min(1));
   const where: z.ZodType = z.strictObject({

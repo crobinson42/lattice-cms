@@ -7,7 +7,7 @@ Status: unpublished, before 1.0. The design and the reasons behind it are in [do
 ## Install
 
 ```sh
-npm install @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server zod @hexok/logger @opentelemetry/api
+npm install @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server @ts-pf/docs @ts-pf/mcp zod @hexok/logger @opentelemetry/api
 ```
 
 `hexok` 2, `@ts-pf/*` 0.6, `zod` 4, `@hexok/logger` 0.2 and `@opentelemetry/api` 1 are peer dependencies. The app installs them, so it and Lattice share one copy, and a `UseCase` or `Port` the app imports is the same class Lattice built. Serve the result with `@ts-pf/server-http`, and call it with `@ts-pf/client`.
@@ -405,6 +405,23 @@ Builds the app's one hexok `UseCase.context` family. A caller passes `{ actor, l
 
 `.contract` is the ts-pf contract, built once on first read. `Contract<E, D>` is its type.
 
+Each generated procedure carries `docs({ summary })` and `mcp({ effect })` in its `.meta()`, so `@ts-pf/openapi`, `@ts-pf/codegen` and `@ts-pf/mcp` describe it with no code in the app:
+
+| Procedure | `effect` | Summary, for `deals` |
+| --- | --- | --- |
+| `find` | `read` | Find deals. Filter with where, order with sort, and page with limit and after (the previous page’s next). populate expands companyId into documents. |
+| `count` | `read` | Count deals. Filter with where. |
+| `get` | `read` | Get one deals document by id. populate expands companyId into documents. |
+| `create` | `write` | Create a deals document. |
+| `update` | `write` | Update a deals document by id. Send only the fields to change. |
+| `delete` | `destructive` | Delete a deals document by id. |
+| a relation's `list` | `read` | List the categories links of one posts document, by its id. … |
+| a relation's `set` | `destructive` | Replace the categories links of one posts document, by its id. Links not given are removed. |
+
+- The `populate` sentence appears only when the read can populate.
+- `@ts-pf/mcp` turns `read` into `readOnlyHint: true`, and `destructive` into `destructiveHint: true`. The effect is a literal in the contract's type too, so `all(tk.deals, { effect: 'read' })` selects in types what it selects at runtime.
+- An override keeps its procedure's meta. A method has none: describe it in the app, with `@ts-pf/mcp`'s `.describe()` and `.effect()`.
+
 `build({ store, events, access?, methods?, overrides? })` wires the definition and returns:
 
 | Output | What it is |
@@ -619,7 +636,7 @@ export const Deals = collection('deals', {
 - A `where` or a `sort` on a field the caller may not read, at any depth, on `find` or `count`, is `VALIDATION` naming its path. So no filter, count, order or cursor reveals it. A caller who may read it filters and sorts as usual.
 - A method that returns a collection's documents declares `output: Deals.clientOutput`, or a schema built from it (`.extend()`, `.pick()`, `shape.amount`). An output that holds a maskable field where it is required, such as `Deals.output`, throws at `build()`, and so does an output Lattice cannot see through (`z.lazy()`, a transform, `z.custom()`, `z.unknown()`, `z.any()`) in an app with a maskable field.
 - Server code sees whole documents: repos, direct `useCases.*.execute` calls and events' `doc`. A page rendered for a user calls through `createLocalClient`. Masking for a webhook happens where the webhook maps the event.
-- In JSON Schema, and so in OpenAPI and MCP, the field is optional with the description "Withheld when the caller may not read it."
+- In JSON Schema, and so in OpenAPI and MCP, the field is optional with the description "Withheld when the caller may not read it." Its `where` entry says "Refused (VALIDATION) when the caller may not read amount.", and a `sort` that could name it says the same.
 
 Masking covers the named field only. These can still reveal it:
 

@@ -20,6 +20,7 @@ import {
 } from 'vitest';
 import { openDevSession } from '../../infra/auth/dev-session.js';
 import { MemoryDomainEventPublisher } from '../../infra/events/memory-domain-events.js';
+import { mcpClient } from '../../test/mcp.js';
 import { testSessions } from '../../test/sessions.js';
 import { createApp } from '../app.js';
 import { organizationHeader } from './handler.js';
@@ -42,18 +43,18 @@ afterAll(() => {
   context.disable();
 });
 
-/** The children of `parent`, by name, in start order. */
+/**
+ * The names of `parent`'s children, sorted. Not by start time: the SDK
+ * records it to the millisecond, so siblings often tie.
+ */
 function childrenOf(parent: ReadableSpan): string[] {
   return exporter
     .getFinishedSpans()
     .filter(
       (span) => span.parentSpanContext?.spanId === parent.spanContext().spanId,
     )
-    .sort(
-      (a, b) =>
-        a.startTime[0] - b.startTime[0] || a.startTime[1] - b.startTime[1],
-    )
-    .map((span) => span.name);
+    .map((span) => span.name)
+    .sort();
 }
 
 describe('tracing through the server, on MongoStore', () => {
@@ -113,5 +114,46 @@ describe('tracing through the server, on MongoStore', () => {
       'lattice.tenant_id': 'org-a',
       'lattice.outcome': 'ok',
     });
+  });
+
+  it('an MCP tool call goes through the same router middleware, so it gets the same spans', async () => {
+    const sessions = testSessions();
+    const store = new MongoStore({ url, database });
+    running = await start({
+      store,
+      events: new MemoryDomainEventPublisher(),
+      sessions,
+      support: new Set(),
+      logger: new MemoryLogger(),
+      port: 0,
+      hostname: '127.0.0.1',
+    });
+    const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
+    const token = await openDevSession(
+      { crm, sessions },
+      { userId: 'ann', organizationId: 'org-a' },
+    );
+    const client = await mcpClient(
+      (request) => fetch(request),
+      { token, org: 'org-a' },
+      new URL('/mcp', running.url).href,
+    );
+    exporter.reset();
+
+    try {
+      const result = await client.callTool({
+        name: 'deals_find',
+        arguments: {},
+      });
+      expect(result.isError).toBeUndefined();
+    } finally {
+      await client.close();
+    }
+
+    const procedure = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === 'deals/find');
+    if (procedure === undefined) throw new Error('no procedure span');
+    expect(childrenOf(procedure)).toEqual(['deals.find', 'find deals']);
   });
 });

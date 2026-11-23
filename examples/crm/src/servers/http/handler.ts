@@ -1,6 +1,14 @@
 import { bearerToken } from '@hexok/auth';
 import type { Logger } from '@hexok/logger';
 import { type CallContext, LatticeError, unscoped } from '@latticecms/core';
+import {
+  bearerAuthChallengeResponse,
+  createMcpHandler,
+  OAuthError,
+  OAuthErrorCode,
+} from '@modelcontextprotocol/server';
+import { bindTools } from '@ts-pf/mcp';
+import { createMcpFactory } from '@ts-pf/mcp/sdk';
 import { PFError } from '@ts-pf/protocol';
 import { FetchHandler } from '@ts-pf/server-http';
 import type { Login } from '../../app/use-cases/auth/login.js';
@@ -8,6 +16,8 @@ import type { Actor } from '../../app/use-cases/context.js';
 import type { CrmSessions } from '../../infra/auth/sessions.js';
 import type { CrmApp } from '../app.js';
 import { createAuthRouter } from '../auth/router.js';
+import { crmTools } from '../mcp/toolset.js';
+import { openapiDocument } from '../rpc/openapi.js';
 
 /** The header that names the organization a call acts in. */
 export const organizationHeader = 'x-organization-id';
@@ -39,36 +49,51 @@ function refusal(code: 'UNAUTHORIZED' | 'FORBIDDEN'): PFError {
   });
 }
 
-/** A logger for one request, tagged with its id. */
-function requestLogger(root: Logger, request: Request): Logger {
-  return root.child({
-    requestId: request.headers.get('x-request-id') ?? crypto.randomUUID(),
-  });
+/** The request id a request names, or a new one. */
+function requestIdOf(request: Request): string {
+  return request.headers.get('x-request-id') ?? crypto.randomUUID();
+}
+
+/** Where a call came in, as its refusal lines name it. */
+type Edge = 'rpc' | 'mcp' | 'openapi';
+
+/**
+ * The user the request's bearer token names, with that token, or undefined
+ * once the refusal is logged. A token must name a live session.
+ */
+async function signedIn(
+  deps: HttpDeps,
+  request: Request,
+  logger: Logger,
+  edge: Edge,
+): Promise<{ readonly userId: string; readonly token: string } | undefined> {
+  const refused = (reason: string) => {
+    logger.info(edge, { outcome: 'refused', code: 'UNAUTHORIZED', reason });
+    return undefined;
+  };
+  const token = bearerToken(request.headers.get('authorization'));
+  // The reason hexok's sessions give for no token.
+  if (token === undefined) return refused('missing');
+  const found = await deps.sessions.authenticate(token);
+  if (!found.ok) return refused(found.code);
+  return { userId: found.value.userId, token };
 }
 
 /**
- * The call context for one request. The bearer token must name a live
- * session; a support user acts as support; anyone else must be a member of
- * the organization the header names. Each check runs on every request, so
- * a switched or revoked membership takes effect on the next one. Only then
- * does the actor exist, so `tenantOf` reads a checked organization.
+ * The call context of a signed-in user. A support user acts as support;
+ * anyone else must be a member of the organization the header names. Each
+ * check runs on every call, so a switched or revoked membership takes
+ * effect on the next one. Only then does the actor exist, so `tenantOf`
+ * reads a checked organization. Every edge builds its context here.
  */
-function contextOf(deps: HttpDeps) {
+function actorContext(deps: HttpDeps) {
   const memberships = deps.crm.repos.memberships;
-  return async (request: Request): Promise<CallContext<Actor>> => {
-    const logger = requestLogger(deps.logger, request);
-    const found = await deps.sessions.authenticate(
-      bearerToken(request.headers.get('authorization')),
-    );
-    if (!found.ok) {
-      logger.info('rpc', {
-        outcome: 'refused',
-        code: 'UNAUTHORIZED',
-        reason: found.code,
-      });
-      throw refusal('UNAUTHORIZED');
-    }
-    const { userId } = found.value;
+  return async (
+    userId: string,
+    request: Request,
+    logger: Logger,
+    edge: Edge,
+  ): Promise<CallContext<Actor>> => {
     if (deps.support.has(userId)) {
       return { actor: { userId, support: true }, logger };
     }
@@ -92,7 +117,7 @@ function contextOf(deps: HttpDeps) {
             )
           ).docs;
     if (organizationId === null || member === undefined) {
-      logger.info('rpc', {
+      logger.info(edge, {
         outcome: 'refused',
         code: 'FORBIDDEN',
         reason: organizationId === null ? 'no-organization' : 'not-a-member',
@@ -104,9 +129,74 @@ function contextOf(deps: HttpDeps) {
 }
 
 /**
- * The server as one fetch function: the API at `/rpc`, sign-in and
- * sign-out at `/auth`, and `/health`. srvx, Bun, Deno, Hono or a test calls
- * it with a `Request`.
+ * MCP at `/mcp`: every procedure is a tool, run in process with the same
+ * guards, masking and spans as `/rpc`. The edge checks the session before
+ * the MCP SDK sees the request, so a missing or dead token is a `401`
+ * challenge, not a tool error. The user and request id ride to `context`
+ * in `authInfo`, the one channel the SDK passes through; the organization
+ * header is read there, per call, as on `/rpc`.
+ */
+function mcpEdge(deps: HttpDeps, onError: (error: unknown) => void) {
+  const contextOf = actorContext(deps);
+  const tools = bindTools(crmTools, {
+    app: deps.crm.app,
+    onError,
+    async context(info) {
+      const userId = info.authInfo?.extra?.userId;
+      const requestId = info.authInfo?.extra?.requestId;
+      const request = info.requestInfo;
+      // The edge sets all three before the SDK runs: this is a bug guard.
+      if (
+        typeof userId !== 'string' ||
+        typeof requestId !== 'string' ||
+        request === undefined
+      ) {
+        throw refusal('UNAUTHORIZED');
+      }
+      return contextOf(
+        userId,
+        request,
+        deps.logger.child({ requestId }),
+        'mcp',
+      );
+    },
+  });
+  const handler = createMcpHandler(
+    createMcpFactory(tools, { name: 'crm', version: '0.0.0' }),
+  );
+  return async (request: Request): Promise<Response> => {
+    const requestId = requestIdOf(request);
+    const user = await signedIn(
+      deps,
+      request,
+      deps.logger.child({ requestId }),
+      'mcp',
+    );
+    if (user === undefined) {
+      return bearerAuthChallengeResponse(
+        new OAuthError(
+          OAuthErrorCode.InvalidToken,
+          LatticeError.UNAUTHORIZED().message,
+        ),
+      );
+    }
+    return handler.fetch(request, {
+      authInfo: {
+        token: user.token,
+        // A crm session, not an OAuth client: there is no client id.
+        clientId: '',
+        scopes: [],
+        extra: { userId: user.userId, requestId },
+      },
+    });
+  };
+}
+
+/**
+ * The server as one fetch function: the API at `/rpc`, the same API as MCP
+ * tools at `/mcp`, its OpenAPI document at `/openapi.json` for a signed-in
+ * user, sign-in and sign-out at `/auth`, and `/health`. srvx, Bun, Deno,
+ * Hono or a test calls it with a `Request`.
  */
 export function createHttpHandler(
   deps: HttpDeps,
@@ -115,18 +205,41 @@ export function createHttpHandler(
   const onError = deps.crm.onError(deps.logger);
   const api = new FetchHandler(deps.crm.app, { onError });
   const auth = new FetchHandler(createAuthRouter(deps), { onError });
-  const apiContext = contextOf(deps);
+  const contextOf = actorContext(deps);
+  const apiContext = async (request: Request) => {
+    const logger = deps.logger.child({ requestId: requestIdOf(request) });
+    const user = await signedIn(deps, request, logger, 'rpc');
+    if (user === undefined) throw refusal('UNAUTHORIZED');
+    return contextOf(user.userId, request, logger, 'rpc');
+  };
   const authContext = (request: Request) => ({
-    logger: requestLogger(deps.logger, request),
+    logger: deps.logger.child({ requestId: requestIdOf(request) }),
     token: bearerToken(request.headers.get('authorization')),
   });
+  const mcp = mcpEdge(deps, onError);
+  // Built on the first request and kept: the contract does not change
+  // while serving.
+  let document: ReturnType<typeof openapiDocument> | undefined;
   return async (request) => {
-    if (
-      request.method === 'GET' &&
-      new URL(request.url).pathname === '/health'
-    ) {
+    const { pathname } = new URL(request.url);
+    if (request.method === 'GET' && pathname === '/health') {
       return Response.json({ ok: true });
     }
+    if (request.method === 'GET' && pathname === '/openapi.json') {
+      // The schema says which fields are masked: only for signed-in users.
+      // Any of them, so no organization is needed.
+      const logger = deps.logger.child({ requestId: requestIdOf(request) });
+      if ((await signedIn(deps, request, logger, 'openapi')) === undefined) {
+        // The body /rpc sends for the same refusal.
+        return Response.json(
+          { ok: false, error: refusal('UNAUTHORIZED').toJSON() },
+          { status: 401 },
+        );
+      }
+      document ??= openapiDocument();
+      return Response.json(document);
+    }
+    if (pathname === '/mcp') return mcp(request);
     const rpc = await api.handle(request, {
       prefix: '/rpc',
       context: apiContext,
