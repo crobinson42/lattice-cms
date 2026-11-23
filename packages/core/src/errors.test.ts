@@ -27,6 +27,8 @@ class LockPost extends AppUseCase('posts.lock', {
   collection: Posts,
   input: z.object({ id: z.string() }),
   output: Posts.output,
+  summary: 'Lock a post.',
+  effect: 'write',
 }) {
   throws: unknown = DomainError.PostLocked({ id: 'p1' });
 

@@ -43,6 +43,8 @@ class TouchNote extends Tenanted('notes.touch', {
   collection: Notes,
   input: z.object({ id: z.string() }),
   output: Notes.output,
+  summary: "Raise a note's rank.",
+  effect: 'write',
 }) {
   constructor(private readonly deps: { notes: Repo<typeof Notes> }) {
     super();
@@ -70,6 +72,8 @@ class CopyNote extends Tenanted('notes.copy', {
   collection: Notes,
   input: z.object({ id: z.string() }),
   output: Notes.output,
+  summary: 'Copy a note.',
+  effect: 'write',
 }) {
   constructor(private readonly deps: { notes: Repo<typeof Notes> }) {
     super();

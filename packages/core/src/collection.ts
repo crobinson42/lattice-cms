@@ -1,5 +1,6 @@
 import { Event, type EventCatalog } from 'hexok';
 import { z } from 'zod';
+import { type Label, labelOf } from './describe.js';
 import { maskShapes } from './mask.js';
 import {
   type AnyMany,
@@ -294,6 +295,11 @@ export interface Collection<
   Maskable extends string = never,
 > {
   readonly slug: Slug;
+  /**
+   * How the collection reads in a sentence, such as in a generated summary:
+   * the declared label, or one from the slug.
+   */
+  readonly label: Label;
   readonly schema: Schema<Shape>;
   /**
    * The field that holds a document's tenant id, or undefined for a global
@@ -628,6 +634,13 @@ export function collection<
      * not in a unique index, which would reveal a value through CONFLICT.
      */
     readonly maskable?: readonly M[];
+    /**
+     * How the collection reads mid-sentence, such as `{ singular: 'person',
+     * plural: 'people' }`. Generated summaries and the admin use it. Without
+     * it, the label comes from the slug: `deal_stages` reads "deal stage"
+     * and "deal stages".
+     */
+    readonly label?: Label;
   } & FieldCheck<Shape> &
     RefCheck<Shape> &
     TenantCheck<Shape, Tenant> &
@@ -691,6 +704,7 @@ export function collection<
     tenant,
     declaredIndexes,
     relationsOf(slug, tenant, options.relations),
+    options.label ?? labelOf(slug),
     maskable,
   );
 }
@@ -715,6 +729,7 @@ function define<
   tenant: Tenant | undefined,
   declaredIndexes: readonly Index[],
   relations: Relations,
+  label: Label,
   maskable: readonly M[] = [],
 ): Collection<Slug, Shape, Tenant, Relations, M> {
   const { output, clientOutput } = outputsOf<Shape, Tenant, M>(
@@ -770,6 +785,7 @@ function define<
     );
   return declared<Slug, Shape, Tenant, Relations, M>(
     slug,
+    label,
     schema,
     tenantShapes(tenant).tenant,
     [...declaredIndexes, ...refIndexes],
@@ -850,6 +866,7 @@ function relationOf(
       { fields: keys(targetField) },
     ],
     {},
+    labelOf(relation.through),
   );
   const ops = operations(through.schema, through.output);
   return {
@@ -902,6 +919,7 @@ function declared<
   M extends string,
 >(
   slug: Slug,
+  label: Label,
   schema: Schema<Shape>,
   tenant: Collection<Slug, Shape, Tenant>['tenant'],
   indexes: readonly Index[],
@@ -917,6 +935,7 @@ function declared<
 ): Collection<Slug, Shape, Tenant, Relations, M> {
   return {
     slug,
+    label,
     schema,
     tenant,
     indexes,
@@ -928,6 +947,7 @@ function declared<
     hooks: (next) =>
       declared<Slug, Shape, Tenant, Relations, M>(
         slug,
+        label,
         schema,
         tenant,
         indexes,

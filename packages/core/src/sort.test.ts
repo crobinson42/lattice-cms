@@ -5,7 +5,13 @@ import { AppUseCase, allowAll, callContext } from './fixtures/context.js';
 import { noSubscribers } from './fixtures/events.js';
 import { type Forms, forms } from './fixtures/forms.js';
 import { validationPaths } from './fixtures/validation.js';
-import { collection, framework, MemoryStore, type Sort } from './index.js';
+import {
+  collection,
+  framework,
+  LatticeError,
+  MemoryStore,
+  type Sort,
+} from './index.js';
 import { type IsSortable, parseSort, sortable } from './sort.js';
 
 const Things = collection('things', {
@@ -114,6 +120,25 @@ describe('parseSort', () => {
     expect(paths(['tags'])).toEqual([[0]]);
     expect(paths(['name', '-count', '-name'])).toEqual([[2]]);
     expect(paths('name')).toEqual([[]]);
+  });
+
+  it('says why a key is refused', () => {
+    const messages = (value: unknown) => {
+      try {
+        parseSort(Things.output, value);
+      } catch (error) {
+        if (LatticeError.is(error) && error.code === 'VALIDATION') {
+          return error.data.issues.map((issue) => issue.message);
+        }
+        throw error;
+      }
+      return [];
+    };
+    expect(messages(['nope', '-done', 'name', '-name'])).toEqual([
+      '"nope" is not a field',
+      '"done" cannot be sorted: it is optional, nullable, or not a string, number or enum',
+    ]);
+    expect(messages(['name', '-name'])).toEqual(['"name" is sorted twice']);
   });
 
   it('is the schema ts-pf checks find input with', async () => {

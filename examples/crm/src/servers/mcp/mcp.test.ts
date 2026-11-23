@@ -1,11 +1,12 @@
 import { tenancy } from '@latticecms/core';
 import type { Client } from '@modelcontextprotocol/client';
-import { audit } from '@ts-pf/mcp';
-import { afterEach, describe, expect, it } from 'vitest';
+import { all, audit, createToolkit } from '@ts-pf/mcp';
+import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 import { Deals } from '../../domain/collections/deals.js';
 import { type As, httpSetup, refusals } from '../../test/http.js';
 import { mcpClient, textOf } from '../../test/mcp.js';
 import { backends, storeOf } from '../../test/stores.js';
+import { contract } from '../rpc/contract.js';
 import { crmTools } from './toolset.js';
 
 const clients: Client[] = [];
@@ -48,8 +49,9 @@ describe.each(backends)('MCP at /mcp on $name', (backend) => {
     const setup = httpSetup(store());
     await setup.member('ann', 'org-a');
     await setup.member('mo', 'org-a', 'manager');
+    // A fraction: a UUID or hex id never holds a ".", so no id can match it.
     const ours = await setup.repos.deals.insert(
-      { title: 'Ours', companyId: 'c1', amount: 4242 },
+      { title: 'Ours', companyId: 'c1', amount: 4242.5 },
       tenancy.scope(Deals, 'org-a'),
     );
     const theirs = await setup.repos.deals.insert(
@@ -116,6 +118,19 @@ describe.each(backends)('MCP at /mcp on $name', (backend) => {
     );
   });
 
+  it('leaves deals_close out of a read-only toolset, in types and at runtime', () => {
+    // deals.close declares effect 'write' on its use case.
+    const reads = all(createToolkit(contract).deals, { effect: 'read' });
+    expect(Object.keys(reads)).toContain('deals_find');
+    expect(Object.keys(reads)).not.toContain('deals_close');
+    expectTypeOf<
+      'deals_find' extends keyof typeof reads ? true : false
+    >().toEqualTypeOf<true>();
+    expectTypeOf<
+      'deals_close' extends keyof typeof reads ? true : false
+    >().toEqualTypeOf<false>();
+  });
+
   it('says in deals_find’s input schema that a where on amount may be refused', async () => {
     const setup = await crm();
     const client = await connect(setup, { token: setup.ann, org: 'org-a' });
@@ -152,7 +167,7 @@ describe.each(backends)('MCP at /mcp on $name', (backend) => {
       docs: [expect.not.objectContaining({ amount: expect.anything() })],
       next: null,
     });
-    expect(textOf(found)).not.toContain('4242');
+    expect(textOf(found)).not.toContain('4242.5');
 
     const filtered = await client.callTool({
       name: 'deals_find',
@@ -161,7 +176,7 @@ describe.each(backends)('MCP at /mcp on $name', (backend) => {
     expect(filtered.isError).toBe(true);
     expect(textOf(filtered)).toContain('VALIDATION');
     expect(textOf(filtered)).toContain('amount');
-    expect(textOf(filtered)).not.toContain('4242');
+    expect(textOf(filtered)).not.toContain('4242.5');
   });
 
   it('gives a manager the amount, and lets a manager filter on it', async () => {
@@ -174,7 +189,7 @@ describe.each(backends)('MCP at /mcp on $name', (backend) => {
     });
 
     expect(outputOf(found)).toEqual({
-      docs: [expect.objectContaining({ id: setup.ours.id, amount: 4242 })],
+      docs: [expect.objectContaining({ id: setup.ours.id, amount: 4242.5 })],
       next: null,
     });
   });

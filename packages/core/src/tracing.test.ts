@@ -70,6 +70,31 @@ function compare(
 }
 
 /** The finished span named `name`. */
+/** Every value the spans recorded: names, attributes, and events' names and attributes. */
+function recordedValues(spans: readonly ReadableSpan[]): unknown[] {
+  return spans.flatMap((span) => [
+    span.name,
+    ...Object.values(span.attributes).flat(),
+    ...span.events.flatMap((event) => [
+      event.name,
+      ...Object.values(event.attributes ?? {}).flat(),
+    ]),
+  ]);
+}
+
+/**
+ * Whether a recorded value is `secret`, or a string that holds it. A numeric
+ * secret has a fraction: a hex id or a UUID never holds a ".", so a random
+ * id cannot match it.
+ */
+function reveals(values: readonly unknown[], secret: string | number): boolean {
+  return values.some(
+    (value) =>
+      value === secret ||
+      (typeof value === 'string' && value.includes(String(secret))),
+  );
+}
+
 function span(name: string): ReadableSpan {
   const found = exporter.getFinishedSpans().find((each) => each.name === name);
   if (found === undefined) throw new Error(`no span ${name}`);
@@ -284,11 +309,11 @@ describe('spans', () => {
 
     const deal = await local().deals.create({
       title: 'hunter2-title',
-      amount: 4242,
+      amount: 4242.5,
       companyId: acme.id,
     });
     await local().deals.get({ id: deal.id, populate: ['companyId'] });
-    await codeOf(local().deals.find({ where: { amount: { gt: 4242 } } }));
+    await codeOf(local().deals.find({ where: { amount: { gt: 4242.5 } } }));
     await codeOf(
       local(false).deals.update({
         id: deal.id,
@@ -297,13 +322,9 @@ describe('spans', () => {
       }),
     );
 
-    const recorded = JSON.stringify(
-      exporter
-        .getFinishedSpans()
-        .map(({ name, attributes, events }) => ({ name, attributes, events })),
-    );
-    for (const value of ['4242', 'hunter2', 'secret-company']) {
-      expect(recorded).not.toContain(value);
+    const recorded = recordedValues(exporter.getFinishedSpans());
+    for (const secret of [4242.5, 'hunter2', 'secret-company']) {
+      expect(reveals(recorded, secret)).toBe(false);
     }
     expect(exporter.getFinishedSpans().length).toBeGreaterThan(0);
   });

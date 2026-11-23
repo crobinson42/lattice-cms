@@ -173,8 +173,9 @@ describe.each(backends)('the worker on $name', (backend) => {
     });
     await http.member('ann', 'org-a');
     const token = await http.signIn('ann');
+    // A fraction: a UUID or hex id never holds a ".", so no id can match it.
     const deal = await http.repos.deals.insert(
-      { title: 'Big one', companyId: 'c1', amount: 4242 },
+      { title: 'Big one', companyId: 'c1', amount: 4242.5 },
       tenancy.scope(Deals, 'org-a'),
     );
 
@@ -203,7 +204,7 @@ describe.each(backends)('the worker on $name', (backend) => {
       },
     });
     // The amount is a manager's field: it never leaves for a customer.
-    expect(request.body).not.toContain('4242');
+    expect(request.body).not.toContain('4242.5');
     expect(
       verify({
         secrets: [w.secret],

@@ -10,6 +10,8 @@ export class PublishPost extends AppUseCase('posts.publish', {
   collection: Posts,
   input: z.object({ id: z.string() }),
   output: Posts.output,
+  summary: 'Publish a post by its id.',
+  effect: 'write',
 }) {
   constructor(private readonly deps: { posts: Repo<typeof Posts> }) {
     super();

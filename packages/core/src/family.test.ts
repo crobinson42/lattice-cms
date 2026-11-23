@@ -26,6 +26,8 @@ class CountingPublish extends AppUseCase('posts.publish', {
   collection: Posts,
   input: z.object({ id: z.string() }),
   output: Posts.output,
+  summary: 'Publish a post.',
+  effect: 'write',
 }) {
   calls = 0;
   throws: unknown = undefined;

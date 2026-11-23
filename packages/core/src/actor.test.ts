@@ -73,6 +73,8 @@ async function app<A extends typeof loose | typeof lowercased>(schema: A) {
     collection: Notes,
     input: z.object({}),
     output: z.object({ userId: z.string() }),
+    summary: 'Name the caller.',
+    effect: 'read',
   }) {
     async execute(
       ctx: UseCase.Ctx<typeof Family>,

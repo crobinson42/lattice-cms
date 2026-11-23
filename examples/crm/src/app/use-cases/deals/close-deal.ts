@@ -12,6 +12,10 @@ export class CloseDeal extends AppUseCase('deals.close', {
   input: z.object({ id: z.string(), outcome: z.enum(['won', 'lost']) }),
   // As a client receives a deal: the amount is withheld from a member.
   output: Deals.clientOutput,
+  // What MCP tells a model, and the admin shows for the action.
+  summary:
+    'Close a deal as won or lost, by its id. A deal closes once; closing it again is AlreadyClosed.',
+  effect: 'write',
 }) {
   constructor(
     private readonly deps: {

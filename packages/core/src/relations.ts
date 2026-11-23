@@ -34,7 +34,9 @@ function isMarker(check: unknown): check is RefMarker {
 /**
  * Marks a string field as the id of a document in collection `slug`. The
  * slug, not the collection, so collections can refer to each other.
- * `z.array(ref(slug))` is a list of ids.
+ * `z.array(ref(slug))` is a list of ids. The marker is what Lattice reads;
+ * `x-lattice-ref` is what the field's JSON Schema says, so a client such as
+ * the admin knows where an id points. Both come from `slug`, here.
  */
 export function ref<
   const Slug extends string,
@@ -45,7 +47,7 @@ export function ref<
     z.check<string>(() => {}),
     { '~lattice': info },
   );
-  return z.string().check(marker);
+  return z.string().check(marker).meta({ 'x-lattice-ref': slug });
 }
 
 // ---------------------------------------------------------------- many

@@ -91,7 +91,8 @@ export const Posts = collection('posts', {
 
 - `schema` is a Zod 4 object ([0013](decisions/0013-zod-4-for-collection-schemas.md)). Lattice adds `id`, `createdAt`, `updatedAt` and the tenant field.
 - (Not built yet; unscheduled) A collection may pass `entity: Post` instead of `schema`, where `Post extends Entity('Post', schema)`. Then domain rules live on the entity, the hexok way.
-- `ref()` and `many()` are the only field helpers. Everything else is plain Zod.
+- `ref()` and `many()` are the only field helpers. Everything else is plain Zod. A field's label for a client is its name in words, or its Zod `.meta({ title })`.
+- `label: { singular, plural }` is optional, and it defaults from the slug (`deal_stages` reads "deal stage" and "deal stages"). Generated summaries and the admin use it. A join collection's label comes from its `through` slug ([0033](decisions/0033-the-catalog-carries-lattice-facts-and-the-admin-derives-its-ui.md)).
 - Only `z.object()`. Unknown keys are stripped. A loose object's index signature would reach every client type.
 - `id`, `createdAt`, `updatedAt`, `and` and `or` are reserved field names.
 - No `z.date()` and no transforms (`.transform()`, `.pipe()`, `z.preprocess`, codecs), anywhere in the schema. A Date reaches an HTTP client as a string, and a transform hides the field's kind from `Where`. Normalizing belongs in a `beforeChange` hook. `collection()` throws at definition time and, for top-level Dates, fails to compile.
@@ -192,6 +193,7 @@ export class PublishPost extends AppUseCase('posts.publish', {
 - `overrides: { delete: ArchivePost }` swaps one generated operation. The class must accept and return the generated operation's types, so clients see no change.
 - Slugs and method names cannot be ts-pf implementer keys (`$context`, `use`, `useAfter`, `middleware`, `router`), and a method cannot reuse a generated operation's name.
 - A method publishes its own events from the app's catalog. Generated event classes cover CRUD only.
+- A method also declares `summary` and `effect` statics, which become its procedure's `docs` and `mcp` meta, so MCP and the admin describe it from one place. A method without them is a compile error and a throw at `.collection()`. An override with either is too: it keeps the generated operation's meta.
 
 ### Hooks
 
@@ -282,7 +284,7 @@ describe('MongoStore conformance', () => {
 
 Pagination is cursor-based ([0008](decisions/0008-cursor-pagination.md)): `limit` + `after`, ordered by the `sort` fields plus `id`.
 
-- `sort` is an array such as `['-createdAt', 'title']`, not an object, because Zod rebuilds object keys in shape order and would reorder the priority. Only required, non-null string, number and enum fields sort, so a cursor never meets null. The default is `['-createdAt']`; `id` is always the last tiebreak.
+- `sort` is an array such as `['-createdAt', 'title']`, not an object, because Zod rebuilds object keys in shape order and would reorder the priority. Only required, non-null string, number and enum fields sort, so a cursor never meets null. A sort item is an enum of the sortable keys, ascending and descending, so a client sees every valid key; codegen types it as a union of literals. The default is `['-createdAt']`; `id` is always the last tiebreak.
 - `limit` is 1 to 100, default 20. Both defaults are Zod defaults in `find`'s contract input, so the catalog and OpenAPI show them; `Repo.find` reads the same constants.
 - A cursor is opaque base64url JSON of the sort and the last document's sort values. A cursor from another sort, or a malformed one, is `VALIDATION`. It is not signed: a forged cursor only moves the page start, and `where` still applies.
 - The keyset predicate is itself a `Where` (`or` of `eq`/`gt`/`lt` clauses), so a store applies it as it applies any filter and has no pagination code of its own. A total comes from the generated `count` operation, `posts.count({ where })`, which a client calls beside `find` ([0026](decisions/0026-totals-come-from-a-count-procedure.md)). It costs a second query, so admin tables call it and APIs usually don't. Page numbers are not offered, because skip-based pages slow down on large Mongo collections.
@@ -307,6 +309,7 @@ Join collections are derived from `many(target, { through, fields?, onDelete? })
 
 - `posts.categories.list({ id, where?, sort?, limit?, after? })` returns `{ docs: Link[], next }`. It runs the parent's `read`: the parent is fetched under that scope, so a parent outside it is `NOT_FOUND`.
 - `posts.categories.set({ id, links })` replaces the set by diffing: removed links are deleted, new ones inserted, changed fields updated, and unchanged links keep their id. It runs the parent's `update`, inside a transaction, with up to 1000 links and an event per change. A bypass cannot `set`.
+- A ref's JSON Schema carries `x-lattice-ref: '<slug>'` wherever the field appears, including a join collection's ids, so a client knows where an id points. The runtime marker and the meta are written together in `ref()`.
 - Both are family use cases, overridable with `overrides: { categories: { set } }`. A relation name cannot be a field, an action, a method or an override, and `many()` cannot target its own collection.
 
 ### Population
@@ -399,7 +402,7 @@ framework({ family: AppUseCase }).collection(Deals, {
 - `maskable` names schema fields only. The collection gains `clientOutput`, which is `output` with those fields optional. `ClientDoc<C>` is its type, and `Doc<C>` stays whole.
 - `fields` is required exactly when the collection has maskable fields, with one rule per field. A rule gets `{ actor }` and returns `boolean | Promise<boolean>`. It runs once per call per collection, through `Access.readable`; the default adapter answers from `fields`, and a missing answer withholds.
 - Masking happens at the implemented router, after `execute` and `afterRead`. So it covers generated operations, overrides, methods, relation `list` and `set`, population (under the target collection's rule) and the documents create and update return. A withheld field is absent. Client types show it as optional for everyone.
-- Each maskable field schema carries a marker, as `ref` does, so a `pick`, `extend` or `shape.amount` clone is still found. At `build()`, Lattice walks every procedure's output. A required maskable field, or a schema it cannot see through (`z.lazy`, a transform or pipe, `z.custom`, `z.unknown`), throws. A method declares `Deals.clientOutput`.
+- Each maskable field schema carries a marker, as `ref` does, so a `pick`, `extend` or `shape.amount` clone is still found. Its JSON Schema also carries `x-lattice-maskable: true`, and it keeps the meta the app gave it, such as a `title`. At `build()`, Lattice walks every procedure's output. A required maskable field, or a schema it cannot see through (`z.lazy`, a transform or pipe, `z.custom`, `z.unknown`), throws. A method declares `Deals.clientOutput`.
 - A family guard after access refuses a `where` (at any depth) or `sort` on a field withheld from the caller with `VALIDATION`, naming the path. That covers find and count on every path, including direct `useCases`. A cursor carries its sort, so it cannot carry a withheld value. A maskable field cannot be in a unique index, or be a `ref`.
 - Repos, direct `useCases` and events' `doc` are server code and stay whole. A document leaves the product through webhooks, which map it to their own payload.
 
@@ -455,7 +458,7 @@ The write goes to Mongo and the event goes to Redis. A crash between the two los
 
 ## API surfaces
 
-One generated contract serves every surface. Lattice writes no transport code. Each generated procedure carries `.meta()` with a `docs` summary and an `mcp` effect, written in one place (`describe.ts`), so MCP tools, OpenAPI operations and codegen comments describe themselves. `@ts-pf/docs` and `@ts-pf/mcp` are peers of core.
+One generated contract serves every surface. Lattice writes no transport code. Each procedure carries `.meta()` with a `docs` summary and an `mcp` effect, written in one place (`describe.ts`), so MCP tools, OpenAPI operations and codegen comments describe themselves. A summary names the collection by its label ("Get one deal by id."), and a method's comes from its statics. Each procedure also carries `lattice` meta, typed as the exported `LatticeMeta`: its collection, label and operation, plus a relation or method name. The admin reads it from the catalog instead of guessing from paths ([0033](decisions/0033-the-catalog-carries-lattice-facts-and-the-admin-derives-its-ui.md)). `@ts-pf/docs` and `@ts-pf/mcp` are peers of core.
 
 ```ts
 const handler = new FetchHandler(app, { onError: onError(logger) })
@@ -480,7 +483,7 @@ await local.posts.find({ where: { status: { eq: 'published' } }, limit: 20 })
 | HTTP (POST JSON RPC) | `@ts-pf/server-http` | `POST /rpc/posts/find`. Cacheable GET reads use the userland bridge ts-pf already documents |
 | In-process | `@ts-pf/server` `createLocalClient`, or `useCases.*` | Tests, scripts, server-rendered pages. Same guards and errors |
 | WebSocket, stdio | `@ts-pf/message-server` | For live admin or CLI tools |
-| MCP | `@ts-pf/mcp` | Each operation becomes a tool, run in process through the router, so access, tenancy, masking and spans apply. Generated tools carry Lattice's summary and effect (`read`, `write`, `destructive`); a method describes itself. The crm serves `/mcp` over Streamable HTTP with the same bearer session and `x-organization-id` as `/rpc`, and answers a missing session with a 401 challenge. Large apps use tool hosts |
+| MCP | `@ts-pf/mcp` | Each operation becomes a tool, run in process through the router, so access, tenancy, masking and spans apply. Every tool carries its summary and effect (`read`, `write`, `destructive`): generated, or from a method's statics. The crm serves `/mcp` over Streamable HTTP with the same bearer session and `x-organization-id` as `/rpc`, and answers a missing session with a 401 challenge. Large apps use tool hosts |
 | OpenAPI | `@ts-pf/openapi` | `profile: 'codegen'` for Dart, Swift and Kotlin clients. Populated reads carry `x-ts-pf-expand`. A masked field is optional, with a description; its `where` and `sort` entries say a caller who cannot read it is refused. The crm serves `/openapi.json` to signed-in users only |
 | TypeScript clients | `@ts-pf/client` + `client-http`, `@ts-pf/swr`, `@ts-pf/mvc-kit` | Import `contract` only, never server code |
 | Split repos | `@ts-pf/codegen` | `.d.ts` from the catalog, plus a breaking-change check in CI |
@@ -540,7 +543,8 @@ What the built system does not do yet, or does with a known gap. Each is a candi
 - **Field masking.**
   - A field rule sees the actor, not the row.
   - A method field computed from a masked one, an `afterRead` derivation, an object `.refine()` across a maskable field, and an access `Where` on a maskable field can each reveal something about it. The README says not to write them.
-- **Type-check cost.** After Phase 2 step 7, core's sources take 1.04–1.06 s (0.98 s after Phase 1), the crm's 0.52–0.54 s, and the crm with tests 0.67–0.71 s, within its 0.75 s limit. The crm's growth since Phase 1 is its own MCP, SDK and codegen surface, not Lattice's per-collection types. Core's sources grew 0.6% for field masking and 0.6% for procedure meta. [0003](decisions/0003-collections-compile-at-runtime.md)'s revisit condition does not hold.
+- **Type-check cost.** After Phase 2 step 7, core's sources take 1.04–1.06 s (0.98 s after Phase 1), the crm's 0.52–0.54 s, and the crm with tests 0.67–0.71 s, within its 0.75 s limit. The crm's growth since Phase 1 is its own MCP, SDK and codegen surface, not Lattice's per-collection types. Core's sources grew 0.6% for field masking, 0.6% for procedure meta, and 0.2% in instantiations for the catalog facts of Phase 3 step 2, which left the crm with tests at 0.65–0.69 s. [0003](decisions/0003-collections-compile-at-runtime.md)'s revisit condition does not hold.
+- **Labels and meta.** The slug-to-singular default handles common English endings only; `news` or `people` declare a label. Zod meta keys are not checked for typos, because Zod's JSON Schema meta has an index signature.
 - **OpenAPI names.** The codegen profile makes up component names for unnamed schemas, such as a where field or Lattice's `Withheld` shape. They can change when the contract changes. Named schemas (`.meta({ id })`) would make them stable.
 
 ## Proposed changes to hexok and ts-pf
@@ -578,7 +582,7 @@ packages/
   core/            @latticecms/core            collection(), Where, Sort, family(), framework(), build(),
                                                CollectionStore port, MemoryStore, LatticeError;
                                                ref(), many(), populate, Access port, tenancy,
-                                               field masking, procedure meta, spans;
+                                               field masking, procedure meta, catalog facts, spans;
                                                /store (adapter surface), /store/conformance
   store-mongo/     @latticecms/store-mongo     MongoStore, Where translation, migrate(), spans
   admin/           @latticecms/admin           <Admin>: renders the served catalog, on @shadalaya + swr (Phase 3)
@@ -593,7 +597,7 @@ examples/
 | --- | --- | --- |
 | `@latticecms/core` | none | `hexok`, `@ts-pf/contract`, `@ts-pf/server`, `@ts-pf/protocol`, `@ts-pf/docs`, `@ts-pf/mcp`, `zod` 4, `@hexok/logger`, `@opentelemetry/api` |
 | `@latticecms/store-mongo` | `mongodb` | `@latticecms/core` `^0.1.0`, `hexok`, `zod` 4, `@hexok/logger`, `@opentelemetry/api` |
-| `@latticecms/admin` | `@shadalaya/react` `^0.1.0`, `swr` `^2` | `react` and `react-dom` `^19`, `@ts-pf/client`, `@ts-pf/client-http`, `@ts-pf/docs`, `@ts-pf/protocol` (Phase 3) |
+| `@latticecms/admin` | `@shadalaya/react` `^0.1.0`, `swr` `^2` | `react` and `react-dom` `^19`, `@latticecms/core` (types), `@ts-pf/client`, `@ts-pf/client-http`, `@ts-pf/docs`, `@ts-pf/protocol` (Phase 3) |
 
 - hexok and ts-pf are peers, so the app and Lattice share one copy of each class and type ([0029](decisions/0029-hexok-and-ts-pf-are-peers.md)). An adapter's peer range on core is a caret range, never `*`. Every package publishes public.
 - Each published package's `type-check` also checks its built declarations, as an app sees them through `exports`, with `skipLibCheck` off (`tsconfig.dist.json` over `dist-check/`). Root `skipLibCheck: true` once hid a declaration that failed for every app.

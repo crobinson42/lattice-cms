@@ -55,43 +55,41 @@ export type Sort<Doc> = readonly SortKey<Doc>[];
  * `defaultSort` when the caller sends none. The overload states its static
  * type, and that `defaultSort` is a valid `Sort` for every collection: it
  * names a system field, which a generic shape cannot show. The
- * implementation checks field names it reads from the shape at runtime,
- * which a loop cannot express as a mapped type.
+ * implementation lists the keys it reads from the shape at runtime, which a
+ * loop cannot express as a mapped type.
+ *
+ * Each key is an enum of the sortable fields, ascending and descending, so
+ * the JSON Schema shows a client every valid key. The enum's error names
+ * why a key is refused: not a field, or a field that cannot be sorted.
  */
 export function sortSchema<S extends z.ZodObject>(
   schema: S,
 ): z.ZodDefault<z.ZodType<Sort<z.output<S>>, Sort<z.output<S>>>>;
 export function sortSchema(schema: z.ZodObject): z.ZodType {
-  const fields = new Map(
-    Object.entries(schema.shape).map(([name, field]) => [
-      name,
-      sortable(field),
-    ]),
-  );
+  const fields = Object.entries(schema.shape);
+  const keys = fields
+    .filter(([, field]) => sortable(field))
+    .flatMap(([name]) => [name, `-${name}`]);
   // Only a field that can be sorted at all is refused for being withheld.
-  const maskable = Object.entries(schema.shape)
+  const maskable = fields
     .filter(([, field]) => markOf(field) !== undefined && sortable(field))
     .map(([name]) => name);
+  const key = z.enum(keys, {
+    // A non-string key gets Zod's own message.
+    error: ({ input }) => {
+      if (typeof input !== 'string') return undefined;
+      const { field } = keyOf(input);
+      return fields.some(([name]) => name === field)
+        ? `"${field}" cannot be sorted: it is optional, nullable, or not a string, number or enum`
+        : `"${field}" is not a field`;
+    },
+  });
   const sort = z
-    .array(z.string())
-    .superRefine((keys, ctx) => {
+    .array(key)
+    .superRefine((given, ctx) => {
       const seen = new Set<string>();
-      keys.forEach((key, index) => {
-        const { field } = keyOf(key);
-        const canSort = fields.get(field);
-        if (canSort === undefined) {
-          ctx.addIssue({
-            code: 'custom',
-            path: [index],
-            message: `"${field}" is not a field`,
-          });
-        } else if (!canSort) {
-          ctx.addIssue({
-            code: 'custom',
-            path: [index],
-            message: `"${field}" cannot be sorted: it is optional, nullable, or not a string, number or enum`,
-          });
-        }
+      given.forEach((value, index) => {
+        const { field } = keyOf(value);
         if (seen.has(field)) {
           ctx.addIssue({
             code: 'custom',

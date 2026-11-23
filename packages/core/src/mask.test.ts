@@ -49,6 +49,8 @@ class Peek extends Family('deals.peek', {
   collection: Deals,
   input: z.object({ id: z.string() }),
   output: Deals.clientOutput,
+  summary: 'Show one deal.',
+  effect: 'read',
 }) {
   constructor(private readonly deals: () => Promise<Doc<typeof Deals>>) {
     super();
@@ -63,6 +65,8 @@ class Summary extends Family('deals.summary', {
   collection: Deals,
   input: z.object({}),
   output: Deals.clientOutput.extend({ note: z.string() }),
+  summary: 'Summarize a deal.',
+  effect: 'read',
 }) {
   constructor(private readonly deals: () => Promise<Doc<typeof Deals>>) {
     super();
@@ -77,6 +81,8 @@ class Renamed extends Family('deals.renamed', {
   collection: Deals,
   input: z.object({}),
   output: z.object({ dealAmount: Deals.clientOutput.shape.amount }),
+  summary: "Show a deal's amount.",
+  effect: 'read',
 }) {
   constructor(private readonly deals: () => Promise<Doc<typeof Deals>>) {
     super();
@@ -504,6 +510,8 @@ describe('declaring masks', () => {
       collection: Deals,
       input: z.object({}),
       output,
+      summary: 'A method.',
+      effect: 'read',
     }) {
       async execute(_ctx: Ctx, _input: Record<string, never>): Promise<never> {
         throw new Error('not called');

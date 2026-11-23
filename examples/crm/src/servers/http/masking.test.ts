@@ -12,8 +12,9 @@ describe.each(backends)('deal amounts over HTTP on $name', (backend) => {
     const s = httpSetup(store(), { support: ['sam'] });
     await s.member('ann', 'org-a');
     await s.member('mia', 'org-a', 'manager');
+    // A fraction: a UUID or hex id never holds a ".", so no id can match it.
     const deal = await s.repos.deals.insert(
-      { title: 'Big one', companyId: 'c1', amount: 4242 },
+      { title: 'Big one', companyId: 'c1', amount: 4242.5 },
       tenancy.scope(Deals, 'org-a'),
     );
     const tokens = {
@@ -47,7 +48,7 @@ describe.each(backends)('deal amounts over HTTP on $name', (backend) => {
       const body = JSON.stringify(await rpc('ann', path, input));
       expect(body, path).toContain('"Big one"');
       expect(body, path).not.toContain('amount');
-      expect(body, path).not.toContain('4242');
+      expect(body, path).not.toContain('4242.5');
     }
   });
 
@@ -71,7 +72,7 @@ describe.each(backends)('deal amounts over HTTP on $name', (backend) => {
     for (const user of ['mia', 'sam'] satisfies ('mia' | 'sam')[]) {
       expect(await rpc(user, 'deals/get', { id: deal.id })).toMatchObject({
         ok: true,
-        output: { amount: 4242 },
+        output: { amount: 4242.5 },
       });
     }
     expect(

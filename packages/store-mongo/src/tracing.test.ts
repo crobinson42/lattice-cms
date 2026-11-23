@@ -66,6 +66,31 @@ function edges(): [string, string | undefined][] {
   });
 }
 
+/** Every value the spans recorded: names, attributes, and events' names and attributes. */
+function recordedValues(spans: readonly ReadableSpan[]): unknown[] {
+  return spans.flatMap((span) => [
+    span.name,
+    ...Object.values(span.attributes).flat(),
+    ...span.events.flatMap((event) => [
+      event.name,
+      ...Object.values(event.attributes ?? {}).flat(),
+    ]),
+  ]);
+}
+
+/**
+ * Whether a recorded value is `secret`, or a string that holds it. A numeric
+ * secret has a fraction: a hex id or a UUID never holds a ".", so a random
+ * id cannot match it.
+ */
+function reveals(values: readonly unknown[], secret: string | number): boolean {
+  return values.some(
+    (value) =>
+      value === secret ||
+      (typeof value === 'string' && value.includes(String(secret))),
+  );
+}
+
 function named(name: string): ReadableSpan {
   const found = exporter.getFinishedSpans().find((span) => span.name === name);
   if (found === undefined) throw new Error(`no span ${name}`);
@@ -74,16 +99,16 @@ function named(name: string): ReadableSpan {
 
 describe('MongoStore spans', () => {
   it('trace each call as a database client span, with no values', async () => {
-    await store.insert('deals', { id: 'd1', title: 'hunter2', amount: 4242 });
+    await store.insert('deals', { id: 'd1', title: 'hunter2', amount: 4242.5 });
     await store.get('deals', 'd1');
     await store.find({
       collection: 'deals',
-      where: { amount: { gt: 4000 } },
+      where: { amount: { gt: 4000.5 } },
       sort: ['-createdAt'],
       limit: 10,
     });
     await store.count('deals', { title: { eq: 'hunter2' } });
-    await store.update('deals', 'd1', { amount: 4243 });
+    await store.update('deals', 'd1', { amount: 4243.5 });
     await store.remove('deals', 'd1');
 
     expect(exporter.getFinishedSpans().map((span) => span.name)).toEqual([
@@ -101,13 +126,9 @@ describe('MongoStore spans', () => {
       'db.operation.name': 'insert',
       'db.collection.name': 'deals',
     });
-    const recorded = JSON.stringify(
-      exporter
-        .getFinishedSpans()
-        .map(({ name, attributes, events }) => ({ name, attributes, events })),
-    );
-    for (const value of ['4242', '4243', 'hunter2', '4000']) {
-      expect(recorded).not.toContain(value);
+    const recorded = recordedValues(exporter.getFinishedSpans());
+    for (const secret of [4242.5, 4243.5, 'hunter2', 4000.5]) {
+      expect(reveals(recorded, secret)).toBe(false);
     }
   });
 
@@ -144,6 +165,6 @@ describe('MongoStore spans', () => {
     });
     expect(failed.attributes['error.type']).toBe('CONFLICT');
     expect(failed.events).toEqual([]);
-    expect(JSON.stringify(failed.attributes)).not.toContain('secret-title');
+    expect(reveals(recordedValues([failed]), 'secret-title')).toBe(false);
   });
 });

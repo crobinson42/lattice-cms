@@ -162,6 +162,21 @@ A caller passes `{ actor, logger }` (`CallContext<Actor>`): the actor, and a `@h
 - `tenantOf` names the actor's tenant id, or `tenancy.bypass`. A framework with a tenanted collection requires it; see [Tenancy](#tenancy).
 - Every call writes one line through a child of `ctx.logger` with `collection`, `action`, `actorId`, `tenantId` (or `tenancy: 'bypass'`), `outcome` and `durationMs`.
 - A hand-written use case extends the family with a `collection` static, and `input` and `output` schemas for a method. Its token is `<slug>.<name>`.
+- A method also says what it does, in `summary`, and how it affects data, in `effect`: `read`, `write` or `destructive`. They become its procedure's `docs` and `mcp` meta, so MCP tools, OpenAPI and the admin describe it from one place. An override declares neither: it keeps the meta of the operation it replaces.
+
+```ts
+// examples/crm/src/app/use-cases/deals/close-deal.ts
+export class CloseDeal extends AppUseCase('deals.close', {
+  collection: Deals,
+  input: z.object({ id: z.string(), outcome: z.enum(['won', 'lost']) }),
+  // As a client receives a deal: the amount is withheld from a member.
+  output: Deals.clientOutput,
+  // What MCP tells a model, and the admin shows for the action.
+  summary:
+    'Close a deal as won or lost, by its id. A deal closes once; closing it again is AlreadyClosed.',
+  effect: 'write',
+}) {
+```
 
 `FamilyContext<Actor>` is the context type a use case receives, and `CallContext<Actor>` the one a caller passes. `Family<Actor, Tenanted>` is the family's type; `Tenanted` is true when it has `tenantOf`.
 
@@ -234,6 +249,7 @@ export { AppUseCase, Companies, Contacts, Deals, Memberships };
 - `fields: { amount: { read } }` gives each maskable field its read rule, and is required exactly when `C` has one; see [Field masking](#field-masking).
 - `methods: { name: Class }` adds a procedure. `overrides: { action: Class }` replaces a generated one.
 - Each class must name `C` and its token, and its `execute` must take and return the procedure's types. A mismatch, a reserved name, or a slug added twice is a compile error and a runtime throw.
+- A method without `summary` and `effect`, and an override with either, is a compile error and a runtime throw. The error names the method or override. A blank `summary` throws.
 
 `.contract` is the ts-pf contract, built once on first read. `Contract<E, D>` is its type.
 
@@ -410,6 +426,7 @@ const Projects = collection('projects', {
 - A slug that is not a collection of the framework is a compile error and a throw at `build()`, and on `.contract`. Collections may be added in any order.
 - A write does not check that the referenced document exists. Deleting it is where refs are kept whole.
 - Each ref gets an index in `ensure()`, led by the tenant field, unless the collection declares one with the same keys.
+- A ref's JSON Schema says where it points, as `x-lattice-ref: 'companies'`: in inputs, outputs, the id branch of a populated field, each item of a list of ids, and a join collection's ids. OpenAPI and MCP carry it, and the admin links and picks documents by it.
 
 `onDelete` says what the generated delete of the referenced document does to the documents that refer to it:
 
@@ -515,7 +532,7 @@ export const Deals = collection('deals', {
 - A `where` or a `sort` on a field the caller may not read, at any depth, on `find` or `count`, is `VALIDATION` naming its path. So no filter, count, order or cursor reveals it. A caller who may read it filters and sorts as usual.
 - A method that returns a collection's documents declares `output: Deals.clientOutput`, or a schema built from it (`.extend()`, `.pick()`, `shape.amount`). An output that holds a maskable field where it is required, such as `Deals.output`, throws at `build()`, and so does an output Lattice cannot see through (`z.lazy()`, a transform, `z.custom()`, `z.unknown()`, `z.any()`) in an app with a maskable field.
 - Server code sees whole documents: repos, direct `useCases.*.execute` calls and events' `doc`. A page rendered for a user calls through `createLocalClient`. Masking for a webhook happens where the webhook maps the event.
-- In JSON Schema, and so in OpenAPI and MCP, the field is optional with the description "Withheld when the caller may not read it." Its `where` entry says "Refused (VALIDATION) when the caller may not read amount.", and a `sort` that could name it says the same.
+- In JSON Schema, and so in OpenAPI and MCP, the field is optional, with `x-lattice-maskable: true` and the description "Withheld when the caller may not read it." Its `where` entry says "Refused (VALIDATION) when the caller may not read amount.", and a `sort` that could name it says the same. Meta the app gave the field, such as a `title`, stays.
 
 Masking covers the named field only. These can still reveal it:
 
@@ -570,22 +587,23 @@ To export these spans, register an SDK at startup; see [Tracing with an SDK](#tr
 
 ### MCP and OpenAPI
 
-Each generated procedure carries `docs({ summary })` and `mcp({ effect })` in its `.meta()`, so `@ts-pf/openapi`, `@ts-pf/codegen` and `@ts-pf/mcp` describe it with no code in the app:
+Each generated procedure carries `docs({ summary })` and `mcp({ effect })` in its `.meta()`, so `@ts-pf/openapi`, `@ts-pf/codegen` and `@ts-pf/mcp` describe it with no code in the app. The summary names the collection by its label; see the [reference](#collection-options).
 
 | Procedure | `effect` | Summary, for `deals` |
 | --- | --- | --- |
 | `find` | `read` | Find deals. Filter with where, order with sort, and page with limit and after (the previous page’s next). populate expands companyId into documents. |
 | `count` | `read` | Count deals. Filter with where. |
-| `get` | `read` | Get one deals document by id. populate expands companyId into documents. |
-| `create` | `write` | Create a deals document. |
-| `update` | `write` | Update a deals document by id. Send only the fields to change. |
-| `delete` | `destructive` | Delete a deals document by id. |
-| a relation's `list` | `read` | List the categories links of one posts document, by its id. … |
-| a relation's `set` | `destructive` | Replace the categories links of one posts document, by its id. Links not given are removed. |
+| `get` | `read` | Get one deal by id. populate expands companyId into documents. |
+| `create` | `write` | Create one deal. |
+| `update` | `write` | Update one deal by id. Send only the fields to change. |
+| `delete` | `destructive` | Delete one deal by id. |
+| a relation's `list` | `read` | List the categories of one post, by its id. … |
+| a relation's `set` | `destructive` | Replace the categories of one post, by its id. Links not given are removed. |
 
 - The `populate` sentence appears only when the read can populate.
 - `@ts-pf/mcp` turns `read` into `readOnlyHint: true`, and `destructive` into `destructiveHint: true`. The effect is a literal in the contract's type too, so `all(tk.deals, { effect: 'read' })` selects in types what it selects at runtime.
-- An override keeps its procedure's meta. A method has none: describe it in the app, with `@ts-pf/mcp`'s `.describe()` and `.effect()`.
+- A method's meta comes from its `summary` and `effect` statics; see [The family](#the-family). An override keeps its procedure's meta.
+- Every procedure also carries a `lattice` key: its collection, the collection's label, and its operation. A relation's `list` and `set` name the relation, and a method names itself: `{ collection: 'deals', label: { singular: 'deal', plural: 'deals' }, operation: 'method', method: 'close' }`. `LatticeMeta` is its type. A client such as the admin reads it from `catalog()`, instead of guessing from a procedure's path.
 
 A maskable field says in its JSON Schema that it may be withheld, and that a query on it may be refused; see [Field masking](#field-masking). A populated read has ts-pf's `x-ts-pf-expand` in OpenAPI. The crm serves both; see [Serving MCP and OpenAPI](#serving-mcp-and-openapi).
 
@@ -815,19 +833,11 @@ A `deals/find` over HTTP is then a procedure span with the use case span and the
 
 ### Serving MCP and OpenAPI
 
-The crm turns the contract into MCP tools with `@ts-pf/mcp`. Generated tools describe themselves; the method `deals.close` and the procedures no caller may use are the app's to decide:
+The crm turns the contract into MCP tools with `@ts-pf/mcp`. Every tool describes itself, generated or a method. The procedures no caller may use are the app's to leave out:
 
 ```ts
 // examples/crm/src/servers/mcp/toolset.ts
 const tk = createToolkit(contract).$context<CallContext<Actor>>();
-
-// Lattice gives each generated operation its summary and effect. A method
-// is the app's own, so it describes itself.
-const close = tk.deals.close
-  .describe(
-    'Close a deal as won or lost, by its id. A deal closes once; closing it again is AlreadyClosed.',
-  )
-  .effect('write');
 
 // No access rule allows these, so every call is FORBIDDEN: as tools they
 // would only cost a model context and wrong turns. They stay on /rpc.
@@ -837,14 +847,13 @@ const alwaysDenied = [
   tk.memberships.delete,
 ];
 
-/** The API's procedures as MCP tools, each named by its path. */
+/**
+ * The API's procedures as MCP tools, each named by its path. Every one
+ * carries its summary and effect from the contract: Lattice writes them for
+ * generated operations, and a method declares them on its use case.
+ */
 export const crmTools = tk.$toolset({
-  tools: [
-    all(tk, {
-      exclude: [tk.deals.close, ...alwaysDenied],
-    }),
-    { deals_close: close },
-  ],
+  tools: [all(tk, { exclude: alwaysDenied })],
 });
 
 // A new procedure fails this line until the toolset exposes it or this
@@ -899,9 +908,9 @@ The crm serves it at `GET /openapi.json` to signed-in users only, since it says 
 
 ### `collection()` options
 
-`collection(slug, { schema, tenant?, indexes?, relations?, maskable? })`
+`collection(slug, { schema, tenant?, indexes?, relations?, maskable?, label? })`
 
-Returns a `Collection` with `slug`, `schema`, `tenant`, `indexes`, `output`, `clientOutput`, `maskable`, `events` and `hooks()`. `output` is the stored document's schema: the collection's schema plus `id`, `createdAt`, `updatedAt` and the tenant field. `clientOutput` is the document a client receives: `output`, with each maskable field optional.
+Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `output`, `clientOutput`, `maskable`, `events` and `hooks()`. `output` is the stored document's schema: the collection's schema plus `id`, `createdAt`, `updatedAt` and the tenant field. `clientOutput` is the document a client receives: `output`, with each maskable field optional.
 
 - `schema` is a `z.object()`. Unknown keys are stripped.
 - `id`, `createdAt`, `updatedAt`, `and` and `or` are reserved field names.
@@ -910,6 +919,8 @@ Returns a `Collection` with `slug`, `schema`, `tenant`, `indexes`, `output`, `cl
 - `tenant: 'organizationId'` makes the collection tenanted; see [Tenancy](#tenancy). Without it, the collection is global.
 - A field name may not contain `.`, start with `$`, or be `_id`: MongoDB would read it as a path, an operator or the id.
 - `maskable: ['amount']` names schema fields a caller's rules may withhold; see [Field masking](#field-masking). A maskable field may not be a ref or in a unique index.
+- `label: { singular: 'person', plural: 'people' }` says how the collection reads mid-sentence, in generated summaries and the admin. Without it, the label comes from the slug: `deal_stages` reads "deal stage" and "deal stages". Declare it when the slug's singular would be wrong, as for `people` or `news`.
+- A field's label in a client such as the admin is its name in words, or its JSON Schema `title`: `amount: z.number().meta({ title: 'Deal value' })`. Zod's `.meta()` reaches the catalog, OpenAPI and MCP.
 - `indexes` lists the indexes the store creates at startup, through `build().ensure()`: `[{ fields: { stage: 1, createdAt: -1 } }, { fields: { email: 1 }, unique: true }]`. Fields are named from the stored document, so the system fields and the tenant field count; any other name is a compile error and a throw. Key order is the index's order. `id` needs no index. A tenanted collection's indexes usually lead with the tenant field, because every call filters by it; Lattice does not add it for you.
 
 ### `Where` and `Sort`
@@ -927,7 +938,7 @@ Returns a `Collection` with `slug`, `schema`, `tenant`, `indexes`, `output`, `cl
 - Several fields or operators must all match. `and` and `or` nest. Null and missing follow MongoDB's semantics.
 - `contains` is a case-insensitive substring, never a regex.
 - `has` matches an array with an element equal to its value. A missing or null array has none.
-- `sort` is an array such as `['-createdAt', 'title']`. Only required, non-null string, number and enum fields sort. The default is `['-createdAt']`, and `id` is always the last tiebreak.
+- `sort` is an array such as `['-createdAt', 'title']`. Only required, non-null string, number and enum fields sort. The default is `['-createdAt']`, and `id` is always the last tiebreak. Its JSON Schema lists every key it accepts, so a client sees the valid keys.
 - `limit` is 1 to 100, default 20. `next` is an opaque cursor for `after`, or null on the last page.
 - A field or operator the schema does not allow is a type error and `VALIDATION`.
 
@@ -1018,6 +1029,7 @@ it.each(storeCases.filter((c) => !c.needs?.includes('transactions')))('$name', (
 ### Other types
 
 - `Withheld` is `{ id: string }`: a populated document the caller may not read.
+- `LatticeMeta` is the `lattice` key of each procedure's meta; see [MCP and OpenAPI](#mcp-and-openapi).
 - `ClientDoc<C>` is a collection's document as a client receives it, each maskable field optional.
 - `ReadUseCase<Proc, Ctx>` is the type of a populating read in `useCases`: its `execute` is generic in the `populate` list.
 - `Ref<Slug, OnDelete>`, `Many<Target, Through, Fields, OnDelete>`, `RelationsOf` and `JoinShape` are the types of refs, relations and join collections. `OnDelete` and `ManyOnDelete` are their `onDelete` values. An app names them only when it exports its collections from a package with declarations.

@@ -23,7 +23,11 @@ export function markOf(schema: z.core.$ZodType): Masked | undefined {
   return (schema._zod.def.checks ?? []).find(isMaskMarker)?.['~lattice-mask'];
 }
 
-/** `schema` with the mask marker added: a clone, never the app's schema. */
+/**
+ * `schema` with the mask marker added: a clone, never the app's schema. The
+ * clone keeps the app's meta, such as a `title`, and adds
+ * `x-lattice-maskable`, so the field's JSON Schema says it may be withheld.
+ */
 export function marked<T extends z.core.$ZodType>(
   schema: T,
   masked: Masked,
@@ -35,8 +39,16 @@ export function marked<T extends z.core.$ZodType>(
     },
   );
   const { def } = schema._zod;
-  return z.core.util.clone(schema, {
-    ...def,
-    checks: [...(def.checks ?? []), marker],
+  // `parent` makes the clone inherit the schema's meta, as Zod's own
+  // methods do.
+  const clone = z.core.util.clone(
+    schema,
+    { ...def, checks: [...(def.checks ?? []), marker] },
+    { parent: true },
+  );
+  z.globalRegistry.add(clone, {
+    ...z.globalRegistry.get(clone),
+    'x-lattice-maskable': true,
   });
+  return clone;
 }

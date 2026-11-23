@@ -6,6 +6,7 @@ import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-ho
 import {
   BasicTracerProvider,
   InMemorySpanExporter,
+  type ReadableSpan,
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 import { MongoClient } from 'mongodb';
@@ -36,6 +37,31 @@ afterAll(() => {
   context.disable();
 });
 
+/** Every value the spans recorded: names, attributes, and events' names and attributes. */
+function recordedValues(spans: readonly ReadableSpan[]): unknown[] {
+  return spans.flatMap((span) => [
+    span.name,
+    ...Object.values(span.attributes).flat(),
+    ...span.events.flatMap((event) => [
+      event.name,
+      ...Object.values(event.attributes ?? {}).flat(),
+    ]),
+  ]);
+}
+
+/**
+ * Whether a recorded value is `secret`, or a string that holds it. A numeric
+ * secret has a fraction: a hex id or a UUID never holds a ".", so a random
+ * database name cannot match it.
+ */
+function reveals(values: readonly unknown[], secret: string | number): boolean {
+  return values.some(
+    (value) =>
+      value === secret ||
+      (typeof value === 'string' && value.includes(String(secret))),
+  );
+}
+
 describe('a handled event, traced, on MongoStore', () => {
   it('is one consumer job span per handler, with its store calls under it', async () => {
     const url = inject('mongoUrl');
@@ -59,7 +85,7 @@ describe('a handled event, traced, on MongoStore', () => {
         events: new MemoryDomainEventPublisher(),
       });
       const deal = await repos.deals.insert(
-        { title: 'Big one', companyId: 'c1', amount: 4242 },
+        { title: 'Big one', companyId: 'c1', amount: 4242.5 },
         tenancy.scope(Deals, 'org-a'),
       );
       exporter.reset();
@@ -103,9 +129,7 @@ describe('a handled event, traced, on MongoStore', () => {
             .map((span) => span.name),
         ).toEqual(['find deals']);
       }
-      expect(
-        JSON.stringify(spans.map((span) => span.attributes)),
-      ).not.toContain('4242');
+      expect(reveals(recordedValues(spans), 4242.5)).toBe(false);
     } finally {
       await worker.stop();
       await domainQueue.stop();

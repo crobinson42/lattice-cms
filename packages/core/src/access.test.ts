@@ -72,6 +72,8 @@ class RenameNote extends AppUseCase('notes.rename', {
   collection: Notes,
   input: z.object({ id: z.string(), title: z.string() }),
   output: Notes.output,
+  summary: 'Rename a note.',
+  effect: 'write',
 }) {
   constructor(private readonly deps: { notes: Repo<typeof Notes> }) {
     super();
@@ -99,6 +101,8 @@ class CountPosts extends AppUseCase('notes.countPosts', {
   collection: Notes,
   input: z.object({}),
   output: z.object({ count: z.number() }),
+  summary: 'Count the posts the caller may read.',
+  effect: 'read',
 }) {
   constructor(private readonly deps: { posts: Repo<typeof Posts> }) {
     super();

@@ -1,5 +1,6 @@
 import type { Logger } from '@hexok/logger';
 import { type Attributes, type Span, SpanKind } from '@opentelemetry/api';
+import type { Effect } from '@ts-pf/mcp/meta';
 import { type StandardSchemaV1, UseCase } from 'hexok';
 import type { z } from 'zod';
 import { CallAccess } from './access.js';
@@ -9,11 +10,18 @@ import { withheldPaths } from './mask.js';
 import { type Tenant, tenancy } from './tenancy.js';
 import { failed, tracer } from './tracing.js';
 
-/** The statics every use case in a Lattice family declares. */
+/**
+ * The statics every use case in a Lattice family declares. A method also
+ * declares `summary` (one sentence on what it does) and `effect`, which
+ * become its procedure's docs and MCP meta. An override declares neither:
+ * it keeps the operation's own.
+ */
 export type FamilySpec = {
   readonly collection: AnyCollection;
   readonly input?: z.ZodType;
   readonly output?: z.ZodType;
+  readonly summary?: string;
+  readonly effect?: Effect;
 };
 
 /**

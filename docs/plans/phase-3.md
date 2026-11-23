@@ -40,7 +40,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
 ### 2. UI metadata **Checkpoint**
 
 - [x] Decided in [0033](../decisions/0033-the-catalog-carries-lattice-facts-and-the-admin-derives-its-ui.md): `x-lattice-ref` and `x-lattice-maskable` in Zod meta, an enum of sort keys, `lattice` procedure meta typed as the exported `LatticeMeta`, required `summary` and `effect` statics on a method, an optional `label` on `collection()`, and summaries that use it. The admin derives field labels, the title field, columns, order and widgets from the schema.
-- [ ] Core emits them. The crm's `CloseDeal` declares its summary and effect, and its MCP toolset drops its own entry for `deals.close`. Codegen's snapshot, the summaries' tests and README quotes follow.
+- [x] Core emits them. The crm's `CloseDeal` declares its summary and effect, and its MCP toolset drops its own entry for `deals.close`. Codegen's snapshot, the summaries' tests and README quotes follow.
 
 ### 3. The admin package
 
@@ -96,3 +96,5 @@ Add a line here when the work teaches something the plan did not know. Each line
 - `catalog()` cannot run in a browser: an app's runtime contract imports its methods' use cases. The admin renders the catalog the app serves ([0032](../decisions/0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md)).
 - `/rpc` refuses every call without an organization, so `memberships.find` cannot feed a switcher. The crm adds an `/auth` procedure (step 3).
 - `@shadalaya/react` 0.1.0 needs React 19 despite its `>=18` peer range. `@shadalaya/theme` installs the shadcn CLI. The admin keeps the theme in devDependencies. A brief for shadalaya is in the maintainer's hands.
+- The mask marker's clone dropped the app's Zod meta on a maskable field, including a `title` or `.describe()`. It now keeps it (`parent: true`), which 0033's field labels need. In `architecture.md`.
+- Tests that checked a JSON body for a secret number as a substring were flaky: random hex ids and database names can contain it. Secrets now have a fraction (`4242.5`), which no hex id holds.

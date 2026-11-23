@@ -15,6 +15,7 @@ export {
   collection,
   type RelationsOf,
 } from './collection.js';
+export type { LatticeMeta } from './describe.js';
 export { LatticeError } from './errors.js';
 export {
   type CallContext,

@@ -5,14 +5,6 @@ import { contract } from '../rpc/contract.js';
 
 const tk = createToolkit(contract).$context<CallContext<Actor>>();
 
-// Lattice gives each generated operation its summary and effect. A method
-// is the app's own, so it describes itself.
-const close = tk.deals.close
-  .describe(
-    'Close a deal as won or lost, by its id. A deal closes once; closing it again is AlreadyClosed.',
-  )
-  .effect('write');
-
 // No access rule allows these, so every call is FORBIDDEN: as tools they
 // would only cost a model context and wrong turns. They stay on /rpc.
 const alwaysDenied = [
@@ -21,14 +13,13 @@ const alwaysDenied = [
   tk.memberships.delete,
 ];
 
-/** The API's procedures as MCP tools, each named by its path. */
+/**
+ * The API's procedures as MCP tools, each named by its path. Every one
+ * carries its summary and effect from the contract: Lattice writes them for
+ * generated operations, and a method declares them on its use case.
+ */
 export const crmTools = tk.$toolset({
-  tools: [
-    all(tk, {
-      exclude: [tk.deals.close, ...alwaysDenied],
-    }),
-    { deals_close: close },
-  ],
+  tools: [all(tk, { exclude: alwaysDenied })],
 });
 
 // A new procedure fails this line until the toolset exposes it or this

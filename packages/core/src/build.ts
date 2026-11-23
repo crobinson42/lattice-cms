@@ -54,7 +54,7 @@ import {
   generated,
   generatedRelation,
 } from './crud.js';
-import { type EffectOf, generatedMeta } from './describe.js';
+import { type EffectOf, generatedMeta, methodMeta } from './describe.js';
 import {
   declaredErrors,
   type LatticeCode,
@@ -96,6 +96,9 @@ const actions = [
   'delete',
 ] as const satisfies readonly Action[];
 
+/** The effects `@ts-pf/mcp` knows, which a method's `effect` must be one of. */
+const effects = ['read', 'write', 'destructive'] satisfies readonly Effect[];
+
 // ts-pf `Implementer` keys. A slug or method name with one of these names
 // would shadow the implementer's own member when the router is built.
 const reserved = [
@@ -111,6 +114,18 @@ type Ctor<I> = abstract new (...args: never[]) => I;
 
 type Schemas = { readonly input: z.ZodType; readonly output: z.ZodType };
 
+/**
+ * What a method's class says about itself, beside its schemas: one
+ * sentence on what it does, and whether it reads, writes or destroys. They
+ * become its procedure's `docs` and `mcp` meta (0033).
+ */
+type MethodDescription = {
+  readonly summary: string;
+  readonly effect: Effect;
+};
+
+type MethodStatics = Schemas & MethodDescription;
+
 /** An override as declared: a class, or one per operation of a relation. */
 type AnyOverride = Ctor<unknown> | Readonly<Record<string, Ctor<unknown>>>;
 
@@ -123,7 +138,7 @@ type Entry = {
   readonly collection: AnyCollection;
   readonly access: AccessMap;
   readonly fields: FieldsMap;
-  readonly methods: Readonly<Record<string, Ctor<unknown> & Schemas>>;
+  readonly methods: Readonly<Record<string, Ctor<unknown> & MethodStatics>>;
   readonly overrides: Readonly<Record<string, AnyOverride>>;
   readonly join: boolean;
 };
@@ -190,10 +205,10 @@ type FieldsOption<Actor, Col extends AnyCollection> = [
 
 /**
  * What a class attached as method `N` of `Col` must be: its statics name
- * `Col` and `<slug>.<N>`, and `execute` takes and returns its own schemas'
- * types. `execute` is a property here, not a method, so its input is checked
- * contravariantly: a method signature is bivariant and would accept a
- * narrower input.
+ * `Col` and `<slug>.<N>`, say what it does and its effect, and `execute`
+ * takes and returns its own schemas' types. `execute` is a property here,
+ * not a method, so its input is checked contravariantly: a method signature
+ * is bivariant and would accept a narrower input.
  */
 type MethodCheck<C, Col extends AnyCollection, N, Ctx> = N extends
   | Action
@@ -202,22 +217,29 @@ type MethodCheck<C, Col extends AnyCollection, N, Ctx> = N extends
   | keyof Col['relations']
   | `${string}.${string}`
   ? Ctor<unknown> &
-      Schemas & {
+      MethodStatics & {
         readonly '~error': `"${N & string}" is a generated operation, an access key, a relation, a ts-pf implementer key, or has a dot`;
       }
   : C extends {
         readonly input: infer I extends z.ZodType;
         readonly output: infer O extends z.ZodType;
       }
-    ? Ctor<{
-        execute: (ctx: Ctx, input: z.output<I>) => Promise<z.output<O>>;
-      }> & {
-        readonly token: `${Col['slug']}.${N & string}`;
-        readonly collection: Col;
-        readonly input: I;
-        readonly output: O;
-      }
-    : Ctor<unknown> & Schemas;
+    ? C extends MethodDescription
+      ? Ctor<{
+          execute: (ctx: Ctx, input: z.output<I>) => Promise<z.output<O>>;
+        }> & {
+          readonly token: `${Col['slug']}.${N & string}`;
+          readonly collection: Col;
+          readonly input: I;
+          readonly output: O;
+          readonly summary: string;
+          readonly effect: Effect;
+        }
+      : Ctor<unknown> &
+          MethodStatics & {
+            readonly '~error': `method "${N & string}" needs a summary and an effect: what it does, and whether it reads, writes or is destructive`;
+          }
+    : Ctor<unknown> & MethodStatics;
 
 /** What a class that replaces relation operation `Op` of `Col.R` must be. */
 type RelationOverrideCheck<
@@ -236,10 +258,23 @@ type RelationOverrideCheck<
 };
 
 /**
- * What a class that replaces operation `A` of `Col` must be. A relation's
+ * An override keeps the summary and effect of the operation it replaces,
+ * because clients see the same procedure. A class `X` that declares either
+ * gains a key it lacks, so the error names the override.
+ */
+type Undescribed<X, Name extends string> = X extends
+  | { readonly summary: unknown }
+  | { readonly effect: unknown }
+  ? {
+      readonly '~error': `override "${Name}" keeps the generated summary and effect; remove its summary and effect statics`;
+    }
+  : unknown;
+
+/**
+ * What class `X`, replacing operation `A` of `Col`, must be. A relation's
  * operations are replaced by name: `{ categories: { set: Class } }`.
  */
-type OverrideCheck<Col extends AnyCollection, A, Ctx> = A extends Action
+type OverrideCheck<X, Col extends AnyCollection, A, Ctx> = A extends Action
   ? Ctor<{
       execute: (
         ctx: Ctx,
@@ -248,10 +283,14 @@ type OverrideCheck<Col extends AnyCollection, A, Ctx> = A extends Action
     }> & {
       readonly token: `${Col['slug']}.${A}`;
       readonly collection: Col;
-    }
+    } & Undescribed<X, A>
   : A extends keyof Col['relations']
     ? {
-        readonly [Op in RelationOp]?: RelationOverrideCheck<Col, A, Op, Ctx>;
+        readonly [Op in RelationOp]?: RelationOverrideCheck<Col, A, Op, Ctx> &
+          Undescribed<
+            Op extends keyof X ? X[Op] : unknown,
+            `${A & string}.${Op}`
+          >;
       }
     : Ctor<unknown> & {
         readonly '~error': `"${A & string}" is not a generated operation or a relation`;
@@ -341,7 +380,7 @@ type Procedure<
   In,
   Out,
   D extends ErrorMap,
-  Fx extends Effect = never,
+  Fx extends Effect,
 > = ContractProcedure<
   InferSchemaInput<In>,
   InferSchemaOutput<Out>,
@@ -351,14 +390,17 @@ type Procedure<
 >;
 
 /**
- * A procedure's meta: a generated one's summary and MCP effect, or none
- * for a method. The effect is literal, so `@ts-pf/mcp`'s toolkit filters by
- * it in types as the server does. Written out, not named, so an app's
- * declarations name only what ts-pf exports (TS2883).
+ * A procedure's meta: its summary and MCP effect, generated or from a
+ * method's statics. The effect is literal, so `@ts-pf/mcp`'s toolkit
+ * filters by it in types as the server does. Written out, not named, so an
+ * app's declarations name only what ts-pf exports (TS2883). The `lattice`
+ * key is runtime only: clients read it from the catalog, and no type needs
+ * it.
  */
-type MetaOf<Fx extends Effect> = [Fx] extends [never]
-  ? Record<never, never>
-  : { readonly docs: DocsMeta; readonly mcp: { readonly effect: Fx } };
+type MetaOf<Fx extends Effect> = {
+  readonly docs: DocsMeta;
+  readonly mcp: { readonly effect: Fx };
+};
 
 type Flat<T> = { [K in keyof T]: T[K] } & {};
 
@@ -567,7 +609,12 @@ type RelationList<
 type Slice<E extends Entries, S extends Entry, D extends ErrorMap> = {
   [K in Action | (keyof S['methods'] & string)]: K extends Action
     ? Operation<E, S, K, D>
-    : Procedure<S['methods'][K]['input'], S['methods'][K]['output'], D>;
+    : Procedure<
+        S['methods'][K]['input'],
+        S['methods'][K]['output'],
+        D,
+        S['methods'][K]['effect']
+      >;
 } & {
   [R in keyof S['collection']['relations']]: {
     [Op in RelationOp]: RelationOperation<E, S, R, Op, D>;
@@ -851,7 +898,7 @@ export class Framework<
       [N in keyof M]: MethodCheck<M[N], C, N, FamilyContext<Actor>>;
     } = Record<never, never>,
     O extends {
-      [A in keyof O]: OverrideCheck<C, A, FamilyContext<Actor>>;
+      [A in keyof O]: OverrideCheck<O[A], C, A, FamilyContext<Actor>>;
     } = Record<never, never>,
   >(
     collection: C & SlugCheck<C, E> & TenantCheck<C, Tenanted>,
@@ -918,8 +965,37 @@ export class Framework<
       ) {
         throw new Error(`Lattice: "${slug}.${name}" cannot be a method name`);
       }
+      // Its summary is the tool description MCP sends a model, and the
+      // admin's label for the action. Its effect gives MCP its hints. A
+      // JavaScript caller, or a widened class, reaches here unchecked.
+      const summary = methods[name]?.summary;
+      const effect: unknown = methods[name]?.effect;
+      if (
+        typeof summary !== 'string' ||
+        summary.trim() === '' ||
+        !effects.some((known) => known === effect)
+      ) {
+        throw new Error(
+          `Lattice: method "${slug}.${name}" needs a summary and an effect: one sentence on what it does, and whether it is 'read', 'write' or 'destructive'`,
+        );
+      }
     }
     const overrides: Entry['overrides'] = options.overrides ?? {};
+    for (const [action, override] of Object.entries(overrides)) {
+      const classes: [string, Ctor<unknown>][] =
+        typeof override === 'function'
+          ? [[action, override]]
+          : Object.entries(override).map(
+              ([op, cls]): [string, Ctor<unknown>] => [`${action}.${op}`, cls],
+            );
+      for (const [name, cls] of classes) {
+        if ('summary' in cls || 'effect' in cls) {
+          throw new Error(
+            `Lattice: override "${slug}.${name}" keeps the generated summary and effect; remove its summary and effect statics`,
+          );
+        }
+      }
+    }
     const fields: FieldsMap = options.fields ?? {};
     const given = Object.keys(fields);
     const { maskable } = collection;
@@ -1298,7 +1374,7 @@ function contractOf(
     const slice: Record<string, RuntimeProcedure | RuntimeRelation> = {};
     const ops = operations(collection.schema, collection.output);
     const doc = collection.clientOutput;
-    const { slug } = collection;
+    const { slug, label } = collection;
     for (const action of actions) {
       const output =
         action === 'count'
@@ -1307,7 +1383,7 @@ function contractOf(
             ? page(doc)
             : doc;
       slice[action] = call
-        .meta(generatedMeta({ slug, op: action, populate: [] }))
+        .meta(generatedMeta({ slug, label, op: action, populate: [] }))
         .input(ops[action].input)
         .output(output);
     }
@@ -1323,6 +1399,7 @@ function contractOf(
         .meta(
           generatedMeta({
             slug,
+            label,
             op: 'get',
             populate: populateKeys(collection, 'get'),
           }),
@@ -1342,6 +1419,7 @@ function contractOf(
         .meta(
           generatedMeta({
             slug,
+            label,
             op: 'find',
             populate: populateKeys(collection, 'find'),
           }),
@@ -1355,7 +1433,11 @@ function contractOf(
         .expand({ key: 'populate', at: ['docs'], fields });
     }
     for (const [name, method] of Object.entries(methods)) {
-      slice[name] = call.input(method.input).output(method.output);
+      const { summary, effect } = method;
+      slice[name] = call
+        .meta(methodMeta({ slug, label, name, summary, effect }))
+        .input(method.input)
+        .output(method.output);
     }
     for (const [name, relation] of Object.entries(collection.relations)) {
       const declared = overrides[name];
@@ -1365,6 +1447,7 @@ function contractOf(
       const list = call.meta(
         generatedMeta({
           slug,
+          label,
           op: 'list',
           relation: name,
           populate: listed ? [] : Object.keys(fields),
@@ -1379,7 +1462,13 @@ function contractOf(
               .expand({ key: 'populate', at: ['docs'], fields }),
         set: call
           .meta(
-            generatedMeta({ slug, op: 'set', relation: name, populate: [] }),
+            generatedMeta({
+              slug,
+              label,
+              op: 'set',
+              relation: name,
+              populate: [],
+            }),
           )
           .input(relation.set.input)
           .output(relation.set.output),
