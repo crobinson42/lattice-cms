@@ -589,7 +589,7 @@ examples/
 
 - hexok and ts-pf are peers, so the app and Lattice share one copy of each class and type ([0029](decisions/0029-hexok-and-ts-pf-are-peers.md)). An adapter's peer range on core is a caret range, never `*`. Every package publishes public.
 - Every `@ts-pf/*` package moves together on one version. `@latticecms/core` pins one ts-pf minor and one hexok major, and a bump is its own changeset.
-- A package README is its docs page, as in hexok and ts-pf.
+- A package README is its docs page, as in hexok and ts-pf. A README code block whose first line names a file (`// packages/…` or `// examples/…`) must be a run of that file's lines; `examples/crm`'s `readme-quotes.test.ts` checks it. Core's quick start is a crm file that a test runs.
 - No casts. Where a value built at runtime meets a precise type, one asserted overload states the precise type over an erased implementation. There are 8 in core: `build`, `contractOf`, `patchSchema`, `relationsOf`, `repo`, `sortSchema`, `tenantShapes` and `whereSchema`. Adding one needs a reason in review. Each Zod-typed overload states both of Zod's type parameters, or ts-pf callers get `unknown`.
 - `rootRouter()` in `build.ts` calls ts-pf's `router()` through runtime guards, and `ReadUseCase` names a populating read for declaration emit. Both work around ts-pf typing limits and go when ts-pf changes (proposed changes table).
 - A compile error that Lattice raises is a `{ '~error': '…' }` property that names the problem. A key union in an error is wrapped in a template literal, so the message prints the union, not an alias.

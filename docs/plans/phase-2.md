@@ -82,9 +82,9 @@ Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundar
 
 ### 9. Docs
 
-- [ ] The package READMEs, with recipes from `examples/crm`.
-- [ ] `docs/architecture.md` matches what was built, and its Phase 2 markers are removed.
-- [ ] Changesets.
+- [x] The package READMEs, with recipes from `examples/crm`.
+- [x] `docs/architecture.md` matches what was built, and its Phase 2 markers are removed.
+- [x] Changesets.
 
 ## Carried from Phase 1
 
