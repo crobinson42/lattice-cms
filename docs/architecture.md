@@ -555,6 +555,12 @@ Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the sc
 | `@hexok/authz` | hexok (three unmerged designs) | When released | Build it; add list checks that return a filter | Every product needs it. Lattice adapts its `Access` port to it |
 | `openWorldHint` and `idempotentHint` from procedure meta | ts-pf (`@ts-pf/mcp`) | Nice to have | Build it | It maps an effect to `readOnlyHint` and `destructiveHint` only, so every tool is open-world, which is wrong for a closed app. Tools from `all()` also advertise no output schema |
 | `Sessions.authenticate` returns when the session ends | hexok (`@hexok/auth`) | Nice to have | Build it | The MCP SDK's `requireBearerAuth` needs `expiresAt`, so the crm answers its own 401 challenge |
+| Adapter packages take `hexok` as a peer | hexok (`@hexok/auth`, `auth-jose`, `auth-redis`, and likely others) | Nice to have | Build it | They list `hexok` in `dependencies`, so a split range installs two copies of hexok's classes (0029's reason) |
+| An `around` hook on use cases | hexok | Nice to have | Build it | Hooks run as separate awaited steps, so no span or AsyncLocalStorage context can be active during `execute`. A use-case span cannot parent its store calls |
+| Trace ids in log lines | `@hexok/logger` | Nice to have | Build it | One OTel-aware logger joins logs and traces for every hexok app and library |
+| Spans and context propagation in queue, webhooks and integration-events | hexok | Nice to have | Build it | Every app writes its own consumer span, and no trace crosses the queue. The crm's `subscribeHandler` is a model |
+| A public memory queue with delay and retries | `@hexok/queue` | Nice to have | Build it | Every app testing webhooks without Redis writes one. The crm's `test/memory-queue.ts` is a model |
+| Export `MessageClass` | `@hexok/integration-events` | Phase 2 step 6 | Released in 0.2.2 and used | A declaration-emitting app could not export a message class (TS2883) |
 | Tracing port | hexok | Phase 2 (done) | No new package. Lattice calls `@opentelemetry/api` directly | The OTel API is already vendor-neutral and a no-op without an SDK, so an app can solve this today (gate question 2) |
 | Blob storage port, `@hexok/blob` + `@hexok/blob-s3` | hexok | Phase 3 | Build it, shaped like `email` / `sms` | Any product with uploads needs it. S3 covers DigitalOcean Spaces |
 | Mongo client lifecycle | `@latticecms/store-mongo` | Phase 1 (done) | Kept in Lattice | Only the store uses it. Move to hexok when a second package needs it, the way `ioredis-lifecycle` was extracted |
@@ -571,23 +577,28 @@ The repo copies hexok and ts-pf tooling: npm workspaces, Turbo, Biome, Changeset
 packages/
   core/            @latticecms/core            collection(), Where, Sort, family(), framework(), build(),
                                                CollectionStore port, MemoryStore, LatticeError;
-                                               ref(), many(), populate, Access port, tenancy;
+                                               ref(), many(), populate, Access port, tenancy,
+                                               field masking, procedure meta, spans;
                                                /store (adapter surface), /store/conformance
-  store-mongo/     @latticecms/store-mongo     MongoStore, Where translation, migrate()
+  store-mongo/     @latticecms/store-mongo     MongoStore, Where translation, migrate(), spans
   admin/           @latticecms/admin           React admin on @shadalaya + @ts-pf/client (Phase 3)
   cli/             @latticecms/cli             scaffold collection, run migrations (Phase 3)
   store-postgres/  @latticecms/store-postgres  (Phase 4)
 examples/
-  crm/             HTTP process + worker, shaped like hexok's app-template
+  crm/             The reference app, not a product: HTTP (/rpc, /mcp, /auth, /openapi.json)
+                   and a worker (webhooks, integration events), shaped like hexok's app-template
 ```
 
 | Package | Depends on | Peer |
 | --- | --- | --- |
-| `@latticecms/core` | none | `hexok`, `@ts-pf/contract`, `@ts-pf/server`, `@ts-pf/protocol`, `zod` 4, `@hexok/logger` |
-| `@latticecms/store-mongo` | `mongodb` | `@latticecms/core` `^0.1.0`, `hexok`, `zod` 4, `@hexok/logger` |
+| `@latticecms/core` | none | `hexok`, `@ts-pf/contract`, `@ts-pf/server`, `@ts-pf/protocol`, `@ts-pf/docs`, `@ts-pf/mcp`, `zod` 4, `@hexok/logger`, `@opentelemetry/api` |
+| `@latticecms/store-mongo` | `mongodb` | `@latticecms/core` `^0.1.0`, `hexok`, `zod` 4, `@hexok/logger`, `@opentelemetry/api` |
 | `@latticecms/admin` | `@ts-pf/client`, `@ts-pf/client-http`, `@ts-pf/docs` | `react`, `@shadalaya/react` |
 
 - hexok and ts-pf are peers, so the app and Lattice share one copy of each class and type ([0029](decisions/0029-hexok-and-ts-pf-are-peers.md)). An adapter's peer range on core is a caret range, never `*`. Every package publishes public.
+- Each published package's `type-check` also checks its built declarations, as an app sees them through `exports`, with `skipLibCheck` off (`tsconfig.dist.json` over `dist-check/`). Root `skipLibCheck: true` once hid a declaration that failed for every app.
+- npm does not check a workspace link against a peer range, so only a packed install catches a wrong internal range. Turbo ignores `peerDependencies` when ordering builds, so an adapter also lists core as a devDependency.
+- Packages ship `dist` and `src` (no tests), so source maps resolve. They are MIT licensed. CI runs the four checks; the Release workflow's "Version Packages" pull request publishes with npm provenance.
 - Every `@ts-pf/*` package moves together on one version. `@latticecms/core` pins one ts-pf minor and one hexok major, and a bump is its own changeset.
 - A package README is its docs page, as in hexok and ts-pf. A README code block whose first line names a file (`// packages/…` or `// examples/…`) must be a run of that file's lines; `examples/crm`'s `readme-quotes.test.ts` checks it. Core's quick start is a crm file that a test runs.
 - No casts. Where a value built at runtime meets a precise type, one asserted overload states the precise type over an erased implementation. There are 8 in core: `build`, `contractOf`, `patchSchema`, `relationsOf`, `repo`, `sortSchema`, `tenantShapes` and `whereSchema`. Adding one needs a reason in review. Each Zod-typed overload states both of Zod's type parameters, or ts-pf callers get `unknown`.
@@ -603,6 +614,6 @@ Each phase ends at a gate; the next starts when its exit holds. Phase 0 builds t
 | --- | --- | --- |
 | 0. Kernel, in memory (done) | `collection()`, `family()`, `framework()`, `build()`, `MemoryStore`; generated CRUD use cases, contract slice, event classes; overrides, custom methods, family guards, logging | A three-collection example serves `/rpc` and all tests pass on `MemoryStore` |
 | 1. Mongo, relations, access, tenancy (done) | `MongoStore`, `Where` translation, indexes, migrations runner; `ref()`, `many()`, join collections, batched population; `Access` port with default functions, row-level tenancy, `count` | `examples/crm` runs on Mongo; tenant isolation tests pass |
-| 2. Production wiring ([plan](plans/phase-2.md)) | `@hexok/auth` recipe, `@hexok/authz` adapter, field masking; integration-events and webhooks recipes, MCP, OpenAPI; OpenTelemetry spans | One internal tool runs in production on Lattice |
+| 2. Production wiring (done) | `@hexok/auth` recipe, field masking; integration-events and webhooks recipes, a worker, MCP, OpenAPI; OpenTelemetry spans; CI and the release path. The `@hexok/authz` adapter waits for hexok | Core and store-mongo 0.1.0 are ready to publish; `examples/crm` is the reference app |
 | 3. Admin and CLI | Admin SPA from `catalog()` and `.meta()`, on `@shadalaya`; CLI scaffolding and migrations; uploads through `@ts-pf/file` and a blob port | A new tool reaches CRUD, auth and admin in under one day |
 | 4. Hardening | Outbox relay, versions and drafts, Postgres store, index and performance tooling, security review | Ongoing; picked up as products need it |

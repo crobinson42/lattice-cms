@@ -6,12 +6,12 @@ This plan is a working document. It is deleted when the exit holds, after anythi
 
 ## Exit
 
-- [ ] `@latticecms/core` and `@latticecms/store-mongo` 0.1.0 are ready to publish through CI, and `examples/crm` is the reference app, runnable locally from its README. The maintainer chose this over a production pilot: the crm is an example, not a product.
-- [ ] `examples/crm` authenticates through `@hexok/auth`, with no dev headers outside tests.
-- [ ] Authorization runs through the `Access` port, with an `@hexok/authz` adapter if hexok ships it in this phase, and list checks stay query filters (0005).
-- [ ] Every procedure, use case and store call emits an OpenTelemetry span. A test reads them from an in-memory exporter.
-- [ ] The crm serves MCP and an OpenAPI document from the same contract, and a client still needs no casts or annotations.
-- [ ] `npm run lint`, `type-check`, `test` and `build` pass at the root. Type-check time is re-measured against 0003.
+- [x] `@latticecms/core` and `@latticecms/store-mongo` 0.1.0 are ready to publish through CI, and `examples/crm` is the reference app, runnable locally from its README. The maintainer chose this over a production pilot: the crm is an example, not a product.
+- [x] `examples/crm` authenticates through `@hexok/auth`, with no dev headers outside tests.
+- [x] Authorization runs through the `Access` port, with an `@hexok/authz` adapter if hexok ships it in this phase, and list checks stay query filters (0005).
+- [x] Every procedure, use case and store call emits an OpenTelemetry span. A test reads them from an in-memory exporter.
+- [x] The crm serves MCP and an OpenAPI document from the same contract, and a client still needs no casts or annotations.
+- [x] `npm run lint`, `type-check`, `test` and `build` pass at the root. Type-check time is re-measured against 0003.
 
 ## In scope
 
@@ -80,7 +80,7 @@ Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundar
 The maintainer chose the crm as the pilot, then decided it stays an example, not a production tool. This step became the release path instead.
 
 - [x] CI runs the four checks on pull requests and pushes to main. The Release workflow opens "Version Packages" from `.changeset/`, and merging it publishes with provenance, as hexok does.
-- [ ] Both packages carry `repository` for `crobinson42/lattice-cms`, which provenance requires. The changelog is `@changesets/changelog-github`.
+- [x] Both packages carry `repository` for `crobinson42/lattice-cms`, which provenance requires. The changelog is `@changesets/changelog-github`.
 
 ### 9. Docs
 
