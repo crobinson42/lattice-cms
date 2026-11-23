@@ -455,7 +455,7 @@ The write goes to Mongo and the event goes to Redis. A crash between the two los
 
 ## API surfaces
 
-One generated contract serves every surface. Lattice writes no transport code.
+One generated contract serves every surface. Lattice writes no transport code. Each generated procedure carries `.meta()` with a `docs` summary and an `mcp` effect, written in one place (`describe.ts`), so MCP tools, OpenAPI operations and codegen comments describe themselves. `@ts-pf/docs` and `@ts-pf/mcp` are peers of core.
 
 ```ts
 const handler = new FetchHandler(app, { onError: onError(logger) })
@@ -480,8 +480,8 @@ await local.posts.find({ where: { status: { eq: 'published' } }, limit: 20 })
 | HTTP (POST JSON RPC) | `@ts-pf/server-http` | `POST /rpc/posts/find`. Cacheable GET reads use the userland bridge ts-pf already documents |
 | In-process | `@ts-pf/server` `createLocalClient`, or `useCases.*` | Tests, scripts, server-rendered pages. Same guards and errors |
 | WebSocket, stdio | `@ts-pf/message-server` | For live admin or CLI tools |
-| MCP | `@ts-pf/mcp` | Each collection operation becomes a tool. Large apps use tool hosts |
-| OpenAPI | `@ts-pf/openapi` | `profile: 'codegen'` for Dart, Swift and Kotlin clients |
+| MCP | `@ts-pf/mcp` | Each operation becomes a tool, run in process through the router, so access, tenancy, masking and spans apply. Generated tools carry Lattice's summary and effect (`read`, `write`, `destructive`); a method describes itself. The crm serves `/mcp` over Streamable HTTP with the same bearer session and `x-organization-id` as `/rpc`, and answers a missing session with a 401 challenge. Large apps use tool hosts |
+| OpenAPI | `@ts-pf/openapi` | `profile: 'codegen'` for Dart, Swift and Kotlin clients. Populated reads carry `x-ts-pf-expand`. A masked field is optional, with a description; its `where` and `sort` entries say a caller who cannot read it is refused. The crm serves `/openapi.json` to signed-in users only |
 | TypeScript clients | `@ts-pf/client` + `client-http`, `@ts-pf/swr`, `@ts-pf/mvc-kit` | Import `contract` only, never server code |
 | Split repos | `@ts-pf/codegen` | `.d.ts` from the catalog, plus a breaking-change check in CI |
 
@@ -540,7 +540,8 @@ What the built system does not do yet, or does with a known gap. Each is a candi
 - **Field masking.**
   - A field rule sees the actor, not the row.
   - A method field computed from a masked one, an `afterRead` derivation, an object `.refine()` across a maskable field, and an access `Where` on a maskable field can each reveal something about it. The README says not to write them.
-- **Type-check cost.** After Phase 1, a full check takes 0.98 s for core's sources (0.87 s after Phase 0), 0.41 s for the crm's sources (0.38 s), and 0.51 s for the crm with tests. Core's own suite takes 2.2 s, mostly type tests. [0003](decisions/0003-collections-compile-at-runtime.md)'s revisit condition does not hold.
+- **Type-check cost.** After Phase 2 step 7, core's sources take 1.04–1.06 s (0.98 s after Phase 1), the crm's 0.52–0.54 s, and the crm with tests 0.67–0.71 s, within its 0.75 s limit. The crm's growth since Phase 1 is its own MCP, SDK and codegen surface, not Lattice's per-collection types. Core's sources grew 0.6% for field masking and 0.6% for procedure meta. [0003](decisions/0003-collections-compile-at-runtime.md)'s revisit condition does not hold.
+- **OpenAPI names.** The codegen profile makes up component names for unnamed schemas, such as a where field or Lattice's `Withheld` shape. They can change when the contract changes. Named schemas (`.meta({ id })`) would make them stable.
 
 ## Proposed changes to hexok and ts-pf
 
@@ -552,6 +553,8 @@ Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the sc
 | `RouterImplCheck` decides each node by the implementation's node, so a contract node that may be a procedure or a router type-checks | ts-pf (`@ts-pf/server` `runtime.ts`) | Nice to have | Build it | Lattice builds its router at runtime, with relation routers inside slices. Today it calls `router()` through `rootRouter()`, which narrows with runtime guards. The fix is a distributive `NodeCheck`; a fixed contract keeps every error it has today |
 | Export `ExpandResult` and `ExpandedOutput` from `@ts-pf/contract` | ts-pf | Nice to have | Build it | A `.d.ts` that names a populating read needs them (TS2883). Lattice exports a `ReadUseCase` interface to work around it |
 | `@hexok/authz` | hexok (already planned) | Phase 2 | Build it; add list checks that return a filter | Every product needs it. Lattice adapts its `Access` port to it |
+| `openWorldHint` and `idempotentHint` from procedure meta | ts-pf (`@ts-pf/mcp`) | Nice to have | Build it | It maps an effect to `readOnlyHint` and `destructiveHint` only, so every tool is open-world, which is wrong for a closed app. Tools from `all()` also advertise no output schema |
+| `Sessions.authenticate` returns when the session ends | hexok (`@hexok/auth`) | Nice to have | Build it | The MCP SDK's `requireBearerAuth` needs `expiresAt`, so the crm answers its own 401 challenge |
 | Tracing port | hexok | Phase 2 (done) | No new package. Lattice calls `@opentelemetry/api` directly | The OTel API is already vendor-neutral and a no-op without an SDK, so an app can solve this today (gate question 2) |
 | Blob storage port, `@hexok/blob` + `@hexok/blob-s3` | hexok | Phase 3 | Build it, shaped like `email` / `sms` | Any product with uploads needs it. S3 covers DigitalOcean Spaces |
 | Mongo client lifecycle | `@latticecms/store-mongo` | Phase 1 (done) | Kept in Lattice | Only the store uses it. Move to hexok when a second package needs it, the way `ioredis-lifecycle` was extracted |

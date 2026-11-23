@@ -71,9 +71,9 @@ Built: [0031](../decisions/0031-masked-fields-are-withheld-at-the-client-boundar
 
 ### 7. MCP and OpenAPI
 
-- [ ] The crm serves MCP through `@ts-pf/mcp`. Each operation is a tool, under the caller's access and tenancy.
-- [ ] Core attaches per-action metadata to generated procedures, a `docs` summary and an `mcp` effect, with `@ts-pf/docs` and `@ts-pf/mcp` as peers (approved by the maintainer). A maskable field's `where` and `sort` entries say they are refused for a caller who cannot read it (0031).
-- [ ] An OpenAPI document through `@ts-pf/openapi` with `profile: 'codegen'`, including `x-ts-pf-expand` for populated reads.
+- [x] The crm serves MCP through `@ts-pf/mcp`. Each operation is a tool, under the caller's access and tenancy.
+- [x] Core attaches per-action metadata to generated procedures, a `docs` summary and an `mcp` effect, with `@ts-pf/docs` and `@ts-pf/mcp` as peers (approved by the maintainer). A maskable field's `where` and `sort` entries say they are refused for a caller who cannot read it (0031).
+- [x] An OpenAPI document through `@ts-pf/openapi` with `profile: 'codegen'`, including `x-ts-pf-expand` for populated reads.
 
 ### 8. The pilot
 
