@@ -7,5 +7,5 @@
     "declarationMap": false,
     "sourceMap": false
   },
-  "exclude": []
+  "exclude": ["src/web"]
 }

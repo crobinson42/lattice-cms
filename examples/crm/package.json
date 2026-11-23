@@ -2,17 +2,18 @@
   "name": "@latticecms/example-crm",
   "version": "0.0.0",
   "private": true,
-  "description": "A CRM on Lattice: three tenanted collections on MongoDB, served at /rpc and as MCP tools at /mcp.",
+  "description": "A CRM on Lattice: three tenanted collections on MongoDB, served at /rpc, as MCP tools at /mcp, and as an admin at /admin.",
   "type": "module",
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && vite build",
     "start": "node dist/servers/http/main.js",
+    "dev:admin": "vite",
     "worker": "node dist/servers/worker/main.js",
     "dev:session": "node dist/servers/scripts/dev-session.js",
     "dev:user": "node dist/servers/scripts/dev-user.js",
     "openapi": "node dist/servers/scripts/openapi.js",
     "test": "vitest run",
-    "type-check": "tsc --noEmit -p tsconfig.check.json",
+    "type-check": "tsc --noEmit -p tsconfig.check.json && tsc -p tsconfig.web.json",
     "lint": "biome check .",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
@@ -23,8 +24,12 @@
     "@ts-pf/client": "^0.6.0",
     "@ts-pf/client-http": "^0.6.0",
     "@ts-pf/codegen": "^0.6.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "mongodb": "^7.9.1",
-    "mongodb-memory-server": "^11.3.0"
+    "mongodb-memory-server": "^11.3.0",
+    "playwright": "^1.65.1",
+    "vite": "^8.3.8"
   },
   "dependencies": {
     "@hexok/auth": "^0.1.1",
@@ -35,6 +40,7 @@
     "@hexok/queue": "^2.0.0",
     "@hexok/queue-redis": "^2.0.0",
     "@hexok/webhooks": "^0.1.0",
+    "@latticecms/admin": "*",
     "@latticecms/core": "*",
     "@latticecms/store-mongo": "*",
     "@modelcontextprotocol/server": "^2.4.0",
@@ -48,6 +54,8 @@
     "@ts-pf/server-http": "^0.6.0",
     "hexok": "^2.2.7",
     "jose": "^6.2.18",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "srvx": "^1.0.8",
     "zod": "^4.1.0"
   },

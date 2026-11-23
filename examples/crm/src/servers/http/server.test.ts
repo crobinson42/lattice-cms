@@ -6,8 +6,9 @@ import { z } from 'zod';
 import { openDevSession } from '../../infra/auth/dev-session.js';
 import { MemoryDomainEventPublisher } from '../../infra/events/memory-domain-events.js';
 import { testSessions } from '../../test/sessions.js';
+import { builtPage } from '../../test/web.js';
 import { createApp } from '../app.js';
-import { organizationHeader } from './handler.js';
+import { organizationHeader } from './headers.js';
 import { type Running, start } from './server.js';
 
 describe('the server, over the network, on MongoStore', () => {
@@ -33,6 +34,7 @@ describe('the server, over the network, on MongoStore', () => {
       logger: new MemoryLogger(),
       port: 0,
       hostname: '127.0.0.1',
+      web: builtPage,
     });
     // The dev script's own function, against the running server's store.
     const crm = createApp({ store, events: new MemoryDomainEventPublisher() });

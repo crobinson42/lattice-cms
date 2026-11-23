@@ -38,7 +38,7 @@ npm start -w @latticecms/example-crm
 npm run worker -w @latticecms/example-crm
 ```
 
-`dev:user` prints a session token. The server logs `http listening`, and the worker `worker subscribed` with its two handlers. Then [call it](#calling-it).
+`dev:user` prints a session token. The server logs `http listening`, and the worker `worker subscribed` with its two handlers. Then open the [admin](#the-admin) at <http://localhost:3000/admin>, or [call the API](#calling-it).
 
 | Variable | Meaning |
 | --- | --- |
@@ -52,6 +52,26 @@ npm run worker -w @latticecms/example-crm
 | `WEBHOOKS_ALLOW_PRIVATE` | `1` lets the worker send to plain http and private addresses, for a receiver on this machine. |
 
 A missing or bad setting fails at startup and names each one. Startup is: start the store, migrate, create indexes, then serve. `SIGINT` and `SIGTERM` stop taking requests, let those in flight finish, and close the stores.
+
+## The admin
+
+`npm run build` builds the admin page into `dist/web`, and the server serves it at `/admin`. Sign in with the `dev:user` user, `ann@example.com` and `a long password` above. The top bar's select switches organization, and Sign out ends the session. A support user signs in to the admin with no switcher: support acts in no organization.
+
+The page is [`src/web`](src/web): `@latticecms/admin`'s `<Admin>`, mounted the way an app mounts it.
+
+- [`app.tsx`](src/web/app.tsx) signs in through `/auth`, lists the user's organizations for the switcher, and keys `<Admin>` by the picked one, so a switch starts with an empty cache.
+- [`session.ts`](src/web/session.ts) keeps the token and the picked organization in `sessionStorage`, for the tab. Its fetch adds `Authorization` and `x-organization-id` to every call, and a 401 signs the user out.
+- [`auth.ts`](src/web/auth.ts) is a ts-pf client on `/auth`, typed by `typeof authContract` with a type-only import, so no server code reaches the browser.
+
+The server serves `index.html` for every path under `/admin`, so a reload on a deep link renders, and caches the hashed files under `/admin/assets/` for good.
+
+To work on the page, run the server as above and, in another terminal:
+
+```bash
+npm run dev:admin -w @latticecms/example-crm
+```
+
+Vite serves the page at <http://localhost:5173/admin/>, reloads it on each change, and sends `/rpc`, `/auth` and `/catalog.json` to the server on port 3000.
 
 ## Events and the worker
 
@@ -214,5 +234,7 @@ The reason is logged, never sent. Logs carry no password and no email; a login r
 ## Tests
 
 `npm test -w @latticecms/example-crm` runs every test on `MemoryStore` and on MongoDB, through mongodb-memory-server. Sessions run in memory with real signed tokens, and the queues on `MemoryQueue` ([`src/test/memory-queue.ts`](src/test/memory-queue.ts)), an adapter of the `@hexok/queue` port with the same delivery rules as RedisQueue. Redis is not needed. Webhooks are sent to a real HTTP server on this machine. MCP tests connect the MCP SDK's own client to `/mcp`.
+
+[`admin.browser.test.ts`](src/web/admin.browser.test.ts) runs the built admin page in headless Chromium, through Playwright, against the HTTP server on a port and MongoDB. It signs in, switches organization and sees only that organization's deals, creates, edits and deletes a company and a deal, checks that a member sees no amount in the list or the form, deletes a company that still has deals and follows the link to them, sets a deal's contacts on its relation tab, reloads a deep link, and signs out. Install Chromium once with `npx playwright install chromium`. [`bundle.test.ts`](src/web/bundle.test.ts) holds the built page to a gzipped budget, in all and without React. Both read `dist/web`, so `npx turbo run test` builds the crm first. The tests that start a real server on MongoDB, the browser test among them, run after the rest and one file at a time ([`vitest.config.ts`](vitest.config.ts)): each start builds every index, and mongod builds only a few at once, so overlapping starts stall each other.
 
 Two tests keep the package READMEs honest. [`readme-quotes.test.ts`](src/readme-quotes.test.ts) checks that every README code block whose first line names a file, such as `// examples/crm/src/servers/app.ts`, is that file's text, line for line, allowing only a uniform indent to be removed. [`quickstart.test.ts`](src/quickstart/quickstart.test.ts) runs core's quick start, which lives in [`src/quickstart`](src/quickstart).

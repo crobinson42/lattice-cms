@@ -6,11 +6,10 @@ import type { Hasher } from '../infra/auth/store-credentials.js';
 import { MemoryDomainEventPublisher } from '../infra/events/memory-domain-events.js';
 import { createApp } from '../servers/app.js';
 import { storeLogin } from '../servers/auth/login.js';
-import {
-  createHttpHandler,
-  organizationHeader,
-} from '../servers/http/handler.js';
+import { createHttpHandler } from '../servers/http/handler.js';
+import { organizationHeader } from '../servers/http/headers.js';
 import { testSessions } from './sessions.js';
+import { builtPage } from './web.js';
 
 /** How a test request authenticates: a token, an organization, or neither. */
 export type As = {
@@ -66,6 +65,7 @@ export function httpSetup(
     sessions,
     support: new Set(options.support ?? []),
     logger,
+    web: builtPage,
   });
   return {
     ...crm,

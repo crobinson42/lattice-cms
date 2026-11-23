@@ -35,7 +35,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
   - **Dependencies.** Approved: peers `react` and `react-dom` `^19` and `@ts-pf/client`, `client-http`, `docs` and `protocol` `^0.6.0`. Dependencies `@shadalaya/react` `^0.1.0` and `swr` `^2`. devDependencies `tailwindcss`, `@tailwindcss/cli`, `@shadalaya/theme`, Testing Library, `happy-dom` and `@types/react`. The crm adds `react`, `react-dom` and `@latticecms/admin`, plus `vite` and `playwright` as devDependencies.
   - **Sign-in.** The crm signs in through `/auth`. A new `/auth` `organizations` procedure needs a session but no organization, and returns the caller's organizations with their names. The names come from a new crm `organizations` collection.
   - **Testing.** Component tests in `packages/admin` (vitest, Testing Library and happy-dom) against an in-memory app over `FetchLink`. One Chromium test in the crm, driven by the `playwright` library from vitest, against the HTTP server and mongod. CI installs Chromium from a cache.
-  - **Budgets.** A test gzips the Vite build and asserts a size budget, set from the first measurement. The crm's admin UI gets its own tsconfig project, so the crm's server budget (0.85 s since step 3, was 0.75 s) still measures the server.
+  - **Budgets.** A test gzips the Vite build and asserts a size budget, set from the first measurement. The crm's admin UI gets its own tsconfig project, so the crm's server budget still measures the server. Budgets count instantiations since step 3 (`architecture.md`).
 
 ### 2. UI metadata **Checkpoint**
 
@@ -48,8 +48,8 @@ Each step ends with its tests passing. Tick it in this file when it does.
 - [x] Forms (create and edit), delete, methods, and relation `list` and `set` in the admin.
 - [x] The crm serves `/catalog.json` behind a session, and adds the global `organizations` collection (a member reads its own; memberships ref it), the `/auth` `organizations` procedure (a session, no organization), and a deal `contacts` relation with a `role`. The dev scripts take an organization name.
 - [x] Profile and cut a `many()` relation's type cost. Constraints use `z.core.$ZodType` (core −5.7%, crm −8.3% in instantiations). The crm's check skips declaration emit. Its budget stays 0.85 s: it measures 0.76–0.84 s.
-- [ ] The crm mounts the admin at `/admin`, with the switcher.
-- [ ] The browser test and the bundle budget, as decided at step 1.
+- [x] The crm mounts the admin at `/admin`, with sign-in, the switcher and sign-out.
+- [x] The browser test (Chromium through the `playwright` library, in vitest, against the server and mongod) and the bundle budget. CI installs Chromium from a cache.
 - [x] A withheld field is absent in forms and tables, and a `VALIDATION` on a filter is shown, not swallowed. A `REFERENCED` delete explains which children block it. (Component tests; the browser test repeats them in the crm.)
 
 ### 4. Uploads **Checkpoint**
@@ -104,4 +104,6 @@ Add a line here when the work teaches something the plan did not know. Each line
 - The catalog had no tenant-field fact and no relation target, so the admin first inferred both. Core now emits `x-lattice-tenant` and `lattice.target`. In `architecture.md`.
 - Every scalar Lattice field sorts except booleans and optional or nullable ones. A UI sort is refused only when the caller's field rules change mid-session, because columns follow what the caller receives.
 - Core's update cannot unset an optional field, so the admin refuses to clear one. Known limit in `architecture.md`.
+- Wall-clock type-check budgets drifted 10% or more between days on one machine, at a flat instantiation count. The maintainer moved the budgets to instantiations, +5% over today. In `architecture.md`.
+- Each crm `start()` builds every index in a fresh database, so tests that start a real server on MongoDB stall each other when they overlap. They run one file at a time in the `servers` vitest project. A new server-starting test goes in that list.
 - Tests that checked a JSON body for a secret number as a substring were flaky: random hex ids and database names can contain it. Secrets now have a fraction (`4242.5`), which no hex id holds.

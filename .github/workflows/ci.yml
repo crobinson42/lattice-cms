@@ -41,6 +41,22 @@ jobs:
           key: mongodb-binaries-${{ runner.os }}-${{ runner.arch }}-${{ steps.mongod.outputs.version }}
 
       - run: npm ci
+
+      # The crm's browser test drives headless Chromium through Playwright.
+      # The browser is cached by Playwright's version; its system libraries
+      # install every run, which --with-deps does.
+      - name: Read the Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright's Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+
+      - run: npx playwright install --with-deps chromium
+
       - run: npm run lint
       - run: npm run type-check
       - run: npm run test

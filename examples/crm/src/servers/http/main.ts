@@ -38,6 +38,8 @@ const running = await start({
   support: supportUserIds(process.env),
   logger,
   port: Number(process.env.PORT ?? 3000),
+  // dist/servers/http/main.js serves dist/web, which `npm run build` makes.
+  web: new URL('../../web/', import.meta.url),
 });
 
 // Stop taking requests, let those in flight finish, then close the stores.

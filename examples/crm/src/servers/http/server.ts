@@ -28,6 +28,8 @@ export async function start(deps: {
   readonly logger: Logger;
   readonly port: number;
   readonly hostname?: string;
+  /** The built admin page's directory, served at /admin. */
+  readonly web: URL;
 }): Promise<Running> {
   const { store, logger } = deps;
   const crm = createApp({ store, events: deps.events });
@@ -46,6 +48,7 @@ export async function start(deps: {
       sessions: deps.sessions,
       support: deps.support,
       logger,
+      web: deps.web,
     }),
     silent: true,
   });

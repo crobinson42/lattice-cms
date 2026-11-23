@@ -2,7 +2,7 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
-import { organizationHeader } from '../servers/http/handler.js';
+import { organizationHeader } from '../servers/http/headers.js';
 import type { As } from './http.js';
 
 /**

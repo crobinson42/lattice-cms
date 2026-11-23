@@ -5,9 +5,13 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts"],
+  "exclude": ["src/**/*.test.ts", "src/web"],
   "references": [
-    { "path": "../../packages/core" },
-    { "path": "../../packages/store-mongo" }
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/store-mongo"
+    }
   ]
 }

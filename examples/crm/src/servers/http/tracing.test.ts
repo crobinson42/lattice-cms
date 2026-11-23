@@ -23,8 +23,9 @@ import { openDevSession } from '../../infra/auth/dev-session.js';
 import { MemoryDomainEventPublisher } from '../../infra/events/memory-domain-events.js';
 import { mcpClient } from '../../test/mcp.js';
 import { testSessions } from '../../test/sessions.js';
+import { builtPage } from '../../test/web.js';
 import { type CrmApp, createApp } from '../app.js';
-import { organizationHeader } from './handler.js';
+import { organizationHeader } from './headers.js';
 import { type Running, start } from './server.js';
 
 // An SDK for this file only, as an app registers one at startup.
@@ -96,6 +97,7 @@ describe('tracing through the server, on MongoStore', () => {
       logger: new MemoryLogger(),
       port: 0,
       hostname: '127.0.0.1',
+      web: builtPage,
     });
     const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
     const token = await openDevSession(
@@ -144,6 +146,7 @@ describe('tracing through the server, on MongoStore', () => {
       logger: new MemoryLogger(),
       port: 0,
       hostname: '127.0.0.1',
+      web: builtPage,
     });
     const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
     const token = await openDevSession(

@@ -19,9 +19,8 @@ import { type AuthRpcCtx, createAuthRouter } from '../auth/router.js';
 import { crmTools } from '../mcp/toolset.js';
 import { catalogDocument } from '../rpc/catalog.js';
 import { openapiDocument } from '../rpc/openapi.js';
-
-/** The header that names the organization a call acts in. */
-export const organizationHeader = 'x-organization-id';
+import { adminPage, adminPath } from './admin-page.js';
+import { organizationHeader } from './headers.js';
 
 /** What the edge needs: the app, login, its sessions, and who is support. */
 export type HttpDeps = {
@@ -31,6 +30,8 @@ export type HttpDeps = {
   /** User ids that act as support, from `CRM_SUPPORT_USER_IDS`. */
   readonly support: ReadonlySet<string>;
   readonly logger: Logger;
+  /** The built admin page's directory, served at /admin. */
+  readonly web: URL;
 };
 
 /**
@@ -197,7 +198,8 @@ function mcpEdge(deps: HttpDeps, onError: (error: unknown) => void) {
  * The server as one fetch function: the API at `/rpc`, the same API as MCP
  * tools at `/mcp`, its OpenAPI document at `/openapi.json` and its catalog
  * at `/catalog.json` for a signed-in user, sign-in, sign-out and the
- * caller's organizations at `/auth`, and `/health`. srvx, Bun, Deno,
+ * caller's organizations at `/auth`, the admin page at `/admin`, and
+ * `/health`. srvx, Bun, Deno,
  * Hono or a test calls it with a `Request`.
  */
 export function createHttpHandler(
@@ -228,6 +230,7 @@ export function createHttpHandler(
     };
   };
   const mcp = mcpEdge(deps, onError);
+  const admin = adminPage(deps.web);
   // Built on the first request and kept: the contract does not change
   // while serving.
   let openapi: ReturnType<typeof openapiDocument> | undefined;
@@ -255,6 +258,12 @@ export function createHttpHandler(
     const { pathname } = new URL(request.url);
     if (request.method === 'GET' && pathname === '/health') {
       return Response.json({ ok: true });
+    }
+    if (
+      (request.method === 'GET' || request.method === 'HEAD') &&
+      (pathname === adminPath || pathname.startsWith(`${adminPath}/`))
+    ) {
+      return admin(request);
     }
     if (request.method === 'GET' && pathname === '/openapi.json') {
       return forSignedIn(request, 'openapi', () => {

@@ -8,7 +8,7 @@ import { Companies } from '../../domain/collections/companies.js';
 import { Deals } from '../../domain/collections/deals.js';
 import type { Contract } from '../../test/client/contract.js';
 import { httpSetup } from '../../test/http.js';
-import { organizationHeader } from '../http/handler.js';
+import { organizationHeader } from '../http/headers.js';
 import { contract } from './contract.js';
 
 // A client in another repo has no server code: it has the contract.d.ts
