@@ -5,6 +5,15 @@
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crobinson42/lattice-cms.git",
+    "directory": "packages/store-mongo"
+  },
+  "homepage": "https://github.com/crobinson42/lattice-cms/tree/main/packages/store-mongo#readme",
+  "bugs": {
+    "url": "https://github.com/crobinson42/lattice-cms/issues"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
