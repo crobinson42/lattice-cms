@@ -54,7 +54,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 4. Uploads **Checkpoint**
 
-- [ ] A blob port. The proposed-changes table says `@hexok/blob` and `@hexok/blob-s3` belong in hexok. Ask the maintainer: wait for hexok, or start with a port in Lattice that moves to hexok later.
+- [x] A blob port. The maintainer chose hexok: `@hexok/blob` (port, memory adapter, conformance suite) and `@hexok/blob-s3`, from a brief in the maintainer's hands. Steps 5 and 6 go first; this step starts when hexok releases them.
 - [ ] A file field in a collection: what is stored (a blob key and metadata), how `@ts-pf/file` multipart reaches it, and how access, tenancy, masking and `onDelete` apply to the blob.
 - [ ] Downloads: signed URLs or a streaming procedure. Nothing is served without the caller's access.
 - [ ] The crm: an attachment on a deal, and the admin's upload field.
