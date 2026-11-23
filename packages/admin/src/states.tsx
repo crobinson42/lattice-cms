@@ -6,7 +6,7 @@ import {
   EmptyTitle,
 } from '@shadalaya/react/empty';
 import { Skeleton } from '@shadalaya/react/skeleton';
-import type { Refusal } from './refusal.js';
+import type { ReactNode } from 'react';
 
 /** Rows still loading. */
 export function Loading() {
@@ -19,25 +19,25 @@ export function Loading() {
   );
 }
 
-/** Something that went wrong, as a title and a message. */
+/** Something that went wrong, as a title, a message, and any detail. */
 export function ErrorAlert({
   title,
   message,
+  children,
 }: {
   readonly title: string;
   readonly message: string;
+  readonly children?: ReactNode;
 }) {
   return (
     <Alert variant="destructive" role="alert">
       <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>{message}</AlertDescription>
+      <AlertDescription>
+        {message}
+        {children}
+      </AlertDescription>
     </Alert>
   );
-}
-
-/** A refused or failed call: the server's code and message. */
-export function RefusalAlert({ refusal }: { readonly refusal: Refusal }) {
-  return <ErrorAlert title={refusal.code} message={refusal.message} />;
 }
 
 /** A page or document that is not there. */

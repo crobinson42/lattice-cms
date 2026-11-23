@@ -1,6 +1,16 @@
 import type { LatticeMeta } from '@latticecms/core';
 import type { JsonSchema } from '@ts-pf/docs';
 
+/** What a procedure does to data, from its `mcp` meta. */
+export type Effect = 'read' | 'write' | 'destructive';
+
+const effects: readonly Effect[] = ['read', 'write', 'destructive'];
+
+function effectOf(mcp: unknown): Effect | undefined {
+  if (!isRecord(mcp)) return undefined;
+  return effects.find((effect) => effect === mcp.effect);
+}
+
 /** A procedure's docs, as far as the admin reads them. */
 export type Docs = {
   readonly summary: string | undefined;
@@ -12,6 +22,8 @@ export type Procedure = {
   readonly path: readonly string[];
   readonly lattice: LatticeMeta;
   readonly docs: Docs | undefined;
+  /** Its MCP effect: whether it reads, writes, or destroys. */
+  readonly effect: Effect | undefined;
   readonly input: JsonSchema | undefined;
   readonly output: JsonSchema | undefined;
   /** The fields `populate` may name, when the procedure populates. */
@@ -142,6 +154,7 @@ function procedureOf(
     path: value.path,
     lattice,
     docs,
+    effect: effectOf(value.meta.mcp),
     input: jsonSchemaOf(value.input),
     output: jsonSchemaOf(value.output),
     expand,

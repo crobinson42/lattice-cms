@@ -25,6 +25,11 @@ export function relationLabel(name: string): string {
   return inWords(name);
 }
 
+/** A method's label: its name in words, such as "Close" for `close`. */
+export function methodLabel(name: string): string {
+  return inWords(name);
+}
+
 /** A collection's heading, such as "Deals". */
 export function pluralHeading(label: LatticeMeta['label']): string {
   return capitalize(label.plural);

@@ -2,7 +2,7 @@
 
 An admin for a [Lattice](../core) app. It renders a collection index, list views and detail views for every collection, from the catalog the app serves. There is no per-collection code: what a page shows comes from the procedures' JSON Schema and their `lattice` meta.
 
-Status: unpublished, before 1.0. This version reads. Create and edit forms, delete, methods and relation editing come next.
+Status: unpublished, before 1.0.
 
 ## Install
 
@@ -74,16 +74,40 @@ The stylesheet is compiled at the admin's build, with Tailwind's preflight and t
   - A refused call is not retried: it would be refused again. Data refetches when the window regains focus.
 - **A document:** `get` with every field `populate` takes.
   - A populated ref links to its document, labelled by the target's title field. A ref the caller may not read shows its id and "no access".
-  - A populated relation lists its links, each linking to its target.
-  - The system fields (`id`, `createdAt`, `updatedAt`) and the tenant field are shown apart, read-only.
+  - Each relation has a tab, at `/<collection>/<id>/relations/<relation>`: its links page by page, with their fields, each linking to its target, and how many there are.
+  - The system fields (`id`, `createdAt`, `updatedAt`) and the tenant field (`x-lattice-tenant`) are shown apart, read-only.
 - **Labels:** a field's label is its schema `title` (`.meta({ title })`), or its name in words: `companyId` reads "Company id".
+
+## What it writes
+
+Every write uses one form renderer, built from the procedure's input JSON Schema:
+
+| Schema | Input |
+| --- | --- |
+| `string` | A text box. `format: date-time` is a date and time, sent as ISO. An `enum` is a select. |
+| `number`, `integer` | A number box, with `minimum` and `maximum`. |
+| `boolean` | A checkbox, or a select of yes, no and none when null is allowed. |
+| A ref (`x-lattice-ref`) | A search over the target's title field (`contains`, through its `find`; Enter picks the first match), or an id box when the target has no title field. |
+| An array of strings, enums or refs | One string per line, a checkbox per value, or a list of picked documents. Empty is `null` when null is allowed. |
+| Anything else, such as an object | JSON text. |
+
+A default fills the input. A form sends only the fields the user changed, so an untouched field keeps its default on create and its value on edit. Clearing a nullable field sends `null`. Update cannot unset a field, so clearing any other field says so at the field and sends nothing. No input takes the system fields or the tenant field.
+
+- **Create** (`/<collection>/new`) renders `create`'s input, then opens the new document.
+- **Edit** (`/<collection>/<id>/edit`) renders `update`'s input, filled from `get`, and sends only the fields that changed from what the form opened with, even if the document refetches meanwhile. A field the caller did not receive is not in the form, so a withheld value is never sent back.
+- **Delete** asks first, then shows the list. A `REFERENCED` refusal says what still refers to the document, such as "Deals still refer to this company (Company id).", and links to that list filtered to those documents.
+- **Methods.** A method whose input has an `id` is an action on its document's page; one without is an action on its collection's list. Each is labelled by its name in words, with its summary beside it. Its form is its input but `id`. With no other field it is a button: a read runs at once, and a write asks first. A destructive method always asks. When it returns the page's document, the page refreshes; anything else is shown read-only.
+- **Relations.** A relation's tab edits its `set`: it loads every link, up to the 1000 one set takes, and says so when there are more. Add a target, remove one, or change a link's fields, then save the whole set after a confirmation. A refusal keeps the edits.
+
+After a write, the admin refetches what the write could have changed: the collection's documents, lists and counts, and a relation's target.
 
 The server decides what a caller sees, and the admin shows what it is sent:
 
 - A field withheld from the caller is absent from the document and from the list's columns. A field rule is per caller, not per document, so a maskable field that no loaded document carries is withheld from this caller.
 - A filter or sort on a withheld field is refused as `VALIDATION`. The admin shows the server's message at that filter or column.
-- Any other refusal, such as `FORBIDDEN`, shows its code and message. A missing document shows not-found.
+- A `VALIDATION` on a write shows each issue at the field its path names, and any other issue in the form's alert. The admin does not validate before the server does.
+- Any other refusal, such as `FORBIDDEN`, `NOT_FOUND`, `CONFLICT` or an app's declared error, shows its code and message. A missing document shows not-found.
 
 ## What it leaves out
 
-Bulk actions, OR groups, multi-column sort, CSV import and export, saved views, dashboards, audit history, i18n, client-side validation, and per-collection custom pages or renderers.
+Bulk actions and bulk edits, OR groups, multi-column sort, CSV import and export, saved views, dashboards, audit history, i18n, client-side validation, and per-collection custom pages, forms or field renderers.

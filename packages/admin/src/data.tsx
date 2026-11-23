@@ -1,8 +1,15 @@
 import type { Link } from '@ts-pf/client';
 import { FetchLink } from '@ts-pf/client-http';
-import { createContext, type ReactNode, useContext, useMemo } from 'react';
-import useSWR from 'swr';
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useMemo,
+} from 'react';
+import useSWR, { useSWRConfig } from 'swr';
 import type { Procedure } from './catalog.js';
+import type { Collection } from './collections.js';
 
 const LinkContext = createContext<Link | undefined>(undefined);
 
@@ -43,4 +50,40 @@ export function useCall(procedure: Procedure | undefined, input: unknown) {
   const key: Call | null =
     procedure === undefined ? null : [procedure.path, input];
   return useSWR(key, ([path, body]: Call) => link.call([...path], body));
+}
+
+/** Calls a procedure once, outside swr: a write, or a load the user asked for. */
+export function useCaller(): (
+  procedure: Procedure,
+  input: unknown,
+) => Promise<unknown> {
+  const link = useLink();
+  return useCallback(
+    (procedure, input) => link.call([...procedure.path], input),
+    [link],
+  );
+}
+
+/**
+ * After a write: refetches every swr entry of the collections it touched,
+ * by their procedures' paths, such as a document, its lists and counts, and
+ * a relation's target.
+ */
+export function useRevalidate(): (
+  ...collections: readonly Collection[]
+) => Promise<void> {
+  const { mutate } = useSWRConfig();
+  return async (...collections) => {
+    const paths = new Set(
+      collections.flatMap(({ procedures }) =>
+        procedures.map(({ path }) => path.join('/')),
+      ),
+    );
+    await mutate(
+      (key) =>
+        Array.isArray(key) &&
+        Array.isArray(key[0]) &&
+        paths.has(key[0].join('/')),
+    );
+  };
 }

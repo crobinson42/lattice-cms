@@ -10,6 +10,7 @@ import { CollectionsProvider, useCollection } from './model.js';
 import { refusalOf } from './refusal.js';
 import { Link, RouterProvider, useRouter } from './router.js';
 import { ErrorAlert, Loading, NotFound } from './states.js';
+import { CreatePage, EditPage } from './write-pages.js';
 
 /** The catalog at `url`, read with the app's fetch, or a throw saying why not. */
 async function loadCatalog(fetch: typeof globalThis.fetch, url: string) {
@@ -28,9 +29,9 @@ async function loadCatalog(fetch: typeof globalThis.fetch, url: string) {
 function Page() {
   const { route } = useRouter();
   const collection = useCollection(
-    route.page === 'list' || route.page === 'detail'
-      ? route.collection
-      : undefined,
+    route.page === 'index' || route.page === 'not-found'
+      ? undefined
+      : route.collection,
   );
   if (route.page === 'index') return <IndexPage />;
   if (route.page === 'not-found') return <NotFound what="No page here." />;
@@ -46,11 +47,25 @@ function Page() {
       />
     );
   }
+  if (route.page === 'create') {
+    return <CreatePage key={collection.slug} collection={collection} />;
+  }
+  if (route.page === 'edit') {
+    return (
+      <EditPage
+        key={`${collection.slug}/${route.id}`}
+        collection={collection}
+        id={route.id}
+      />
+    );
+  }
   return (
     <DetailPage
       key={`${collection.slug}/${route.id}`}
       collection={collection}
       id={route.id}
+      tab={route.tab}
+      query={route.query}
     />
   );
 }

@@ -12,6 +12,8 @@ export type Refusal = {
   readonly code: string;
   readonly message: string;
   readonly issues: readonly Issue[];
+  /** The refusal's data, as its declared error describes it. */
+  readonly data: unknown;
 };
 
 function issuesOf(data: unknown): Issue[] {
@@ -35,22 +37,31 @@ export function refusalOf(error: unknown): Refusal {
       code: error.code,
       message: error.message,
       issues: issuesOf(error.data),
+      data: error.data,
     };
   }
   return {
     code: 'INTERNAL',
     message: error instanceof Error ? error.message : String(error),
     issues: [],
+    data: undefined,
   };
 }
 
 /** The issues whose path starts with `prefix`. */
+export function issuesUnder(
+  issues: readonly Issue[],
+  prefix: readonly (string | number)[],
+): Issue[] {
+  return issues.filter((issue) =>
+    prefix.every((key, index) => issue.path[index] === key),
+  );
+}
+
+/** A refusal's issues whose path starts with `prefix`. */
 export function issuesAt(
   refusal: Refusal | undefined,
   ...prefix: (string | number)[]
 ): Issue[] {
-  if (refusal === undefined) return [];
-  return refusal.issues.filter((issue) =>
-    prefix.every((key, index) => issue.path[index] === key),
-  );
+  return issuesUnder(refusal?.issues ?? [], prefix);
 }

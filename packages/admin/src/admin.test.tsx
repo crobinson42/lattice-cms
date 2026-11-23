@@ -2,76 +2,15 @@ import {
   act,
   cleanup,
   fireEvent,
-  render,
   screen,
   waitFor,
   within,
 } from '@testing-library/react';
-import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { Admin } from './index.js';
 import { adminApp, manager, member } from './test/app.js';
+import { admin, firstCells, open, seeded } from './test/screen.js';
 
 afterEach(cleanup);
-
-type Options = { readonly basePath?: string; readonly header?: ReactNode };
-
-function admin(fetch: typeof globalThis.fetch, options: Options = {}) {
-  return (
-    <Admin
-      fetch={fetch}
-      catalogUrl="/catalog.json"
-      basePath={options.basePath ?? '/admin'}
-      header={options.header}
-    />
-  );
-}
-
-function open(path: string, fetch: typeof globalThis.fetch, options?: Options) {
-  window.history.replaceState(null, '', path);
-  return render(admin(fetch, options));
-}
-
-/** An app with two companies, a contact, and deals that refer to them. */
-async function seeded() {
-  const app = adminApp();
-  const { companies, contacts, deals } = app.repos;
-  const acme = await companies.insert({ name: 'Acme' }, app.scope.companies);
-  const hidden = await companies.insert(
-    { name: 'Hidden' },
-    app.scope.companies,
-  );
-  const cara = await contacts.insert(
-    { name: 'Cara', email: 'cara@acme.test', companyId: acme.id },
-    app.scope.contacts,
-  );
-  const big = await deals.insert(
-    { title: 'B deal', companyId: acme.id, amount: 4242.5, stage: 'won' },
-    app.scope.deals,
-  );
-  await deals.insert(
-    { title: 'A deal', companyId: acme.id, amount: 10 },
-    app.scope.deals,
-  );
-  const secret = await deals.insert(
-    { title: 'C deal', companyId: hidden.id, amount: 20 },
-    app.scope.deals,
-  );
-  await app.repos.deal_contacts.insert(
-    { dealsId: big.id, contactsId: cara.id, role: 'champion' },
-    app.scope.dealContacts,
-  );
-  return { app, acme, big, secret };
-}
-
-/** The text of each body row's first cell. */
-function firstCells(): string[] {
-  const [, body] = screen.getAllByRole('rowgroup');
-  if (body === undefined) return [];
-  return within(body)
-    .getAllByRole('row')
-    .map((row) => within(row).getAllByRole('cell')[0]?.textContent ?? '');
-}
 
 function headers(): (string | null)[] {
   return screen
@@ -213,10 +152,10 @@ describe('a list', () => {
     });
     const exists = screen.getByLabelText('Title value');
     expect(exists.tagName).toBe('SELECT');
-    expect(
-      within(exists).getByRole<HTMLOptionElement>('option', { name: 'Yes' })
-        .selected,
-    ).toBe(true);
+    expect(within(exists).getByRole('option', { name: 'Yes' })).toHaveProperty(
+      'selected',
+      true,
+    );
 
     fireEvent.change(screen.getByLabelText('Title operator'), {
       target: { value: 'contains' },
@@ -269,10 +208,10 @@ describe('a list', () => {
     travel('back');
     await waitFor(() => expect(firstCells()).toEqual(['B deal']));
     const stage = screen.getByLabelText('Stage value');
-    expect(
-      within(stage).getByRole<HTMLOptionElement>('option', { name: 'won' })
-        .selected,
-    ).toBe(true);
+    expect(within(stage).getByRole('option', { name: 'won' })).toHaveProperty(
+      'selected',
+      true,
+    );
 
     travel('forward');
     expect(await screen.findByRole('heading', { name: 'B deal' })).toBeTruthy();
@@ -345,15 +284,13 @@ describe('a list', () => {
 });
 
 describe('a document', () => {
-  it('links a populated ref by its title, and lists a relation', async () => {
+  it('links a populated ref by its title, with a tab per relation', async () => {
     const { app, acme, big } = await seeded();
     open(`/admin/deals/${big.id}`, app.fetch);
     expect(await screen.findByRole('heading', { name: 'B deal' })).toBeTruthy();
     const company = screen.getByRole('link', { name: 'Acme' });
     expect(company.getAttribute('href')).toBe(`/admin/companies/${acme.id}`);
-    const contact = screen.getByRole('link', { name: 'Cara' });
-    expect(contact.getAttribute('href')).toMatch(/^\/admin\/contacts\//);
-    expect(screen.getByText(/champion/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Contacts' })).toBeTruthy();
     const system = screen.getByRole('region', { name: 'System fields' });
     expect(within(system).getByText(big.id)).toBeTruthy();
     expect(within(system).getByText('o1')).toBeTruthy();
@@ -390,7 +327,7 @@ describe('a document', () => {
 describe('routes and the catalog', () => {
   it('renders not-found for an unknown route, collection or malformed path', async () => {
     const app = adminApp();
-    open('/admin/deals/one/more', app.fetch);
+    open('/admin/deals/one/more/again', app.fetch);
     expect(await screen.findByText('No page here.')).toBeTruthy();
     cleanup();
     open('/admin/nope', app.fetch);

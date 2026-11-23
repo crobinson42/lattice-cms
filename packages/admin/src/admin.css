@@ -11,4 +11,4 @@
 @import "@shadalaya/theme/tailwind.css";
 
 @source "./**/*.tsx";
-@source "../../../node_modules/@shadalaya/react/dist/components/{alert,badge,button,card,empty,field,input,label,native-select,separator,skeleton,table}.js";
+@source "../../../node_modules/@shadalaya/react/dist/components/{alert,alert-dialog,badge,button,card,empty,field,input,label,native-select,separator,skeleton,table,textarea}.js";

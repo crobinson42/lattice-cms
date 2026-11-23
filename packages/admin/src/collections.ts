@@ -6,11 +6,16 @@ import { type Field, fieldsOf, propertiesOf, resolve } from './schema.js';
 /** A generated operation: find, count, get, create, update or delete. */
 type Operation = Exclude<LatticeMeta['operation'], 'list' | 'set' | 'method'>;
 
-/** A `many()` relation, and the collection its links point to. */
+/** A `many()` relation: its procedures, and the collection its links point to. */
 export type Relation = {
   readonly name: string;
   readonly target: string;
+  readonly list: Procedure | undefined;
+  readonly set: Procedure | undefined;
 };
+
+/** A method: its name, and its procedure. */
+export type Method = { readonly name: string; readonly procedure: Procedure };
 
 /** One collection, from the procedures whose `lattice` meta names it. */
 export type Collection = {
@@ -18,13 +23,17 @@ export type Collection = {
   readonly label: LatticeMeta['label'];
   readonly operations: Partial<Record<Operation, Procedure>>;
   readonly relations: readonly Relation[];
+  /** Its methods: the procedures its use cases declare, by name. */
+  readonly methods: readonly Method[];
+  /** Every procedure of the collection, so a write can refresh them all. */
+  readonly procedures: readonly Procedure[];
   /** Its documents' fields, in schema order. Relations are not fields. */
   readonly fields: readonly Field[];
 };
 
-/** The document schema of a `find` output: the items of its `docs`. */
-function documentOf(find: Procedure | undefined): JsonSchema {
-  const output = find?.output;
+/** The document schema of a page's output, `find`'s or `list`'s: the items of its `docs`. */
+export function documentOf(page: Procedure | undefined): JsonSchema {
+  const output = page?.output;
   if (output === undefined) return {};
   const docs = propertiesOf(output).find(([name]) => name === 'docs');
   return docs === undefined ? {} : resolve(docs[1].items, output);
@@ -44,20 +53,37 @@ export function collectionsOf(catalog: Catalog): Collection[] {
     const [first] = procedures;
     if (first === undefined) return [];
     const operations: Partial<Record<Operation, Procedure>> = {};
-    const relations: Relation[] = [];
+    const relations = new Map<string, Relation>();
+    const methods: Method[] = [];
     for (const procedure of procedures) {
       const meta = procedure.lattice;
-      if (meta.operation === 'list') {
-        relations.push({ name: meta.relation, target: meta.target });
-      } else if (meta.operation !== 'set' && meta.operation !== 'method') {
+      if (meta.operation === 'list' || meta.operation === 'set') {
+        const known = relations.get(meta.relation);
+        relations.set(meta.relation, {
+          name: meta.relation,
+          target: meta.target,
+          list: meta.operation === 'list' ? procedure : known?.list,
+          set: meta.operation === 'set' ? procedure : known?.set,
+        });
+      } else if (meta.operation === 'method') {
+        methods.push({ name: meta.method, procedure });
+      } else {
         operations[meta.operation] = procedure;
       }
     }
     const fields = fieldsOf(documentOf(operations.find)).filter(
-      (field) => !relations.some(({ name }) => name === field.name),
+      (field) => !relations.has(field.name),
     );
     return [
-      { slug, label: first.lattice.label, operations, relations, fields },
+      {
+        slug,
+        label: first.lattice.label,
+        operations,
+        relations: [...relations.values()],
+        methods,
+        procedures,
+        fields,
+      },
     ];
   });
 }

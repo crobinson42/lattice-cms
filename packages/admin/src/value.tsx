@@ -1,6 +1,7 @@
 import { Badge } from '@shadalaya/react/badge';
 import { isRecord } from './catalog.js';
 import { type Collection, titleFieldOf } from './collections.js';
+import { fieldLabel } from './labels.js';
 import { useCollection } from './model.js';
 import { Link, useRouter } from './router.js';
 import type { Field } from './schema.js';
@@ -16,23 +17,34 @@ type Shown = {
   readonly withheld: boolean;
 };
 
+/** A ref's id: the value, or a populated document's `id`. */
+export function refIdOf(value: unknown): string | undefined {
+  if (typeof value === 'string') return value;
+  return isRecord(value) && typeof value.id === 'string' ? value.id : undefined;
+}
+
+/** A ref's target title, when it was populated with one. */
+export function refTitleOf(
+  value: unknown,
+  target: Collection | undefined,
+): string | undefined {
+  const field = target === undefined ? undefined : titleFieldOf(target);
+  const title =
+    field === undefined || !isRecord(value) ? undefined : value[field.name];
+  return typeof title === 'string' ? title : undefined;
+}
+
 function shownRef(
   value: unknown,
   target: Collection | undefined,
 ): Shown | undefined {
+  const id = refIdOf(value);
+  if (id === undefined) return undefined;
   const doc = isRecord(value) ? value : undefined;
-  const id = doc === undefined ? value : doc.id;
-  if (typeof id !== 'string') return undefined;
   if (doc !== undefined && Object.keys(doc).length === 1) {
     return { id, title: undefined, withheld: true };
   }
-  const field = target === undefined ? undefined : titleFieldOf(target);
-  const title = field === undefined ? undefined : doc?.[field.name];
-  return {
-    id,
-    title: typeof title === 'string' ? title : undefined,
-    withheld: false,
-  };
+  return { id, title: refTitleOf(value, target), withheld: false };
 }
 
 function Withheld({ id }: { readonly id: string }) {
@@ -134,4 +146,26 @@ export function FieldValue({
     );
   }
   return <FieldText field={field} value={value} />;
+}
+
+/** Fields as label and value rows. */
+export function FieldList({
+  fields,
+  doc,
+}: {
+  readonly fields: readonly Field[];
+  readonly doc: Record<string, unknown>;
+}) {
+  return (
+    <dl className="grid grid-cols-[12rem_1fr] gap-x-4 gap-y-2">
+      {fields.map((field) => (
+        <div key={field.name} className="contents">
+          <dt className="text-muted-foreground">{fieldLabel(field)}</dt>
+          <dd>
+            <FieldValue field={field} value={doc[field.name]} />
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
 }

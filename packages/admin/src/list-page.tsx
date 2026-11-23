@@ -1,4 +1,4 @@
-import { Button } from '@shadalaya/react/button';
+import { Button, buttonVariants } from '@shadalaya/react/button';
 import { isRecord } from './catalog.js';
 import { type Collection, columnsOf } from './collections.js';
 import { useCall } from './data.js';
@@ -6,10 +6,12 @@ import { DocumentTable } from './document-table.js';
 import { Filters, whereOf } from './filters.js';
 import { pluralHeading } from './labels.js';
 import { type ListState, listQuery, listStateOf } from './list-state.js';
-import { issuesAt, type Refusal, refusalOf } from './refusal.js';
-import { useRouter } from './router.js';
+import { isDocumentMethod, MethodAction } from './method-action.js';
+import { type Issue, issuesAt, refusalOf } from './refusal.js';
+import { RefusalAlert } from './refusal-alert.js';
+import { Link, useRouter } from './router.js';
 import { sortKeysOf } from './schema.js';
-import { Loading, NoDocuments, RefusalAlert } from './states.js';
+import { Loading, NoDocuments } from './states.js';
 
 type Page = {
   readonly docs: readonly Record<string, unknown>[];
@@ -17,7 +19,7 @@ type Page = {
 };
 
 /** A `find` output, or nothing when it is not one. */
-function pageOf(data: unknown): Page | undefined {
+export function pageOf(data: unknown): Page | undefined {
   if (!isRecord(data) || !Array.isArray(data.docs)) return undefined;
   const next = typeof data.next === 'string' ? data.next : null;
   return { docs: data.docs.filter(isRecord), next };
@@ -29,17 +31,13 @@ function countOf(data: unknown): number | undefined {
     : undefined;
 }
 
-/** Whether every issue of a refusal shows at a filter or a sort. */
-function shownAtControls(refusal: Refusal): boolean {
-  return (
-    refusal.code === 'VALIDATION' &&
-    refusal.issues.length > 0 &&
-    refusal.issues.every(({ path: [key] }) => key === 'where' || key === 'sort')
-  );
+/** Whether a filter or a column header shows an issue. */
+function atControl({ path: [key] }: Issue): boolean {
+  return key === 'where' || key === 'sort';
 }
 
 /** Back and Next over the cursors seen so far (0008: no page numbers). */
-function Pager({
+export function Pager({
   canBack,
   next,
   onBack,
@@ -74,6 +72,34 @@ function results(total: number): string {
   return total === 1 ? '1 result' : `${total} results`;
 }
 
+/** What the collection can do: create, and its collection methods. */
+function CollectionActions({
+  collection,
+}: {
+  readonly collection: Collection;
+}) {
+  const { href } = useRouter();
+  return (
+    <div className="flex flex-wrap items-start gap-2">
+      {collection.operations.create === undefined ? null : (
+        <Link className={buttonVariants()} href={href(collection.slug, 'new')}>
+          New {collection.label.singular}
+        </Link>
+      )}
+      {collection.methods
+        .filter((method) => !isDocumentMethod(method))
+        .map((method) => (
+          <MethodAction
+            key={method.name}
+            collection={collection}
+            method={method}
+            id={undefined}
+          />
+        ))}
+    </div>
+  );
+}
+
 /**
  * A collection's list: filters, a one-column sort, cursor pages, and a
  * count of what the filters match. Its state is the URL's query, so back,
@@ -106,7 +132,10 @@ export function ListPage({
   const page = pageOf(found.data);
   const total = countOf(counted.data);
   // Shown at the filter or column it names, so the table stays to show it.
-  const atControls = refusal !== undefined && shownAtControls(refusal);
+  const atControls =
+    refusal?.code === 'VALIDATION' &&
+    refusal.issues.length > 0 &&
+    refusal.issues.every(atControl);
   const sortBy = (sort: string) => go({ ...state, sort, cursors: [] });
 
   return (
@@ -119,6 +148,7 @@ export function ListPage({
           <p className="text-sm text-muted-foreground">{results(total)}</p>
         )}
       </header>
+      <CollectionActions collection={collection} />
       <Filters
         // Back and forward change the applied filters: start over from them.
         key={JSON.stringify(state.filters)}
@@ -127,9 +157,9 @@ export function ListPage({
         issues={(field) => issuesAt(refusal, 'where', field)}
         onApply={(filters) => go({ ...state, filters, cursors: [] })}
       />
-      {refusal !== undefined && !atControls ? (
-        <RefusalAlert refusal={refusal} />
-      ) : null}
+      {refusal === undefined ? null : (
+        <RefusalAlert refusal={refusal} placed={atControl} />
+      )}
       {counted.error !== undefined && refusal === undefined ? (
         <RefusalAlert refusal={refusalOf(counted.error)} />
       ) : null}

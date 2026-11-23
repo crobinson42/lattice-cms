@@ -17,11 +17,17 @@ export type Route =
       /** The list's own state: its filters, sort and pages. */
       readonly query: URLSearchParams;
     }
+  | { readonly page: 'create'; readonly collection: string }
   | {
       readonly page: 'detail';
       readonly collection: string;
       readonly id: string;
+      /** A relation's tab, or the document's own fields. */
+      readonly tab: string | undefined;
+      /** The relation tab's pages. */
+      readonly query: URLSearchParams;
     }
+  | { readonly page: 'edit'; readonly collection: string; readonly id: string }
   | { readonly page: 'not-found' };
 
 type Router = {
@@ -61,11 +67,34 @@ export function routeOf(basePath: string, url: string): Route {
   if (segments.some((segment) => segment === undefined)) {
     return { page: 'not-found' };
   }
-  const [collection, id, ...rest] = segments;
+  // `new` is the admin's word: ids are generated, so none is `new`. A
+  // relation's tab sits under `relations`, so no relation name collides
+  // with `edit`.
+  const [collection, id, page, tab, ...rest] = segments;
   if (collection === undefined) return { page: 'index' };
-  if (id === undefined)
+  if (id === undefined) {
     return { page: 'list', collection, query: searchParams };
-  if (rest.length === 0) return { page: 'detail', collection, id };
+  }
+  if (id === 'new') {
+    return page === undefined
+      ? { page: 'create', collection }
+      : { page: 'not-found' };
+  }
+  if (page === undefined) {
+    return {
+      page: 'detail',
+      collection,
+      id,
+      tab: undefined,
+      query: searchParams,
+    };
+  }
+  if (page === 'edit' && tab === undefined) {
+    return { page: 'edit', collection, id };
+  }
+  if (page === 'relations' && tab !== undefined && rest.length === 0) {
+    return { page: 'detail', collection, id, tab, query: searchParams };
+  }
   return { page: 'not-found' };
 }
 
