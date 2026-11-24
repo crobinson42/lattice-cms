@@ -11,6 +11,9 @@
       "path": "packages/admin"
     },
     {
+      "path": "packages/cli"
+    },
+    {
       "path": "examples/crm"
     }
   ]

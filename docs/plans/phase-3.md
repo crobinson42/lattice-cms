@@ -61,7 +61,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 5. The CLI **Checkpoint**
 
-- [ ] `lattice collection <name>`: scaffolds a collection, its registration in the contract, and a test, in the crm's layout.
+- [x] `lattice collection <name>`: scaffolds a collection, its registration in the composition and the events catalog, and a test, in the crm's layout. Tested against a fixture and a copy of the crm, then type-checked, run and linted.
 - [ ] `lattice migrate`: runs `migrate()` from the app's own migration list. How the CLI loads the app's store and list: a config file, or an app entry it imports.
 - [x] Decided in [0034](../decisions/0034-the-cli-edits-app-code-or-refuses-and-runs-built-code.md): `collection`, `migration` and `migrate`; edits through the app's TypeScript, or a refusal that prints the lines; `migrate` imports a built `{ store, migrations }` module; an optional `"lattice"` key in `package.json`. Approved: node:util parseArgs, `typescript` as a peer, core as a peer and store-mongo as an optional one, and core exporting `labelOf` and its reserved slug keys.
 - [ ] `lattice migration <name>`: the next numbered migration, appended to the list.
@@ -107,4 +107,6 @@ Add a line here when the work teaches something the plan did not know. Each line
 - Core's update cannot unset an optional field, so the admin refuses to clear one. Known limit in `architecture.md`.
 - Wall-clock type-check budgets drifted 10% or more between days on one machine, at a flat instantiation count. The maintainer moved the budgets to instantiations, +5% over today. In `architecture.md`.
 - Each crm `start()` builds every index in a fresh database, so tests that start a real server on MongoDB stall each other when they overlap. They run one file at a time in the `servers` vitest project. A new server-starting test goes in that list.
+- Adding a collection touches three app files, because core's EventsCheck requires the app's events catalog to list every collection's events. The CLI edits all three.
+- Vite (oxc) resolves an app's tsconfig `references` when it transforms a test, so a copy of an app outside the repo needs the referenced packages beside it. Step 7's walkthrough must account for it.
 - Tests that checked a JSON body for a secret number as a substring were flaky: random hex ids and database names can contain it. Secrets now have a fraction (`4242.5`), which no hex id holds.

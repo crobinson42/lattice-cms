@@ -468,9 +468,17 @@ export type AnyCollection = Omit<
   >;
 };
 
-// System fields, and the `Where` keys that combine filters. A schema field
-// with one of these names would be replaced or would read as a filter.
-const reservedFields = ['id', 'createdAt', 'updatedAt', 'and', 'or'] as const;
+/**
+ * Names a schema field or the tenant field cannot take: the system fields,
+ * which would be replaced, and the `Where` keys, which would read as a filter.
+ */
+export const reservedFields = [
+  'id',
+  'createdAt',
+  'updatedAt',
+  'and',
+  'or',
+] as const;
 type ReservedField = (typeof reservedFields)[number];
 
 // Names a store would misread: MongoDB reads a dot as a path, a leading `$`

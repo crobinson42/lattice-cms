@@ -99,16 +99,18 @@ const actions = [
 /** The effects `@ts-pf/mcp` knows, which a method's `effect` must be one of. */
 const effects = ['read', 'write', 'destructive'] satisfies readonly Effect[];
 
-// ts-pf `Implementer` keys. A slug or method name with one of these names
-// would shadow the implementer's own member when the router is built.
-const reserved = [
+/**
+ * Names a collection slug, a relation or a method cannot take: ts-pf
+ * `Implementer` keys, whose members they would shadow in the router.
+ */
+export const reservedNames = [
   '$context',
   'use',
   'useAfter',
   'middleware',
   'router',
 ] as const;
-type Reserved = (typeof reserved)[number];
+type Reserved = (typeof reservedNames)[number];
 
 type Ctor<I> = abstract new (...args: never[]) => I;
 
@@ -936,7 +938,7 @@ export class Framework<
         `Lattice: "${slug}" is tenanted, but the family has no tenantOf`,
       );
     }
-    if (reserved.some((key) => key === slug)) {
+    if (reservedNames.some((key) => key === slug)) {
       throw new Error(`Lattice: "${slug}" is a ts-pf implementer key`);
     }
     if (this.entries.some((entry) => entry.collection.slug === slug)) {
@@ -956,7 +958,7 @@ export class Framework<
       }
     }
     for (const [name] of relations) {
-      if (reserved.some((key) => key === name)) {
+      if (reservedNames.some((key) => key === name)) {
         throw new Error(
           `Lattice: relation "${slug}.${name}" is a ts-pf implementer key`,
         );
@@ -965,7 +967,7 @@ export class Framework<
     const methods: Entry['methods'] = options.methods ?? {};
     for (const name of Object.keys(methods)) {
       if (
-        [...reserved, ...actions, 'read'].some((key) => key === name) ||
+        [...reservedNames, ...actions, 'read'].some((key) => key === name) ||
         relations.some(([relation]) => relation === name) ||
         name.includes('.')
       ) {

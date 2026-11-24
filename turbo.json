@@ -10,6 +10,10 @@
       "outputs": [],
       "env": ["MONGODB_URL", "REDIS_URL", "MONGOMS_*"]
     },
+    "@latticecms/cli#test": {
+      "dependsOn": ["^build", "build"],
+      "outputs": []
+    },
     "type-check": {
       "dependsOn": ["^build", "build"],
       "outputs": []

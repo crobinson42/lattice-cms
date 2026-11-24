@@ -55,7 +55,7 @@ Lattice owns only the rows marked **Lattice** ([0001](decisions/0001-build-on-he
 | Typed clients | `@ts-pf/client` + `client-http`, `@ts-pf/swr`, `@ts-pf/mvc-kit` | Web and admin clients use the same contract |
 | File uploads | `@ts-pf/file` (multipart) + a blob storage port (missing) | Phase 3 |
 | Admin UI | **Lattice** `admin` package: a React component that renders the `catalog()` JSON the app serves ([0032](decisions/0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md)) | Phase 3 |
-| CLI | **Lattice** `cli` | Scaffolding and migrations only, Phase 3 |
+| CLI | **Lattice** `cli`, bin `lattice` ([0034](decisions/0034-the-cli-edits-app-code-or-refuses-and-runs-built-code.md)) | Scaffolds collections and migrations, and runs migrations |
 
 ## Core model: a collection compiles into hexok and ts-pf
 
@@ -514,6 +514,15 @@ REST with path parameters is not offered. If an outside partner needs it, it is 
 - The crm mounts it at `/admin` (`examples/crm/src/web`): a sign-in form on `/auth`, a `fetch` that adds the token and `x-organization-id` and signs out on a 401, and a switcher from `/auth/organizations` in `header`. `<Admin>` is keyed by organization. Vite builds the page into `dist/web`, and the HTTP handler serves it: hashed assets cached for good, and `index.html` for every other `/admin` route. A crm test holds the gzipped bundle to a budget (132 KB in all today, 56 KB without React), and one Chromium test drives it against the real server and mongod.
 - `admin.css` is compiled at the admin's build over its own classes and the shadalaya components it imports. A test checks that list against the imports. It is 8.9 KB gzipped, and the bundle is 64.4 KB gzipped without React, most of it Base UI behind the confirmation dialog. Booleans and enum lists are native checkboxes, which saves 4.9 KB.
 
+### CLI
+
+`@latticecms/cli` is a tool with no exports ([0034](decisions/0034-the-cli-edits-app-code-or-refuses-and-runs-built-code.md)). Its peers are core, `typescript` (5.8 or later, the app's own, resolved from the app), and store-mongo as an optional peer.
+
+- `lattice collection <slug> [--tenant f | --global] [--label s,p] [--dry-run]` writes the collection (a required `name`, so it has a title field), a test that uses the app's family over `MemoryStore`, its registration in the composition with access open to any signed-in caller, and its three events in the app's catalog.
+- It parses each file with the app's TypeScript and inserts text. It never reprints a file. Inserted text keeps the file's comments, newlines and indentation, and follows Biome's line breaks one level deep. A file it cannot place the edit in, a name that clashes with a declaration or import, or an existing slug is exit 1: nothing is written, and the lines it would have added are printed. Writes are staged and placed together; a failure restores every file.
+- Config is the optional `"lattice"` key in the app's `package.json`: the collections directory, the composition, the events catalog, the family, and `tenant`, which has no default. The paths default to the crm's layout, and the crm sets `tenant: 'organizationId'`. A bad config is exit 2, naming the key.
+- Core exports `labelOf`, `reservedNames` and `reservedFields` for tools, so the CLI copies none of core's rules.
+
 ## Observability
 
 Every generated operation logs and times itself through the family's hexok `hooks()`, with no code in the collection.
@@ -602,7 +611,7 @@ packages/
                                                /store (adapter surface), /store/conformance
   store-mongo/     @latticecms/store-mongo     MongoStore, Where translation, migrate(), spans
   admin/           @latticecms/admin           <Admin>: renders the served catalog, on @shadalaya + swr
-  cli/             @latticecms/cli             scaffold collection, run migrations (Phase 3)
+  cli/             @latticecms/cli             lattice collection; migration and migrate (Phase 3)
   store-postgres/  @latticecms/store-postgres  (Phase 4)
 examples/
   crm/             The reference app, not a product: HTTP (/rpc, /mcp, /auth, /openapi.json, /catalog.json, /admin)

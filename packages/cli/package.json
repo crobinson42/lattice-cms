@@ -1,0 +1,54 @@
+{
+  "name": "@latticecms/cli",
+  "version": "0.0.0",
+  "description": "The lattice command: scaffolds a collection into a Lattice app.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/crobinson42/lattice-cms.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/crobinson42/lattice-cms/tree/main/packages/cli#readme",
+  "bugs": {
+    "url": "https://github.com/crobinson42/lattice-cms/issues"
+  },
+  "bin": {
+    "lattice": "./dist/bin.js"
+  },
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "!src/**/*.test.ts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.11"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run",
+    "type-check": "tsc --noEmit -p tsconfig.check.json",
+    "lint": "biome check .",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "peerDependencies": {
+    "@latticecms/core": "^0.1.0",
+    "@latticecms/store-mongo": "^0.1.0",
+    "typescript": ">=5.8"
+  },
+  "peerDependenciesMeta": {
+    "@latticecms/store-mongo": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@latticecms/core": "*",
+    "@latticecms/store-mongo": "*"
+  }
+}

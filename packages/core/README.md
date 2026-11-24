@@ -260,6 +260,7 @@ export { AppUseCase, Companies, Contacts, Deals, Memberships, Organizations };
 - `fields: { amount: { read } }` gives each maskable field its read rule, and is required exactly when `C` has one; see [Field masking](#field-masking).
 - `methods: { name: Class }` adds a procedure. `overrides: { action: Class }` replaces a generated one.
 - Each class must name `C` and its token, and its `execute` must take and return the procedure's types. A mismatch, a reserved name, or a slug added twice is a compile error and a runtime throw.
+- A slug, relation or method may not be one of `reservedNames`: `$context`, `use`, `useAfter`, `middleware` and `router`, the ts-pf implementer's own keys.
 - A method without `summary` and `effect`, and an override with either, is a compile error and a runtime throw. The error names the method or override. A blank `summary` throws.
 
 `.contract` is the ts-pf contract, built once on first read. `Contract<E, D>` is its type.
@@ -954,13 +955,13 @@ The crm serves it at `GET /openapi.json`, and the catalog itself at `GET /catalo
 Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `output`, `clientOutput`, `maskable`, `events` and `hooks()`. `output` is the stored document's schema: the collection's schema plus `id`, `createdAt`, `updatedAt` and the tenant field. `clientOutput` is the document a client receives: `output`, with each maskable field optional.
 
 - `schema` is a `z.object()`. Unknown keys are stripped.
-- `id`, `createdAt`, `updatedAt`, `and` and `or` are reserved field names.
+- `id`, `createdAt`, `updatedAt`, `and` and `or` are reserved field names, listed in `reservedFields`. The tenant field may not be one either.
 - No `z.date()` and no transforms, anywhere in the schema. Store ISO strings (`z.iso.datetime()`). Normalize in a `beforeChange` hook. `collection()` throws at definition time, and a top-level Date or reserved name fails to compile.
 - `createdAt` and `updatedAt` are ISO 8601 strings.
 - `tenant: 'organizationId'` makes the collection tenanted; see [Tenancy](#tenancy). Without it, the collection is global.
 - A field name may not contain `.`, start with `$`, or be `_id`: MongoDB would read it as a path, an operator or the id.
 - `maskable: ['amount']` names schema fields a caller's rules may withhold; see [Field masking](#field-masking). A maskable field may not be a ref or in a unique index.
-- `label: { singular: 'person', plural: 'people' }` says how the collection reads mid-sentence, in generated summaries and the admin. Without it, the label comes from the slug: `deal_stages` reads "deal stage" and "deal stages". Declare it when the slug's singular would be wrong, as for `people` or `news`.
+- `label: { singular: 'person', plural: 'people' }` says how the collection reads mid-sentence, in generated summaries and the admin. Without it, the label comes from the slug: `deal_stages` reads "deal stage" and "deal stages". Declare it when the slug's singular would be wrong, as for `people` or `news`. `labelOf(slug)` returns the label a slug gets.
 - A field's label in a client such as the admin is its name in words, or its JSON Schema `title`: `amount: z.number().meta({ title: 'Deal value' })`. Zod's `.meta()` reaches the catalog, OpenAPI and MCP.
 - `indexes` lists the indexes the store creates at startup, through `build().ensure()`: `[{ fields: { stage: 1, createdAt: -1 } }, { fields: { email: 1 }, unique: true }]`. Fields are named from the stored document, so the system fields and the tenant field count; any other name is a compile error and a throw. Key order is the index's order. `id` needs no index. A tenanted collection's indexes usually lead with the tenant field, because every call filters by it; Lattice does not add it for you.
 

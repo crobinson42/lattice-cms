@@ -9,13 +9,15 @@ export {
   type Framework,
   framework,
   type ReadUseCase,
+  reservedNames,
 } from './build.js';
 export {
   type Collection,
   collection,
   type RelationsOf,
+  reservedFields,
 } from './collection.js';
-export type { LatticeMeta } from './describe.js';
+export { type LatticeMeta, labelOf } from './describe.js';
 export { LatticeError } from './errors.js';
 export {
   type CallContext,
