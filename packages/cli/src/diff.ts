@@ -35,15 +35,16 @@ function opsOf(before: readonly string[], after: readonly string[]): Op[] {
       i++;
       j++;
     } else if (
-      added !== undefined &&
-      (removed === undefined ||
-        (table[i * width + j + 1] ?? 0) >= (table[(i + 1) * width + j] ?? 0))
+      // A changed line shows its removal first, as unified diffs do.
+      removed !== undefined &&
+      (added === undefined ||
+        (table[(i + 1) * width + j] ?? 0) >= (table[i * width + j + 1] ?? 0))
     ) {
-      ops.push({ kind: '+', line: added });
-      j++;
-    } else if (removed !== undefined) {
       ops.push({ kind: '-', line: removed });
       i++;
+    } else if (added !== undefined) {
+      ops.push({ kind: '+', line: added });
+      j++;
     }
   }
   return ops;

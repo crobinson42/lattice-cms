@@ -1,18 +1,13 @@
 import { ConsoleLogger } from '@hexok/logger';
 import { RedisQueue } from '@hexok/queue-redis';
-import { MongoStore } from '@latticecms/store-mongo';
 import { redisSessions } from '../../infra/auth/sessions.js';
 import { supportUserIds } from '../../infra/auth/support.js';
 import { QueueDomainEventPublisher } from '../../infra/events/queue-domain-events.js';
+import { mongoStore } from '../../infra/store.js';
 import { start } from './server.js';
 
 const logger = new ConsoleLogger();
-const url = process.env.MONGODB_URL;
-if (url === undefined) throw new Error('Set MONGODB_URL');
-const store = new MongoStore({
-  url,
-  database: process.env.MONGODB_DATABASE ?? 'crm',
-});
+const store = mongoStore(process.env);
 const redisUrl = process.env.REDIS_URL;
 if (redisUrl === undefined) throw new Error('Set REDIS_URL');
 

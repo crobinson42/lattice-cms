@@ -1,9 +1,9 @@
 import { ConsoleLogger } from '@hexok/logger';
-import { MongoStore } from '@latticecms/store-mongo';
 import { role } from '../../domain/collections/memberships.js';
 import { openDevSession } from '../../infra/auth/dev-session.js';
 import { redisSessions } from '../../infra/auth/sessions.js';
 import { LoggingDomainEventPublisher } from '../../infra/events/logging-domain-events.js';
+import { mongoStore } from '../../infra/store.js';
 import { createApp } from '../app.js';
 
 /**
@@ -23,18 +23,14 @@ if (userId === '' || organization === '' || !parsed.success) {
   );
   process.exit(1);
 }
-const url = process.env.MONGODB_URL;
 const redisUrl = process.env.REDIS_URL;
-if (url === undefined || redisUrl === undefined) {
+if (process.env.MONGODB_URL === undefined || redisUrl === undefined) {
   console.error('Set MONGODB_URL and REDIS_URL');
   process.exit(1);
 }
 
 const logger = new ConsoleLogger();
-const store = new MongoStore({
-  url,
-  database: process.env.MONGODB_DATABASE ?? 'crm',
-});
+const store = mongoStore(process.env);
 const { sessions, store: sessionStore } = redisSessions({
   env: process.env,
   redisUrl,

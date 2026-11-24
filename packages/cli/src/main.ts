@@ -1,10 +1,14 @@
 import { collectionCommand, collectionUsage } from './collection.js';
 import { Exit } from './exit.js';
+import { migrateCommand, migrateUsage } from './migrate.js';
+import { migrationCommand, migrationUsage } from './migration.js';
 
 export const help = `Usage: lattice <command> [options]
 
 Commands:
   collection <slug>   Add a collection, its test, and its registrations.
+  migration <name>    Add the next data migration to the list.
+  migrate             Run the pending migrations, from the built app.
 
 Run lattice <command> --help for a command's options.
 `;
@@ -17,6 +21,8 @@ const commands: Record<
   }
 > = {
   collection: { usage: collectionUsage, run: collectionCommand },
+  migration: { usage: migrationUsage, run: migrationCommand },
+  migrate: { usage: migrateUsage, run: migrateCommand },
 };
 
 /** The first sentence of parseArgs' message, which goes on to explain `--`. */

@@ -1,7 +1,7 @@
 {
   "name": "@latticecms/cli",
   "version": "0.0.0",
-  "description": "The lattice command: scaffolds a collection into a Lattice app.",
+  "description": "The lattice command: scaffolds collections and migrations, and runs migrations.",
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -22,7 +22,8 @@
   "files": [
     "dist",
     "src",
-    "!src/**/*.test.ts"
+    "!src/**/*.test.ts",
+    "!src/test"
   ],
   "publishConfig": {
     "access": "public"
@@ -38,17 +39,29 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "peerDependencies": {
+    "@hexok/logger": "^0.2.0",
     "@latticecms/core": "^0.1.0",
     "@latticecms/store-mongo": "^0.1.0",
     "typescript": ">=5.8"
   },
   "peerDependenciesMeta": {
+    "@hexok/logger": {
+      "optional": true
+    },
     "@latticecms/store-mongo": {
       "optional": true
     }
   },
   "devDependencies": {
+    "@hexok/logger": "^0.2.0",
     "@latticecms/core": "*",
-    "@latticecms/store-mongo": "*"
+    "@latticecms/store-mongo": "*",
+    "mongodb": "^7.9.1",
+    "mongodb-memory-server": "^11.3.0"
+  },
+  "config": {
+    "mongodbMemoryServer": {
+      "version": "8.0.14"
+    }
   }
 }

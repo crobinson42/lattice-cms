@@ -16,16 +16,15 @@ The tests run against MongoDB 8.0. Transactions need a replica set or a sharded 
 
 ## Wiring
 
-Create the store:
+Create the store. The crm reads its settings in one place, for the server, the worker and its scripts:
 
 ```ts
-// examples/crm/src/servers/http/main.ts
-const url = process.env.MONGODB_URL;
-if (url === undefined) throw new Error('Set MONGODB_URL');
-const store = new MongoStore({
-  url,
-  database: process.env.MONGODB_DATABASE ?? 'crm',
-});
+// examples/crm/src/infra/store.ts
+export function mongoStore(env: NodeJS.ProcessEnv): MongoStore {
+  const url = env.MONGODB_URL;
+  if (url === undefined) throw new Error('Set MONGODB_URL');
+  return new MongoStore({ url, database: env.MONGODB_DATABASE ?? 'crm' });
+}
 ```
 
 Start it, migrate, create the indexes, then serve:

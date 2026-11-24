@@ -1,118 +1,24 @@
 import { spawnSync } from 'node:child_process';
-import {
-  chmod,
-  cp,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import {
+  bin,
+  check,
+  copy,
+  crmCopy,
+  edit,
+  env,
+  files,
+  fixture,
+  lattice,
+  read,
+  removeTemps,
+  repo,
+  run,
+} from './test/apps.js';
 
-// Each test copies an app to a temp directory, links the workspace's
-// node_modules into it, and runs the built bin with node, as a user would.
-
-const repo = fileURLToPath(new URL('../../../', import.meta.url));
-const bin = join(repo, 'packages/cli/dist/bin.js');
-const fixture = join(repo, 'packages/cli/fixtures/app');
-const temps: string[] = [];
-
-afterAll(async () => {
-  await Promise.all(
-    temps.map((dir) => rm(dir, { recursive: true, force: true })),
-  );
-});
-
-// Nested vitest runs read these, so the child runs get a clean
-// environment, and plain output to match against.
-const env = {
-  ...Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([key]) =>
-        !key.startsWith('VITEST') &&
-        key !== 'NODE_OPTIONS' &&
-        key !== 'FORCE_COLOR',
-    ),
-  ),
-  NO_COLOR: '1',
-};
-
-function run(cwd: string, args: readonly string[]) {
-  const { status, stdout, stderr } = spawnSync(process.execPath, args, {
-    cwd,
-    env,
-    encoding: 'utf8',
-  });
-  return { code: status, stdout, stderr };
-}
-
-const lattice = (cwd: string, ...args: string[]) => run(cwd, [bin, ...args]);
-
-/** A copy of the fixture app, or of `from`, at `depth` below a temp root. */
-async function copy(from = fixture, at = 'app'): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'lattice-cli-'));
-  temps.push(root);
-  const app = join(root, at);
-  await cp(from, app, {
-    recursive: true,
-    filter: (path) =>
-      !/[/\\](node_modules|dist|\.turbo)$|\.tsbuildinfo$/.test(path),
-  });
-  await symlink(join(repo, 'node_modules'), join(root, 'node_modules'));
-  return app;
-}
-
-/** Every file under `dir` and its text, but node_modules. */
-async function files(dir: string): Promise<Record<string, string>> {
-  const entries = await readdir(dir, { recursive: true, withFileTypes: true });
-  const out: Record<string, string> = {};
-  for (const entry of entries) {
-    const path = join(entry.parentPath, entry.name);
-    if (entry.isFile() && !path.includes('node_modules')) {
-      out[relative(dir, path)] = await readFile(path, 'utf8');
-    }
-  }
-  return out;
-}
-
-const read = (app: string, path: string) => readFile(join(app, path), 'utf8');
-
-/** Rewrites a file of the app. */
-async function edit(
-  app: string,
-  path: string,
-  change: (text: string) => string,
-) {
-  await writeFile(join(app, path), change(await read(app, path)));
-}
-
-/** tsc, then vitest on `tests` with no config, in the app. */
-async function check(app: string, project: string, tests: readonly string[]) {
-  const tsc = run(app, [
-    join(repo, 'node_modules/typescript/bin/tsc'),
-    '-p',
-    project,
-  ]);
-  expect(tsc.stdout).toBe('');
-  expect(tsc.code).toBe(0);
-  await writeFile(join(app, 'vitest.cli.config.mjs'), 'export default {};\n');
-  const vitest = run(app, [
-    join(repo, 'node_modules/vitest/vitest.mjs'),
-    'run',
-    '--config',
-    'vitest.cli.config.mjs',
-    ...tests,
-  ]);
-  expect(vitest.stdout).toContain(`Test Files  ${tests.length} passed`);
-  expect(vitest.code).toBe(0);
-}
+afterAll(removeTemps);
 
 const collections = 'src/domain/collections';
 const composition = 'src/servers/rpc/contract.ts';
@@ -735,14 +641,7 @@ ${events}, after the last collection's events:
   });
 
   it('adds a collection to the crm with its defaults', async () => {
-    // Beside the workspace's tsconfig.base.json and packages, which the
-    // crm's tsconfig extends and references.
-    const app = await copy(join(repo, 'examples/crm'), 'examples/crm');
-    await cp(
-      join(repo, 'tsconfig.base.json'),
-      join(app, '../../tsconfig.base.json'),
-    );
-    await symlink(join(repo, 'packages'), join(app, '../../packages'));
+    const app = await crmCopy();
     const { code, stdout } = lattice(app, 'collection', 'notes');
     expect(stdout).toContain(`created ${collections}/notes.ts\n`);
     expect(code).toBe(0);

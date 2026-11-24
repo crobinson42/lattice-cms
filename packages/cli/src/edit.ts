@@ -4,8 +4,12 @@ import { call, entry } from './layout.js';
 import type { Names } from './names.js';
 import type { TypeScript } from './typescript.js';
 
-/** Text to insert at an offset of a file. */
-export type Insert = { readonly offset: number; readonly text: string };
+/** Text to insert at an offset of a file, in place of `remove` characters there. */
+export type Insert = {
+  readonly offset: number;
+  readonly text: string;
+  readonly remove?: number;
+};
 
 /**
  * Lines a command adds to a file, where they go in words, and the inserts
@@ -35,7 +39,7 @@ export function applyInserts(text: string, inserts: readonly Insert[]): string {
     .sort((a, b) => b.insert.offset - a.insert.offset || b.order - a.order)
     .reduce(
       (out, { insert }) =>
-        `${out.slice(0, insert.offset)}${insert.text}${out.slice(insert.offset)}`,
+        `${out.slice(0, insert.offset)}${insert.text}${out.slice(insert.offset + (insert.remove ?? 0))}`,
       text,
     );
 }
@@ -51,13 +55,13 @@ export function parse(ts: TypeScript, path: string, text: string) {
 }
 
 /** How a file writes line breaks and one level of indent. */
-type Style = { readonly newline: string; readonly unit: string };
+export type Style = { readonly newline: string; readonly unit: string };
 
 /**
  * The file's line break, and its indent unit: a tab, or the fewest leading
  * spaces on a code line. JSDoc's ` * ` lines do not count.
  */
-function styleOf(text: string): Style {
+export function styleOf(text: string): Style {
   const lines = text.split(/\r?\n/);
   const spaces = lines.flatMap((line) => {
     const lead = /^( +)[^ *]/.exec(line)?.[1];
@@ -70,7 +74,7 @@ function styleOf(text: string): Style {
 }
 
 /** The additions with their inserted text in the file's line breaks. */
-function inStyle(additions: readonly Addition[], { newline }: Style) {
+export function inStyle(additions: readonly Addition[], { newline }: Style) {
   return additions.map((addition) => ({
     ...addition,
     inserts: addition.inserts.map((insert) => ({
@@ -81,22 +85,26 @@ function inStyle(additions: readonly Addition[], { newline }: Style) {
 }
 
 /** The whitespace that starts the line holding `position`. */
-function indentAt(source: TS.SourceFile, position: number): string {
+export function indentAt(source: TS.SourceFile, position: number): string {
   const { line } = source.getLineAndCharacterOfPosition(position);
   const start = source.getPositionOfLineAndCharacter(line, 0);
   return /^[ \t]*/.exec(source.text.slice(start))?.[0] ?? '';
 }
 
-const lineOf = (source: TS.SourceFile, position: number) =>
+export const lineOf = (source: TS.SourceFile, position: number) =>
   source.getLineAndCharacterOfPosition(position).line;
 
 /** `position`, moved past the comments that end its line, so they stay where they are. */
-function pastComments(ts: TypeScript, text: string, position: number): number {
+export function pastComments(
+  ts: TypeScript,
+  text: string,
+  position: number,
+): number {
   return ts.getTrailingCommentRanges(text, position)?.at(-1)?.end ?? position;
 }
 
 /** The end of the comma token at `position`, skipping trivia, if there is one. */
-function commaAfter(
+export function commaAfter(
   ts: TypeScript,
   text: string,
   position: number,
@@ -228,20 +236,22 @@ export function compareSpecifiers(a: string, b: string): number {
 
 /**
  * An import of `name` from the relative `specifier`, among the file's
- * imports in Biome's order: farther paths first, then by path. A file that
+ * imports in Biome's order: farther paths first, then by path. `clause` is
+ * what the import binds, such as `{ Notes }` or `m0002`. A file that
  * already imports or declares `name` is refused.
  */
-function importAddition(
+export function importAddition(
   ts: TypeScript,
   source: TS.SourceFile,
   file: string,
   name: string,
+  clause: string,
   specifier: string,
 ): Addition {
   const { imported, declared } = topLevelNames(ts, source);
   if (imported.has(name)) throw new Exit(`${file} already imports ${name}`, 1);
   if (declared.has(name)) throw new Exit(`${file} already declares ${name}`, 1);
-  const line = `import { ${name} } from '${specifier}';`;
+  const line = `import ${clause} from '${specifier}';`;
   const where = 'with the imports';
   const imports = source.statements.filter(ts.isImportDeclaration);
   const next = imports.findIndex(
@@ -293,6 +303,7 @@ export function compositionEdit(
     source,
     file,
     names.exportName,
+    `{ ${names.exportName} }`,
     specifier,
   );
   const open = declaresAnyone(ts, source);
@@ -470,6 +481,7 @@ export function eventsEdit(
     source,
     file,
     names.exportName,
+    `{ ${names.exportName} }`,
     specifier,
   );
   const keys = events.map(
@@ -559,6 +571,242 @@ export function eventsEdit(
     path,
     before,
     additions: inStyle([imported, { where, lines, inserts }], style),
+    refused: undefined,
+  };
+}
+
+/** The list's elements: the local name each binds, and the specifier of its default import. */
+export type ListElement = {
+  readonly local: string;
+  readonly specifier: string;
+};
+
+/** The one exported array literal in a migrations index, with its elements. */
+export type MigrationList = {
+  readonly literal: TS.ArrayLiteralExpression;
+  readonly elements: readonly ListElement[];
+};
+
+/**
+ * The migrations list: the one top-level `export const x = [...]`, each of
+ * whose elements is a migration's default import. A file with no such
+ * list, or two, gives the reason instead.
+ */
+export function migrationList(
+  ts: TypeScript,
+  source: TS.SourceFile,
+  file: string,
+): MigrationList | string {
+  const literals = source.statements.flatMap((statement) =>
+    ts.isVariableStatement(statement) &&
+    statement.modifiers?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    )
+      ? statement.declarationList.declarations.flatMap((declaration) =>
+          declaration.initializer !== undefined &&
+          ts.isArrayLiteralExpression(declaration.initializer)
+            ? [declaration.initializer]
+            : [],
+        )
+      : [],
+  );
+  const [literal] = literals;
+  if (literal === undefined || literals.length > 1) {
+    return literals.length === 0
+      ? `${file} has no exported array of migrations`
+      : `${file} has ${literals.length} exported arrays`;
+  }
+  const defaults = new Map<string, string>();
+  for (const statement of source.statements) {
+    const local = ts.isImportDeclaration(statement)
+      ? statement.importClause?.name?.text
+      : undefined;
+    if (
+      local !== undefined &&
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      statement.moduleSpecifier.text.startsWith('.')
+    ) {
+      defaults.set(local, statement.moduleSpecifier.text);
+    }
+  }
+  const elements = literal.elements.map((element): ListElement => {
+    const specifier = ts.isIdentifier(element)
+      ? defaults.get(element.text)
+      : undefined;
+    if (!ts.isIdentifier(element) || specifier === undefined) {
+      throw new Exit(
+        `the list in ${file} has ${element.getText(source)}, which is not a migration's default import`,
+        1,
+      );
+    }
+    return { local: element.text, specifier };
+  });
+  return { literal, elements };
+}
+
+/** Whether the text from `start` to `end` holds a comment. */
+function hasComments(
+  ts: TypeScript,
+  text: string,
+  start: number,
+  end: number,
+): boolean {
+  const scanner = ts.createScanner(
+    ts.ScriptTarget.Latest,
+    false,
+    ts.LanguageVariant.Standard,
+    text,
+  );
+  scanner.setText(text, start, end - start);
+  for (
+    let token = scanner.scan();
+    token !== ts.SyntaxKind.EndOfFileToken;
+    token = scanner.scan()
+  ) {
+    if (
+      token === ts.SyntaxKind.SingleLineCommentTrivia ||
+      token === ts.SyntaxKind.MultiLineCommentTrivia
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** The inserts that put `local` at the end of an array literal. */
+function elementInserts(
+  ts: TypeScript,
+  source: TS.SourceFile,
+  literal: TS.ArrayLiteralExpression,
+  local: string,
+  unit: string,
+): Insert[] | string {
+  const text = source.text;
+  const open = literal.getStart(source);
+  const close = literal.getEnd() - 1;
+  const { elements } = literal;
+  const last = elements.at(-1);
+  const lastComma =
+    last !== undefined && elements.hasTrailingComma
+      ? commaAfter(ts, text, last.getEnd())
+      : undefined;
+  if (lineOf(source, open) !== lineOf(source, close)) {
+    // One element per line: the new one goes on a line of its own.
+    const indent =
+      last !== undefined &&
+      lineOf(source, last.getStart(source)) !== lineOf(source, open)
+        ? indentAt(source, last.getStart(source))
+        : `${indentAt(source, open)}${unit}`;
+    if (last === undefined) {
+      return [
+        {
+          offset: pastComments(ts, text, open + 1),
+          text: `\n${indent}${local},`,
+        },
+      ];
+    }
+    return lastComma !== undefined
+      ? [
+          {
+            offset: pastComments(ts, text, lastComma),
+            text: `\n${indent}${local},`,
+          },
+        ]
+      : [
+          { offset: last.getEnd(), text: ',' },
+          {
+            offset: pastComments(ts, text, last.getEnd()),
+            text: `\n${indent}${local},`,
+          },
+        ];
+  }
+  // On one line: it stays there while the line fits, as Biome keeps it.
+  const added =
+    last === undefined
+      ? { offset: open + 1, text: local }
+      : lastComma !== undefined
+        ? { offset: lastComma, text: ` ${local},` }
+        : { offset: last.getEnd(), text: `, ${local}` };
+  const lineStart = source.getPositionOfLineAndCharacter(
+    lineOf(source, close),
+    0,
+  );
+  const lineLength =
+    source.getLineEndOfPosition(close) - lineStart + added.text.length;
+  if (lineLength <= 80) return [added];
+  // Too long for one line: one element per line, as Biome breaks it.
+  if (hasComments(ts, text, open, close)) {
+    return 'the list is on one line with comments in it, so it cannot be broken into lines';
+  }
+  const indent = indentAt(source, open);
+  const inner = `${indent}${unit}`;
+  const all = [...elements];
+  const inserts: Insert[] = [];
+  const first = all[0];
+  if (first !== undefined) {
+    inserts.push({
+      offset: open + 1,
+      text: `\n${inner}`,
+      remove: first.getStart(source) - open - 1,
+    });
+  }
+  all.forEach((element, index) => {
+    const next = all[index + 1];
+    const comma = commaAfter(ts, text, element.getEnd()) ?? element.getEnd();
+    if (next !== undefined) {
+      inserts.push({
+        offset: comma,
+        text: `\n${inner}`,
+        remove: next.getStart(source) - comma,
+      });
+    }
+  });
+  const end = lastComma ?? last?.getEnd() ?? open + 1;
+  inserts.push({
+    offset: end,
+    text: `${lastComma === undefined && last !== undefined ? ',' : ''}\n${inner}${local},\n${indent}`,
+    remove: close - end,
+  });
+  return inserts;
+}
+
+/**
+ * The migrations index's edit: a default import of the new migration, and
+ * its local name at the end of the list.
+ */
+export function migrationsEdit(
+  ts: TypeScript,
+  path: string,
+  file: string,
+  before: string,
+  list: MigrationList,
+  local: string,
+  specifier: string,
+): FileEdit {
+  const source = parse(ts, path, before);
+  const style = styleOf(before);
+  const imported = importAddition(ts, source, file, local, local, specifier);
+  const where = 'at the end of the migrations list';
+  const inserts = elementInserts(ts, source, list.literal, local, style.unit);
+  if (typeof inserts === 'string') {
+    return {
+      path,
+      before,
+      additions: [
+        { ...imported, inserts: [] },
+        { where, lines: `${style.unit}${local},`, inserts: [] },
+      ],
+      refused: `${file}: ${inserts}`,
+    };
+  }
+  return {
+    path,
+    before,
+    additions: inStyle(
+      [imported, { where, lines: `${style.unit}${local},`, inserts }],
+      style,
+    ),
     refused: undefined,
   };
 }

@@ -8,6 +8,7 @@ const root = new URL('../../../', import.meta.url);
 const readmes = [
   'packages/core/README.md',
   'packages/store-mongo/README.md',
+  'packages/cli/README.md',
   'examples/crm/README.md',
 ];
 

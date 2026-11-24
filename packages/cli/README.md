@@ -1,6 +1,6 @@
 # @latticecms/cli
 
-The `lattice` command. It adds a collection to a Lattice app: the collection, a test, its registration in the app's composition, and its events in the app's events catalog. It edits the app's files where their shape gives one place for each edit, or writes nothing and prints the lines to add by hand.
+The `lattice` command. It adds a collection to a Lattice app: the collection, a test, its registration in the app's composition, and its events in the app's events catalog. It adds a data migration to the app's list, and runs the pending ones as a deploy step. It edits the app's files where their shape gives one place for each edit, or writes nothing and prints the lines to add by hand.
 
 Status: unpublished, before 1.0.
 
@@ -10,7 +10,7 @@ Status: unpublished, before 1.0.
 npm install --save-dev @latticecms/cli
 ```
 
-`@latticecms/core` and `typescript` are peer dependencies; the app has both. The CLI parses the app's files with the app's own `typescript`, resolved from the app's directory, and refuses one older than 5.8. `@latticecms/store-mongo` is an optional peer, for the migration commands to come.
+`@latticecms/core` and `typescript` are peer dependencies; the app has both. The CLI parses the app's files with the app's own `typescript`, resolved from the app's directory, and refuses one older than 5.8. `@latticecms/store-mongo` and `@hexok/logger` are optional peers: `lattice migrate` imports them from the app, and the other commands run without them.
 
 Run it from anywhere inside the app, with `npx lattice`. `lattice --help` lists the commands.
 
@@ -25,6 +25,8 @@ The CLI reads the `"lattice"` key of the nearest `package.json` at or above the 
     "composition": "src/servers/rpc/contract.ts",
     "events": "src/domain/events/domain-events.ts",
     "family": "src/app/use-cases/context.ts#AppUseCase",
+    "migrations": "src/infra/migrations",
+    "migrate": "dist/servers/scripts/migrate.js",
     "tenant": "organizationId"
   }
 }
@@ -36,11 +38,13 @@ The CLI reads the `"lattice"` key of the nearest `package.json` at or above the 
 | `composition` | The file with the app's one `framework()` chain | `src/servers/rpc/contract.ts` |
 | `events` | The file with the app's one `EventCatalog()` | `src/domain/events/domain-events.ts` |
 | `family` | The family's file and export, joined by `#` | `src/app/use-cases/context.ts#AppUseCase` |
+| `migrations` | The directory of migrations, with the list in its `index.ts` | `src/infra/migrations` |
+| `migrate` | The built module `lattice migrate` imports | `dist/servers/scripts/migrate.js` |
 | `tenant` | The tenant field of a new collection | none |
 
 `tenant` has no default: a guessed field name would tenant a collection by a field the app does not use. Without it, `lattice collection` needs `--tenant` or `--global`.
 
-A bad config is a usage error that names the file and the key: invalid JSON, an unknown key, a value that is not a non-empty string, a reserved or invalid tenant field, a path that is absolute or leaves the app, or a path that is missing or is a file where a directory belongs, or the reverse.
+A bad config is a usage error that names the file and the key: invalid JSON, an unknown key, a value that is not a non-empty string, a reserved or invalid tenant field, a path that is absolute or leaves the app, or a path a command needs that is missing or is a file where a directory belongs, or the reverse. `migrate` names built output, so it may be missing until the app is built.
 
 ## `lattice collection`
 
@@ -81,10 +85,60 @@ The command refuses, writes nothing and exits 1 when:
 
 For the last two, it also prints every change it would have made, and where each line goes, so the edit can be made by hand. Running the command again after it succeeded is refused: the collection's file exists.
 
+## `lattice migration`
+
+```bash
+lattice migration <name> [--transaction] [--dry-run]
+```
+
+```bash
+$ npx lattice migration add-notes-index
+created src/infra/migrations/0002-add-notes-index.ts
+edited src/infra/migrations/index.ts
+```
+
+- The name is kebab case. The file is `<id>-<name>.ts`, its id four digits, and its default export is a `Migration` for store-mongo's `migrate()`. Its comment says what `up({ db, session, signal, logger })` receives. Its `up` throws `Migration 2 add-notes-index is not written yet` until it is written, so a build that runs it early, or a server that migrates at startup, fails instead of recording an empty migration as done.
+- The next id is one past the list's: the CLI reads each listed migration's `id` from its file's default export, not from file names.
+- `index.ts` gets a default import, `m0002`, and the name at the end of its one exported array. A list on one line stays there while it fits in 80 columns, and is broken one per line when it does not. A list on several lines gets a line of its own. Comments, line breaks and indent are kept, as in `lattice collection`.
+- `--transaction` writes `transaction: true`: `up` and its record commit together, which needs a replica set.
+- `--dry-run` prints a diff and writes nothing. Writes are staged and placed as `lattice collection`'s are: all or none.
+
+It refuses, writes nothing and exits 1 when the list has a gap or a duplicate id, which `migrate()` would refuse too (its error is named); when a listed migration's file has no numeric `id` and string `name`; when a migration of that name is listed or its file exists; or when `index.ts` has no exported array, or more than one. A name that is not kebab case is a usage error.
+
+## `lattice migrate`
+
+```bash
+lattice migrate
+```
+
+Runs the app's pending migrations, as a deploy step for an app that does not migrate at startup, or before it starts. Build the app first: the command imports the module `"lattice.migrate"` names, which exports `store`, a `MongoStore` that is not started, and `migrations`, the list. The crm's:
+
+```ts
+// examples/crm/src/servers/scripts/migrate.ts
+import { migrations } from '../../infra/migrations/index.js';
+import { mongoStore } from '../../infra/store.js';
+
+/**
+ * What `npx lattice migrate` runs, after `npm run build`: the store, not
+ * started, and the migrations. The server also migrates at startup.
+ */
+export const store = mongoStore(process.env);
+export { migrations };
+```
+
+The module reads its connection settings as the app's server does; the CLI never sees them. The command starts the store, runs `migrate(store, migrations, { logger })` with a `ConsoleLogger`, and stops the store. Ordering, history and the lock are `migrate()`'s; see [store-mongo's README](../store-mongo#migrations). The output is `migrate()`'s log, and the command adds no lines of its own: one line per migration that ran, with its duration, or `migrations up to date`, and a line while it waits for another process's lock:
+
+```bash
+$ npm run build && npx lattice migrate
+2026-11-23T10:00:00.000Z info migration {"id":2,"name":"add-notes-index","durationMs":41,"outcome":"ok"}
+```
+
+It exits 1 with one line when `@latticecms/store-mongo` or `@hexok/logger` is not installed in the app (with the command to install it), when the module is missing or does not load, when it lacks `store` or `migrations`, on a `MigrationError` (its message and data), or when the store cannot connect.
+
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | 0 | Done, or a dry run |
 | 1 | Refused or failed. One line on stderr, `lattice: <why>`. Nothing was written |
-| 2 | A usage error: an unknown command or flag, a missing slug, or a bad config. The command's usage line follows |
+| 2 | A usage error: an unknown command or flag, a missing or bad slug or name, or a bad config. The command's usage line follows |

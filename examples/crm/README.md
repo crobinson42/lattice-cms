@@ -51,7 +51,7 @@ npm run worker -w @latticecms/example-crm
 | `CRM_WEBHOOK_ENDPOINTS` | The worker's webhook endpoints, a JSON list of `{ organizationId, id, url, secrets, events }`. `secrets` are `whsec_` secrets, newest first; `generateSecret()` from `@hexok/webhooks` makes one. Unset: none. |
 | `WEBHOOKS_ALLOW_PRIVATE` | `1` lets the worker send to plain http and private addresses, for a receiver on this machine. |
 
-A missing or bad setting fails at startup and names each one. Startup is: start the store, migrate, create indexes, then serve. `SIGINT` and `SIGTERM` stop taking requests, let those in flight finish, and close the stores.
+A missing or bad setting fails at startup and names each one. Startup is: start the store, migrate, create indexes, then serve. To migrate as a deploy step instead, run `npx lattice migrate` after `npm run build`; it runs the same list from `dist/servers/scripts/migrate.js`. `SIGINT` and `SIGTERM` stop taking requests, let those in flight finish, and close the stores.
 
 ## The admin
 

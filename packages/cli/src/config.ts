@@ -4,29 +4,35 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Exit, isRecord } from './exit.js';
 import { fieldProblem } from './names.js';
 
-/** Where an app keeps what the CLI reads and edits, as absolute paths. */
-export type Config = {
-  /** The directory of the app's `package.json`. */
-  readonly root: string;
-  readonly collections: string;
-  readonly composition: string;
-  readonly events: string;
-  readonly family: { readonly file: string; readonly name: string };
-  /** The tenant field of a new collection, when the app names one. */
-  readonly tenant: string | undefined;
-};
-
-/** The `"lattice"` keys, each defaulting to the crm's layout. `tenant` has no default. */
+/** The `"lattice"` keys that name paths, each defaulting to the crm's layout. */
 const defaults = {
   collections: 'src/domain/collections',
   composition: 'src/servers/rpc/contract.ts',
   events: 'src/domain/events/domain-events.ts',
   family: 'src/app/use-cases/context.ts#AppUseCase',
+  migrations: 'src/infra/migrations',
+  migrate: 'dist/servers/scripts/migrate.js',
 };
 
-type PathKey = keyof typeof defaults;
+export type PathKey = keyof typeof defaults;
 
+/** Every key. `tenant` has no default. */
 const keys = [...Object.keys(defaults), 'tenant'];
+
+/** The app's config, checked: every path is inside the app. */
+export type Config = {
+  /** The directory of the app's `package.json`. */
+  readonly root: string;
+  /** The `package.json`, as messages name it. */
+  readonly manifest: string;
+  /** Each path key's absolute path; `family` is its file. */
+  readonly paths: Readonly<Record<PathKey, string>>;
+  /** Each path key's value as written, for messages. */
+  readonly written: Readonly<Record<PathKey, string>>;
+  readonly familyName: string;
+  /** The tenant field of a new collection, when the app names one. */
+  readonly tenant: string | undefined;
+};
 
 /** The nearest directory at or above `cwd` with a `package.json`. */
 function rootOf(cwd: string): string {
@@ -42,33 +48,33 @@ function rootOf(cwd: string): string {
  * The app's config: the `"lattice"` key of the nearest `package.json`, over
  * the defaults. Anything wrong with it is a usage error that names the file
  * and the key: invalid JSON, an unknown key, a value that is not a
- * non-empty string, a path outside the app, or a path that is missing or
- * of the wrong kind.
+ * non-empty string, a bad tenant field, or a path outside the app. Whether
+ * a path exists is checked by the command that needs it, with `existing`.
  */
 export async function loadConfig(cwd: string): Promise<Config> {
   const root = rootOf(cwd);
   const manifestPath = join(root, 'package.json');
-  const manifestName = relative(cwd, manifestPath) || 'package.json';
+  const manifest = relative(cwd, manifestPath) || 'package.json';
   function fail(message: string): never {
     throw new Exit(message, 2);
   }
-  let manifest: unknown;
+  let parsed: unknown;
   try {
-    manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+    parsed = JSON.parse(await readFile(manifestPath, 'utf8'));
   } catch (error) {
     fail(
-      `${manifestName} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+      `${manifest} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
-  const given = isRecord(manifest) ? (manifest.lattice ?? {}) : {};
-  if (!isRecord(given)) fail(`"lattice" in ${manifestName} must be an object`);
+  const given = isRecord(parsed) ? (parsed.lattice ?? {}) : {};
+  if (!isRecord(given)) fail(`"lattice" in ${manifest} must be an object`);
   const values: Record<string, string> = { ...defaults };
   for (const [key, value] of Object.entries(given)) {
     if (!keys.includes(key)) {
-      fail(`unknown key "lattice.${key}" in ${manifestName}`);
+      fail(`unknown key "lattice.${key}" in ${manifest}`);
     }
     if (typeof value !== 'string' || value.trim() === '') {
-      fail(`"lattice.${key}" in ${manifestName} must be a non-empty string`);
+      fail(`"lattice.${key}" in ${manifest} must be a non-empty string`);
     }
     values[key] = value;
   }
@@ -77,56 +83,73 @@ export async function loadConfig(cwd: string): Promise<Config> {
   const familyName = family?.[2];
   if (familyFile === undefined || familyName === undefined) {
     fail(
-      `"lattice.family" in ${manifestName} must be a file and an export, as "${defaults.family}"`,
+      `"lattice.family" in ${manifest} must be a file and an export, as "${defaults.family}"`,
     );
   }
-
-  /** A path inside the app, of the kind the key names, that exists. */
-  const path = async (
-    key: PathKey,
-    value: string,
-    kind: 'file' | 'directory',
-  ): Promise<string> => {
+  const written: Record<PathKey, string> = {
+    collections: values.collections ?? defaults.collections,
+    composition: values.composition ?? defaults.composition,
+    events: values.events ?? defaults.events,
+    family: familyFile,
+    migrations: values.migrations ?? defaults.migrations,
+    migrate: values.migrate ?? defaults.migrate,
+  };
+  const inside = (key: PathKey): string => {
+    const value = written[key];
     const absolute = resolve(root, value);
-    const inside = relative(root, absolute);
-    if (isAbsolute(value) || inside === '..' || inside.startsWith(`..${sep}`)) {
+    const path = relative(root, absolute);
+    if (isAbsolute(value) || path === '..' || path.startsWith(`..${sep}`)) {
       fail(
-        `"lattice.${key}" in ${manifestName} must be a path inside the app, not ${value}`,
+        `"lattice.${key}" in ${manifest} must be a path inside the app, not ${value}`,
       );
-    }
-    const found = await stat(absolute).catch(() => undefined);
-    if (found === undefined) {
-      fail(
-        `${value} does not exist: set "lattice.${key}" in ${manifestName} to the app's ${kind}`,
-      );
-    }
-    if (found.isDirectory() !== (kind === 'directory')) {
-      fail(`"lattice.${key}" in ${manifestName} must be a ${kind}: ${value}`);
     }
     return absolute;
   };
   const tenant = values.tenant;
   const problem = tenant === undefined ? undefined : fieldProblem(tenant);
   if (problem !== undefined) {
-    fail(`"lattice.tenant" in ${manifestName}: ${problem}`);
+    fail(`"lattice.tenant" in ${manifest}: ${problem}`);
   }
   return {
     root,
-    collections: await path(
-      'collections',
-      values.collections ?? defaults.collections,
-      'directory',
-    ),
-    composition: await path(
-      'composition',
-      values.composition ?? defaults.composition,
-      'file',
-    ),
-    events: await path('events', values.events ?? defaults.events, 'file'),
-    family: {
-      file: await path('family', familyFile, 'file'),
-      name: familyName,
+    manifest,
+    paths: {
+      collections: inside('collections'),
+      composition: inside('composition'),
+      events: inside('events'),
+      family: inside('family'),
+      migrations: inside('migrations'),
+      migrate: inside('migrate'),
     },
+    written,
+    familyName,
     tenant,
   };
+}
+
+/**
+ * The path of `key`, which must exist and be a file or a directory as
+ * `kind` says. Otherwise a usage error that names the key.
+ */
+export async function existing(
+  config: Config,
+  key: PathKey,
+  kind: 'file' | 'directory',
+): Promise<string> {
+  const path = config.paths[key];
+  const value = config.written[key];
+  const found = await stat(path).catch(() => undefined);
+  if (found === undefined) {
+    throw new Exit(
+      `${value} does not exist: set "lattice.${key}" in ${config.manifest} to the app's ${kind}`,
+      2,
+    );
+  }
+  if (found.isDirectory() !== (kind === 'directory')) {
+    throw new Exit(
+      `"lattice.${key}" in ${config.manifest} must be a ${kind}: ${value}`,
+      2,
+    );
+  }
+  return path;
 }
