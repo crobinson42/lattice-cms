@@ -78,9 +78,9 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 8. Docs
 
-- [ ] The package READMEs, with recipes from `examples/crm`.
+- [x] The package READMEs, with recipes from `examples/crm` or links to Getting started. Uploads get theirs when step 4 lands.
 - [ ] `docs/architecture.md` matches what was built, and its Phase 3 markers are removed.
-- [ ] Changesets.
+- [x] Changesets: one per package, each describing 0.1.0 as it ships. Step 4 adds to core's.
 
 ## Carried from earlier phases
 
@@ -115,4 +115,5 @@ Add a line here when the work teaches something the plan did not know. Each line
 - The crm has no handler on a collection event; its handlers follow its own `DealClosedEvent`. The skill says so and describes one in prose.
 - The walkthrough found: TypeScript 7 (npm's latest) is the native compiler with no JavaScript API, so the CLI's peer is `>=5.8 <7`; the generated test broke on a first ref, so it now builds nothing; and the admin's dependencies flood an app's Vite build with `"use client"` warnings.
 - Shrinking the walkthrough's edge and page (about 160 of its lines) would take exports: a member edge in core and a token page in the admin. Not proposed until a second real app repeats them.
+- mongodb-memory-server in several packages under turbo could pick the same port. Each setup retries a start up to 3 times on "already in use".
 - Tests that checked a JSON body for a secret number as a substring were flaky: random hex ids and database names can contain it. Secrets now have a fraction (`4242.5`), which no hex id holds.

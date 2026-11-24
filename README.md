@@ -2,7 +2,16 @@
 
 Collections that compile into [hexok](https://github.com/crobinson42/hexok) use cases and a [ts-pf](https://github.com/crobinson42/ts-pf) contract, for internal tools, CRMs, admin panels and portals.
 
-Status: before 1.0. Nothing is published yet.
+Status: before 1.0. Nothing is published yet; 0.1.0 is the first release. File uploads are not built yet.
+
+| Package | What it is |
+| --- | --- |
+| [`@latticecms/core`](packages/core) | Collections, the framework, access, tenancy, relations, masking and events, an in-memory store, and the `lattice` agent skill |
+| [`@latticecms/store-mongo`](packages/store-mongo) | The MongoDB store, and data migrations |
+| [`@latticecms/admin`](packages/admin) | A React admin rendered from the catalog an app serves |
+| [`@latticecms/cli`](packages/cli) | The `lattice` command: `collection`, `migration` and `migrate` |
+
+[`examples/crm`](examples/crm) is the example app every change is checked against, and [`examples/walkthrough`](examples/walkthrough) runs the Getting started below as a test.
 
 - Design: [docs/architecture.md](docs/architecture.md)
 - Decisions in force: [docs/decisions/README.md](docs/decisions/README.md)

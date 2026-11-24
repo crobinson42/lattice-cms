@@ -2,7 +2,7 @@
 
 The MongoDB `CollectionStore` for [`@latticecms/core`](../core). Each collection is a Mongo collection of the same name, and a document's `id` is its `_id`. Filters translate one to one into Mongo queries, and the store passes the conformance suite every Lattice store passes. It also runs the app's data migrations.
 
-Status: unpublished, before 1.0.
+Status: before 1.0, not yet published.
 
 ## Install
 
@@ -125,6 +125,18 @@ At startup, start the store, then migrate, then create indexes, as in [Wiring](#
 
 - **Transactions are opt-in.** With `transaction: true`, `up` gets a `session`, and its writes and its record commit together or not at all. Pass `{ session }` to every write. It needs a replica set, or the run throws `NoTransactions` before anything runs. A long migration can exceed Mongo's transaction limits, which is why it is not the default. The driver may run a transaction's callback again on a transient error, which `up` handles, since it is safe to re-run.
 - **One process at a time.** A lease in `_migrations_lock` keeps two processes from migrating together. It is taken on the server's clock, renewed every third of `lock.ttlMs` (60 s by default), and released by a token, so a process never releases another's lease. A lease whose holder died expires and is taken over. A second process logs `migrations waiting for lock`, waits up to `lock.waitMs` (10 minutes by default), and then finds nothing left to run; past `waitMs` it rejects with `LockTimeout`. If the lease is lost while a migration runs, `signal` aborts, and the run stops with `LockLost` without recording that migration. Pass `signal` to long loops.
+
+### As a deploy step
+
+An app that migrates before it starts, rather than at startup, runs `npx lattice migrate` from [`@latticecms/cli`](../cli#lattice-migrate) after its build. It imports a built module that exports the store, not started, and the list; the crm's is built from:
+
+```ts
+// examples/crm/src/servers/scripts/migrate.ts
+export const store = mongoStore(process.env);
+export { migrations };
+```
+
+The command starts the store, runs `migrate()` with a `ConsoleLogger`, stops the store, and exits 1 on a `MigrationError`. Its output is `migrate()`'s log. `lattice migration <name>` writes the next migration and appends it to the list; its `up()` throws until it is written, so an unwritten migration is never recorded as done.
 
 ## Tracing
 

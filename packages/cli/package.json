@@ -2,6 +2,13 @@
   "name": "@latticecms/cli",
   "version": "0.0.0",
   "description": "The lattice command: scaffolds collections and migrations, and runs migrations.",
+  "keywords": [
+    "lattice",
+    "cms",
+    "cli",
+    "scaffold",
+    "migrations"
+  ],
   "license": "MIT",
   "type": "module",
   "repository": {

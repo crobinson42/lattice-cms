@@ -2,7 +2,7 @@
 
 Collections that compile into hexok use cases, hexok event classes and a ts-pf contract. A collection is a Zod schema with a slug. `framework()` turns a set of them into a typed RPC contract, and `build()` wires that contract to a store and an event publisher. Every generated piece is a real hexok `UseCase`, `Event`, `Errors` and `Port`, and a real ts-pf `router`, so a hand-written one can take its place with the same types.
 
-Status: unpublished, before 1.0. Breaking changes are free until 1.0. The design and the reasons behind it are in [docs/architecture.md](../../docs/architecture.md).
+Status: before 1.0, not yet published. Breaking changes are free until 1.0. The design and the reasons behind it are in [docs/architecture.md](../../docs/architecture.md).
 
 ## Install
 
@@ -67,6 +67,16 @@ console.log(docs.map((doc) => doc.title));
 ```
 
 It prints `[ 'Write the docs' ]`. The client is typed from the contract: `client.notes.find` takes a typed `where`, and returns typed documents with `id`, `createdAt` and `updatedAt`. Over HTTP, the same app is served by `@ts-pf/server-http`'s `FetchHandler`; see [The auth edge](#the-auth-edge).
+
+## The agent skill
+
+Core ships an agent skill in `skills/lattice`: a `SKILL.md` with the steps from a collection to an override, and one reference per concept (collections, access, tenancy, relations, masking, overrides, methods, event handlers, testing and the CLI), each quoting the crm. In an app that installs core, link it into the agents' skill directories with:
+
+```bash
+npx skills experimental_sync -y -r
+```
+
+It links `.agents/skills/lattice` to `node_modules/@latticecms/core/skills/lattice`, beside hexok's `hexok` skill and the `ts-pf-*` skills. `-r` also reads the dependencies of each workspace package, where a monorepo's app keeps them.
 
 ## Concepts
 
@@ -950,6 +960,45 @@ export function openapiDocument() {
 
 The crm serves it at `GET /openapi.json`, and the catalog itself at `GET /catalog.json`, to signed-in users only, since both say which fields are masked. The catalog carries each procedure's `lattice` meta and the `x-lattice-*` keys; the admin builds its views from it. A TypeScript client in another repo uses `@ts-pf/codegen` on the same catalog instead; the crm's [`codegen.test.ts`](../../examples/crm/src/servers/rpc/codegen.test.ts) is that client, with no casts.
 
+### Mounting the admin
+
+[`@latticecms/admin`](../admin) renders the app from the catalog it serves. The crm's page signs in through `/auth`, lists the user's organizations for a switcher from `/auth organizations`, which needs no organization header, and calls the API with the picked one:
+
+```tsx
+// examples/crm/src/web/app.tsx
+  const auth = useMemo(
+    () => authClient(sessionFetch(token, undefined, onSignedOut)),
+    [token, onSignedOut],
+  );
+  // A 401 signs out through the session's fetch. Anything else, such as a
+  // dropped connection, can be tried again.
+  const load = useCallback(() => {
+    setFailed(false);
+    auth.organizations({}).then(setOrganizations, () => setFailed(true));
+  }, [auth]);
+  useEffect(load, [load]);
+  const current =
+    organizations?.find(({ id }) => id === picked) ?? organizations?.[0];
+  const fetch = useMemo(
+    () => sessionFetch(token, current?.id, onSignedOut),
+    [token, current, onSignedOut],
+  );
+```
+
+`<Admin>` is keyed by the organization, so a switch starts with an empty cache and never shows another organization's rows:
+
+```tsx
+// examples/crm/src/web/app.tsx
+    <Admin
+      // A new organization is a new admin, with an empty cache.
+      key={current?.id ?? 'support'}
+      fetch={fetch}
+      catalogUrl="/catalog.json"
+      basePath="/admin"
+```
+
+The edge checks the organization header on every call, as in [The auth edge](#the-auth-edge). The admin's README has its props, the catalog route and what it renders. The smallest page, a token form, is in the root README's [Getting started](../../README.md#5-the-admin-page).
+
 ## Reference
 
 ### `collection()` options
@@ -968,6 +1017,19 @@ Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `out
 - `label: { singular: 'person', plural: 'people' }` says how the collection reads mid-sentence, in generated summaries and the admin. Without it, the label comes from the slug: `deal_stages` reads "deal stage" and "deal stages". Declare it when the slug's singular would be wrong, as for `people` or `news`. `labelOf(slug)` returns the label a slug gets.
 - A field's label in a client such as the admin is its name in words, or its JSON Schema `title`: `amount: z.number().meta({ title: 'Deal value' })`. Zod's `.meta()` reaches the catalog, OpenAPI and MCP.
 - `indexes` lists the indexes the store creates at startup, through `build().ensure()`: `[{ fields: { stage: 1, createdAt: -1 } }, { fields: { email: 1 }, unique: true }]`. Fields are named from the stored document, so the system fields and the tenant field count; any other name is a compile error and a throw. Key order is the index's order. `id` needs no index. A tenanted collection's indexes usually lead with the tenant field, because every call filters by it; Lattice does not add it for you.
+
+### Catalog facts
+
+`catalog(contract)` from `@ts-pf/docs` carries what a client such as the admin needs, so it reads them instead of guessing from paths and names:
+
+| Fact | Where | What it says |
+| --- | --- | --- |
+| `lattice` meta | Each procedure's meta | Its collection, the collection's label, and its operation; a relation's name and `target`; a method's name. `LatticeMeta` is its type |
+| `docs` and `mcp` meta | Each procedure's meta | Its summary and its effect: `read`, `write` or `destructive`. A method's come from its `summary` and `effect` statics |
+| `x-lattice-ref` | A ref's JSON Schema | The slug of the collection it points to |
+| `x-lattice-maskable` | A maskable field's JSON Schema | That a caller's rule may withhold it |
+| `x-lattice-tenant` | The tenant field's JSON Schema | That Lattice stamps it, so a client shows it read-only |
+| `title` | A field's JSON Schema, from `.meta({ title })` | Its label; without one, a client uses its name in words |
 
 ### `Where` and `Sort`
 
@@ -1105,4 +1167,4 @@ These are not built. [docs/architecture.md](../../docs/architecture.md#known-lim
 - An `@hexok/authz` adapter for `Access`. It waits for hexok to release `@hexok/authz`.
 - `entity`: a collection backed by a hexok `Entity` instead of a schema.
 - A store per collection. One `build({ store })` serves every collection.
-- The admin UI, the CLI and file uploads.
+- File uploads: a file field, its blob storage and downloads.

@@ -2,6 +2,17 @@
   "name": "@latticecms/core",
   "version": "0.0.0",
   "description": "Collections that compile into hexok use cases and a ts-pf contract.",
+  "keywords": [
+    "lattice",
+    "cms",
+    "headless-cms",
+    "collections",
+    "hexok",
+    "ts-pf",
+    "zod",
+    "rpc",
+    "typescript"
+  ],
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -41,6 +52,9 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=22.11"
   },
   "scripts": {
     "build": "tsc -b",

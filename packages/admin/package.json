@@ -2,6 +2,13 @@
   "name": "@latticecms/admin",
   "version": "0.0.0",
   "description": "An admin for a Lattice app, rendered from the catalog it serves.",
+  "keywords": [
+    "lattice",
+    "cms",
+    "admin",
+    "admin-panel",
+    "react"
+  ],
   "license": "MIT",
   "type": "module",
   "sideEffects": [
@@ -34,6 +41,9 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=22.11"
   },
   "scripts": {
     "build": "tsc -b && tailwindcss -i src/admin.css -o dist/admin.css --minify",

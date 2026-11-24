@@ -17,6 +17,7 @@ const readmes = [
   'packages/core/README.md',
   'packages/store-mongo/README.md',
   'packages/cli/README.md',
+  'packages/admin/README.md',
   'examples/crm/README.md',
   ...skills,
 ];
@@ -29,8 +30,8 @@ function quotes(readme: string) {
   const lines = readFileSync(new URL(readme, root), 'utf8').split('\n');
   const found: { line: number; path: string; body: string[] }[] = [];
   for (let i = 0; i < lines.length; i += 1) {
-    if (!/^```(ts|js)$/.test(lines[i] ?? '')) continue;
-    const path = /^\/\/ ((?:packages|examples)\/\S+\.(?:ts|js))$/.exec(
+    if (!/^```(ts|tsx|js)$/.test(lines[i] ?? '')) continue;
+    const path = /^\/\/ ((?:packages|examples)\/\S+\.(?:ts|tsx|js))$/.exec(
       lines[i + 1] ?? '',
     )?.[1];
     const end = lines.indexOf('```', i + 1);
