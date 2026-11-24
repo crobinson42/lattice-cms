@@ -19,7 +19,7 @@ jobs:
     env:
       # mongodb-memory-server's postinstall would download its own default
       # mongod. The tests download the version they pin, into the cache below.
-      MONGOMS_DISABLE_POSTINSTALL: '1'
+      MONGOMS_DISABLE_POSTINSTALL: "1"
     steps:
       - uses: actions/checkout@v6
 
@@ -69,7 +69,7 @@ jobs:
     permissions:
       contents: read
     env:
-      MONGOMS_DISABLE_POSTINSTALL: '1'
+      MONGOMS_DISABLE_POSTINSTALL: "1"
     steps:
       - uses: actions/checkout@v6
 

@@ -14,7 +14,7 @@
     "build": "turbo run build",
     "test": "turbo run test",
     "type-check": "turbo run type-check",
-    "lint": "node scripts/decisions.mjs --check && biome check scripts && turbo run lint",
+    "lint": "node scripts/decisions.mjs --check && biome check . && turbo run lint",
     "clean": "turbo run clean && rm -rf node_modules",
     "changeset": "changeset",
     "version-packages": "changeset version",
