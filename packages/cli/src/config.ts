@@ -9,7 +9,6 @@ const defaults = {
   collections: 'src/domain/collections',
   composition: 'src/servers/rpc/contract.ts',
   events: 'src/domain/events/domain-events.ts',
-  family: 'src/app/use-cases/context.ts#AppUseCase',
   migrations: 'src/infra/migrations',
   migrate: 'dist/servers/scripts/migrate.js',
 };
@@ -25,11 +24,10 @@ export type Config = {
   readonly root: string;
   /** The `package.json`, as messages name it. */
   readonly manifest: string;
-  /** Each path key's absolute path; `family` is its file. */
+  /** Each path key's absolute path. */
   readonly paths: Readonly<Record<PathKey, string>>;
   /** Each path key's value as written, for messages. */
   readonly written: Readonly<Record<PathKey, string>>;
-  readonly familyName: string;
   /** The tenant field of a new collection, when the app names one. */
   readonly tenant: string | undefined;
 };
@@ -78,19 +76,10 @@ export async function loadConfig(cwd: string): Promise<Config> {
     }
     values[key] = value;
   }
-  const family = /^(.+)#([A-Za-z_$][\w$]*)$/.exec(values.family ?? '');
-  const familyFile = family?.[1];
-  const familyName = family?.[2];
-  if (familyFile === undefined || familyName === undefined) {
-    fail(
-      `"lattice.family" in ${manifest} must be a file and an export, as "${defaults.family}"`,
-    );
-  }
   const written: Record<PathKey, string> = {
     collections: values.collections ?? defaults.collections,
     composition: values.composition ?? defaults.composition,
     events: values.events ?? defaults.events,
-    family: familyFile,
     migrations: values.migrations ?? defaults.migrations,
     migrate: values.migrate ?? defaults.migrate,
   };
@@ -117,12 +106,10 @@ export async function loadConfig(cwd: string): Promise<Config> {
       collections: inside('collections'),
       composition: inside('composition'),
       events: inside('events'),
-      family: inside('family'),
       migrations: inside('migrations'),
       migrate: inside('migrate'),
     },
     written,
-    familyName,
     tenant,
   };
 }

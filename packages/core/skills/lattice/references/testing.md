@@ -47,7 +47,7 @@ expect(again.error.status).toBe(409);
 
 - `MemoryStore` needs no server. The crm runs the same tests on `MemoryStore` and `MongoStore`, through `describe.each(backends)` in `src/test/stores.ts`.
 - `build().repos` seeds and reads data directly, with a scope. `build().context({ actor, logger })` makes a context for a direct `useCases.*.execute` call. Prefer the client.
-- A collection's own test, as `lattice collection` writes it, builds a one-collection framework with the app's family over `MemoryStore`, and checks the composition registered it.
+- A collection's own test, as `lattice collection` writes it, builds nothing: it checks the contract has the slug and its operations, and that the schema parses a document. Test behavior through the app's setup, as above.
 - A test of a handler builds it with repos and a fake port, and calls `handle` with an event instance.
 - Masking and tenancy are tested over HTTP in the crm: `src/servers/http/masking.test.ts` and `tenancy.test.ts`.
 

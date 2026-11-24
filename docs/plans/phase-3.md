@@ -74,7 +74,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 - [x] Move to ts-pf 1.0 first (maintainer's call): a reader's `npm install` gets 1.0, and Lattice's `^0.6.0` peers fail with ERESOLVE. Done: `McpEffect` renamed, no output changes, and none of the brief's items shipped in 1.0. `rootRouter()` no longer imports the now-internal `isImplementedProcedure`.
 - [x] Design approved: companies and contacts with a ref in a flat layout; `StaticTokenAuthenticator` with one env token and a per-request membership check (0006, 0030); `MemoryStore`; packed tarballs installed in a temp app; its own workspace (`examples/walkthrough`) and CI job; the root README's Getting started section is the script the test runs. No new exports; recipes in the admin and core READMEs.
-- [ ] A script, run in a test, that goes from an empty app with the published packages to the admin with CRUD on two collections. The README's getting-started section follows it step by step.
+- [x] A script, run in a test, that goes from an empty app with the published packages to the admin with CRUD on two collections. The root README's Getting started is that script (`examples/walkthrough`, about 16 s warm, its own CI job). A reader types or pastes 289 lines, about 225 fresh; the edge and the page are most of it.
 
 ### 8. Docs
 
@@ -113,4 +113,6 @@ Add a line here when the work teaches something the plan did not know. Each line
 - Vite (oxc) resolves an app's tsconfig `references` when it transforms a test, so a copy of an app outside the repo needs the referenced packages beside it. Step 7's walkthrough must account for it.
 - `npx skills experimental_sync -y` finds no skills from the repo root, because only workspace packages depend on the packages that ship them. It needs `-r`. CLAUDE.md is the maintainer's.
 - The crm has no handler on a collection event; its handlers follow its own `DealClosedEvent`. The skill says so and describes one in prose.
+- The walkthrough found: TypeScript 7 (npm's latest) is the native compiler with no JavaScript API, so the CLI's peer is `>=5.8 <7`; the generated test broke on a first ref, so it now builds nothing; and the admin's dependencies flood an app's Vite build with `"use client"` warnings.
+- Shrinking the walkthrough's edge and page (about 160 of its lines) would take exports: a member edge in core and a token page in the admin. Not proposed until a second real app repeats them.
 - Tests that checked a JSON body for a secret number as a substring were flaky: random hex ids and database names can contain it. Secrets now have a fraction (`4242.5`), which no hex id holds.

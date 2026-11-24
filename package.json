@@ -19,7 +19,8 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "changeset publish",
-    "decisions": "node scripts/decisions.mjs"
+    "decisions": "node scripts/decisions.mjs",
+    "walkthrough": "turbo run walkthrough"
   },
   "devDependencies": {
     "@biomejs/biome": "~2.6.6",

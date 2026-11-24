@@ -61,3 +61,38 @@ jobs:
       - run: npm run type-check
       - run: npm run test
       - run: npm run build
+
+  walkthrough:
+    name: Walkthrough
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      MONGOMS_DISABLE_POSTINSTALL: '1'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # The walkthrough drives the admin it builds in headless Chromium.
+      - name: Read the Playwright version
+        id: playwright
+        run: echo "version=$(node -p "require('./node_modules/playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright's Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ms-playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
+
+      - run: npx playwright install --with-deps chromium
+
+      # The root README's Getting started, run against packed tarballs of
+      # this commit, with every other dependency from the registry.
+      - run: npm run walkthrough

@@ -10,7 +10,7 @@ Status: unpublished, before 1.0.
 npm install --save-dev @latticecms/cli
 ```
 
-`@latticecms/core` and `typescript` are peer dependencies; the app has both. The CLI parses the app's files with the app's own `typescript`, resolved from the app's directory, and refuses one older than 5.8. `@latticecms/store-mongo` and `@hexok/logger` are optional peers: `lattice migrate` imports them from the app, and the other commands run without them.
+`@latticecms/core` and `typescript` are peer dependencies; the app has both. The CLI parses the app's files with the app's own `typescript`, resolved from the app's directory: 5.8 to 6. TypeScript 7 is the native compiler and has no JavaScript API, so the CLI refuses it, and says to install `typescript@^6`. `@latticecms/store-mongo` and `@hexok/logger` are optional peers: `lattice migrate` imports them from the app, and the other commands run without them.
 
 Run it from anywhere inside the app, with `npx lattice`. `lattice --help` lists the commands.
 
@@ -24,7 +24,6 @@ The CLI reads the `"lattice"` key of the nearest `package.json` at or above the 
     "collections": "src/domain/collections",
     "composition": "src/servers/rpc/contract.ts",
     "events": "src/domain/events/domain-events.ts",
-    "family": "src/app/use-cases/context.ts#AppUseCase",
     "migrations": "src/infra/migrations",
     "migrate": "dist/servers/scripts/migrate.js",
     "tenant": "organizationId"
@@ -37,7 +36,6 @@ The CLI reads the `"lattice"` key of the nearest `package.json` at or above the 
 | `collections` | The directory of collection files | `src/domain/collections` |
 | `composition` | The file with the app's one `framework()` chain | `src/servers/rpc/contract.ts` |
 | `events` | The file with the app's one `EventCatalog()` | `src/domain/events/domain-events.ts` |
-| `family` | The family's file and export, joined by `#` | `src/app/use-cases/context.ts#AppUseCase` |
 | `migrations` | The directory of migrations, with the list in its `index.ts` | `src/infra/migrations` |
 | `migrate` | The built module `lattice migrate` imports | `dist/servers/scripts/migrate.js` |
 | `tenant` | The tenant field of a new collection | none |
@@ -67,7 +65,7 @@ deal_notes is open to any signed-in caller. Tighten its access in src/servers/rp
 - `--label person,people` declares its label, for a slug whose singular core would get wrong. Without it, core's `labelOf(slug)` gives the label.
 - The composition gets an import and `.collection(DealNotes, { access })` at the end of its chain, open to any signed-in caller, inside tenancy. It uses the file's `anyone` when it declares one, else `() => true`. Tighten it.
 - The events catalog gets an import and the three events after the last collection's. The app's publisher takes only the catalog's events, so without them the app does not compile.
-- The test builds a one-collection framework with the app's family over `MemoryStore`, and stores and reads a document. It also checks that the composition's contract has the slug.
+- The test checks what the scaffold made, and builds nothing: the composition's contract has the slug and its six operations (which also proves every ref resolves within the app), and the schema parses `{ name: 'First' }` and refuses `{}` at `name`. A ref, a relation, a method or an override anywhere in the app never breaks it. Test behavior through the app's own test setup.
 - Each edit is inserted as text; the file is never reprinted. Imports go in Biome's order. Inserted lines use the file's line breaks (LF or CRLF) and its indent unit (a tab or its spaces), and go after any comment that ends the line before them.
 - Generated lines break where Biome breaks them at its default width of 80, one level deep. A name long enough to need a second level is left to the app's formatter.
 - `--dry-run` prints each change as a unified diff and writes nothing.
@@ -79,7 +77,6 @@ The command refuses, writes nothing and exits 1 when:
 - the slug is not lower snake case, or is one of core's `reservedNames`;
 - the collection's file or test exists, or a file in the collections directory (`.ts`, `.tsx`, `.mts` or `.cts`, but tests and declarations) has the slug in core's `collection()`, by any name it imports it as, or in a relation's `through`;
 - the composition or the catalog already imports or declares the export's name at the top level, or already registers it or lists its events;
-- the export's name is one the generated test imports: `framework`, `MemoryStore`, `tenancy` or `unscoped`, `describe`, `expect`, `it`, the family, or the composition's export;
 - the field `--tenant` names is one of core's `reservedFields`, or is not a field name;
 - the composition has no `framework()` chain, or more than one, or its chain is not an `export const` of `.collection()` calls; or the events file has no `EventCatalog()` with an object literal, or more than one.
 

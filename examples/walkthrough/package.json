@@ -1,0 +1,19 @@
+{
+  "name": "@latticecms/example-walkthrough",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Runs the root README's Getting started, against packed tarballs of this checkout, and drives the admin it ends with in Chromium.",
+  "type": "module",
+  "scripts": {
+    "walkthrough": "vitest run",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@latticecms/admin": "*",
+    "@latticecms/cli": "*",
+    "@latticecms/core": "*",
+    "@latticecms/store-mongo": "*",
+    "playwright": "^1.65.1"
+  }
+}

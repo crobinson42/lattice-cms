@@ -14,6 +14,10 @@
       "dependsOn": ["^build", "build"],
       "outputs": []
     },
+    "walkthrough": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
     "type-check": {
       "dependsOn": ["^build", "build"],
       "outputs": []

@@ -636,7 +636,11 @@ A maskable field says in its JSON Schema that it may be withheld, and that a que
 
 ## Recipes
 
-Each recipe quotes [`examples/crm`](../../examples/crm), and names the file. A test in the crm checks that every quote here matches its file.
+Each recipe quotes [`examples/crm`](../../examples/crm), and names the file, or links to the root README's Getting started. A test in the crm checks that every quote here matches its file, and the walkthrough runs Getting started as written.
+
+### The smallest edge
+
+The root README's [Getting started](../../README.md#4-the-server) has the smallest edge that keeps these rules: a fixed token from `@hexok/auth`'s `StaticTokenAuthenticator`, a membership check on every call, and the actor built only after both. A test runs it as written. The crm's edge below is the same shape with sessions, support actors and MCP.
 
 ### The auth edge
 

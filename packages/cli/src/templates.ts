@@ -46,103 +46,57 @@ export function collectionText(
 /** An import of one name for the test, with the specifier that sorts it. */
 export type TestImport = { readonly name: string; readonly specifier: string };
 
-/** The names the test imports from packages, by whether the collection is tenanted. */
-export function testPackageNames(tenanted: boolean): readonly string[] {
-  return [
-    'framework',
-    'MemoryStore',
-    tenanted ? 'tenancy' : 'unscoped',
-    'describe',
-    'expect',
-    'it',
-  ];
-}
-
 /**
- * The collection's test: it is in the app's contract, and it stores and
- * reads a document through a one-collection framework with the app's
- * family over `MemoryStore`. Without a composition export, only the second.
+ * The collection's test: what the scaffold made, and nothing it did not.
+ * The composition's contract has the slug and its six procedures, which
+ * also proves every ref resolves within the app; and the schema parses a
+ * document and refuses one without a name. It builds no app, so a ref, a
+ * relation, a method or an override anywhere in the app never breaks it.
+ * Without a composition export, only the schema test.
  */
 export function testText(
   names: Names,
-  tenanted: boolean,
-  family: TestImport,
   app: TestImport | undefined,
   sort: (a: string, b: string) => number,
 ): string {
-  const [framework, store, scoping, describe, expect, it] =
-    testPackageNames(tenanted);
-  const scope = tenanted ? 'scope' : 'unscoped';
-  const local = [family, ...(app === undefined ? [] : [app])]
+  const local = [...(app === undefined ? [] : [app])]
     .concat({ name: names.exportName, specifier: `./${names.file}.js` })
     .sort((a, b) => sort(a.specifier, b.specifier));
-  const repo = `repos.${names.slug}`;
+  const schema = `${names.exportName}.schema`;
   return [
-    `import { ${framework}, ${store}, ${scoping} } from '@latticecms/core';`,
-    `import { ${describe}, ${expect}, ${it} } from 'vitest';`,
+    "import { describe, expect, it } from 'vitest';",
     ...local.map(
       ({ name, specifier }) => `import { ${name} } from '${specifier}';`,
     ),
     '',
+    "// What the scaffold made. Test behavior through the app's own setup.",
     `describe(${quote(names.slug)}, () => {`,
     ...(app === undefined
       ? []
       : [
-          "  it('is in the app', () => {",
+          "  it('is in the app, with its operations', () => {",
+          "    const operations = ['find', 'count', 'get', 'create', 'update', 'delete'];",
           ...call(
             '    ',
-            `expect(${app.name}.contract).toHaveProperty`,
-            [quote(names.slug)],
+            'const keys = Object.keys',
+            [`${app.name}.contract.${names.slug}`],
             ';',
           ),
+          '    expect(keys).toEqual(expect.arrayContaining(operations));',
           '  });',
           '',
         ]),
-    "  it('stores a document and reads it back', async () => {",
+    "  it('parses a document, and refuses one without a name', () => {",
     ...call(
       '    ',
-      'const { repos } = framework',
-      [
-        {
-          expanded: false,
-          lines: (indent) => [`${indent}family: ${family.name},`],
-        },
-      ],
-      '',
-    ),
-    ...call(
-      '      ',
-      '.collection',
-      [
-        names.exportName,
-        { expanded: false, lines: (indent) => [`${indent}access: {},`] },
-      ],
-      '',
-    ),
-    '      .build({',
-    '        store: new MemoryStore(),',
-    '        events: { publish: async (_event: object) => {} },',
-    '      });',
-    ...(tenanted
-      ? call(
-          '    ',
-          'const scope = tenancy.scope',
-          [names.exportName, "'tenant-1'"],
-          ';',
-        )
-      : []),
-    ...call(
-      '    ',
-      `const created = await ${repo}.insert`,
-      ["{ name: 'First' }", scope],
+      `const parsed = ${schema}.parse`,
+      [{ expanded: false, lines: (indent) => [`${indent}name: 'First',`] }],
       ';',
     ),
-    ...call(
-      '    ',
-      'expect',
-      [`await ${repo}.get(created.id, ${scope})`],
-      '.toEqual(created);',
-    ),
+    "    expect(parsed).toMatchObject({ name: 'First' });",
+    ...call('    ', `const refused = ${schema}.safeParse`, ['{}'], ';'),
+    '    const paths = refused.error?.issues.map((issue) => issue.path);',
+    "    expect(paths).toEqual([['name']]);",
     '  });',
     '});',
     '',

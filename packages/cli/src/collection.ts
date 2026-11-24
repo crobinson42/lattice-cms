@@ -14,12 +14,7 @@ import {
 } from './edit.js';
 import { Exit } from './exit.js';
 import { fieldProblem, type Names, namesOf } from './names.js';
-import {
-  collectionText,
-  type TestImport,
-  testPackageNames,
-  testText,
-} from './templates.js';
+import { collectionText, type TestImport, testText } from './templates.js';
 import { loadTypeScript, type TypeScript } from './typescript.js';
 
 export const collectionUsage =
@@ -177,7 +172,6 @@ export async function collectionCommand(
   const directory = await existing(config, 'collections', 'directory');
   const compositionPath = await existing(config, 'composition', 'file');
   const eventsPath = await existing(config, 'events', 'file');
-  const familyPath = await existing(config, 'family', 'file');
   const ts = loadTypeScript(root);
 
   const file = join(directory, `${names.file}.ts`);
@@ -206,10 +200,6 @@ export async function collectionCommand(
     specifierOf(eventsPath, file),
   );
   const edits = [composition, events];
-  const family: TestImport = {
-    name: config.familyName,
-    specifier: specifierOf(test, familyPath),
-  };
   const app: TestImport | undefined =
     composition.app === undefined
       ? undefined
@@ -217,17 +207,6 @@ export async function collectionCommand(
           name: composition.app,
           specifier: specifierOf(test, compositionPath),
         };
-  const testNames = [
-    ...testPackageNames(tenant !== undefined),
-    family.name,
-    ...(app === undefined ? [] : [app.name]),
-  ];
-  if (testNames.includes(names.exportName)) {
-    throw new Exit(
-      `the export ${names.exportName} would clash with an import of the same name in its test`,
-      1,
-    );
-  }
   const created: Change[] = [
     {
       path: file,
@@ -237,13 +216,7 @@ export async function collectionCommand(
     {
       path: test,
       before: undefined,
-      after: testText(
-        names,
-        tenant !== undefined,
-        family,
-        app,
-        compareSpecifiers,
-      ),
+      after: testText(names, app, compareSpecifiers),
     },
   ];
 

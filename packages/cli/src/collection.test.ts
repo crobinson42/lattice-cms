@@ -54,27 +54,24 @@ export const DealNotes = collection('deal_notes', {
 `,
     );
     expect(await read(app, `${collections}/deal-notes.test.ts`)).toBe(
-      `import { framework, MemoryStore, tenancy } from '@latticecms/core';
-import { describe, expect, it } from 'vitest';
-import { AppUseCase } from '../../app/use-cases/context.js';
+      `import { describe, expect, it } from 'vitest';
 import { api } from '../../servers/rpc/contract.js';
 import { DealNotes } from './deal-notes.js';
 
+// What the scaffold made. Test behavior through the app's own setup.
 describe('deal_notes', () => {
-  it('is in the app', () => {
-    expect(api.contract).toHaveProperty('deal_notes');
+  it('is in the app, with its operations', () => {
+    const operations = ['find', 'count', 'get', 'create', 'update', 'delete'];
+    const keys = Object.keys(api.contract.deal_notes);
+    expect(keys).toEqual(expect.arrayContaining(operations));
   });
 
-  it('stores a document and reads it back', async () => {
-    const { repos } = framework({ family: AppUseCase })
-      .collection(DealNotes, { access: {} })
-      .build({
-        store: new MemoryStore(),
-        events: { publish: async (_event: object) => {} },
-      });
-    const scope = tenancy.scope(DealNotes, 'tenant-1');
-    const created = await repos.deal_notes.insert({ name: 'First' }, scope);
-    expect(await repos.deal_notes.get(created.id, scope)).toEqual(created);
+  it('parses a document, and refuses one without a name', () => {
+    const parsed = DealNotes.schema.parse({ name: 'First' });
+    expect(parsed).toMatchObject({ name: 'First' });
+    const refused = DealNotes.schema.safeParse({});
+    const paths = refused.error?.issues.map((issue) => issue.path);
+    expect(paths).toEqual([['name']]);
   });
 });
 `,
@@ -101,12 +98,9 @@ export const People = collection('people', {
 });
 `,
     );
-    const test = await read(app, `${collections}/people.test.ts`);
-    expect(test).toContain(
-      "import { framework, MemoryStore, unscoped } from '@latticecms/core';",
-    );
-    expect(test).toContain(
-      "const created = await repos.people.insert({ name: 'First' }, unscoped);",
+    // A global collection's test is the same: it builds nothing.
+    expect(await read(app, `${collections}/people.test.ts`)).toContain(
+      '    const refused = People.schema.safeParse({});\n',
     );
 
     expect(await read(app, composition)).toBe(
@@ -501,12 +495,6 @@ ${events}, after the last collection's events:
         text.replace(/;\n$/, '\n  .collection(Notes, { access: {} });\n'),
       `${composition} already registers Notes`,
     ],
-    [
-      "a package import of the test's",
-      'memory_store',
-      undefined,
-      'the export MemoryStore would clash with an import of the same name in its test',
-    ],
   ])('refuses %s', async (_, slug, change, why) => {
     const app = await copy();
     if (change !== undefined) await edit(app, composition, change);
@@ -517,27 +505,6 @@ ${events}, after the last collection's events:
       stderr: `lattice: ${why}\n`,
     });
     expect(await files(app)).toEqual(before);
-  });
-
-  it("refuses an export that clashes with the test's import of the family", async () => {
-    const app = await copy();
-    await edit(
-      app,
-      'src/app/use-cases/context.ts',
-      (text) => `${text}\nexport const Members = AppUseCase;\n`,
-    );
-    await writeFile(
-      join(app, 'package.json'),
-      JSON.stringify({
-        lattice: {
-          tenant: 'organizationId',
-          family: 'src/app/use-cases/context.ts#Members',
-        },
-      }),
-    );
-    expect(lattice(app, 'collection', 'members').stderr).toBe(
-      'lattice: the export Members would clash with an import of the same name in its test\n',
-    );
   });
 
   it('refuses events the catalog already lists', async () => {
@@ -618,6 +585,26 @@ ${events}, after the last collection's events:
     const { code, stderr } = lattice(app, 'collection', 'notes');
     expect(stderr).toMatch(
       /^lattice: typescript 5\.4 in .+ is too old: lattice needs 5\.8 or later\n$/,
+    );
+    expect(code).toBe(1);
+  });
+
+  it('refuses TypeScript 7, which has no JavaScript API', async () => {
+    const app = await copy();
+    const fake = join(app, 'node_modules/typescript');
+    await mkdir(fake, { recursive: true });
+    // What typescript@7's main entry exports: its version, and no compiler.
+    await writeFile(
+      join(fake, 'package.json'),
+      '{ "name": "typescript", "version": "7.0.2", "main": "index.js" }',
+    );
+    await writeFile(
+      join(fake, 'index.js'),
+      "module.exports = { version: '7.0.2', versionMajorMinor: '7.0' };\n",
+    );
+    const { code, stderr } = lattice(app, 'collection', 'notes');
+    expect(stderr).toMatch(
+      /^lattice: typescript 7\.0 in .+ is the native compiler, which has no JavaScript API to parse files with: run npm install --save-dev typescript@\^6\n$/,
     );
     expect(code).toBe(1);
   });

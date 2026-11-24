@@ -15,7 +15,8 @@ Its paths come from the `"lattice"` key in the app's `package.json`, and default
 npx lattice collection deal_notes
 ```
 
-- It writes the collection (a required `name`, its title field), a test, its `.collection()` registration in the composition, and its three events in the catalog.
+- It writes the collection (a required `name`, its title field), a test, its `.collection()` registration in the composition, and its three events in the catalog. The test checks the registration and the schema, and builds nothing, so later refs, methods and overrides never break it.
+- It needs the app's own `typescript`, 5.8 to 6. TypeScript 7 has no JavaScript API, and the CLI says to install `typescript@^6`.
 - The registration's access is open to any signed-in caller, inside tenancy. Tighten it next. Read [access.md](access.md).
 - `--tenant <field>` or `--global` overrides the config. `--label person,people` declares an irregular label. `--dry-run` prints a diff.
 - It refuses a slug in use, a reserved name, a join collection's name, a name the files already declare, or a composition without exactly one exported `framework()` chain.

@@ -12,6 +12,12 @@ npm install @latticecms/admin react react-dom @ts-pf/client-http @ts-pf/protocol
 
 `react`, `react-dom`, `@ts-pf/client-http` and `@ts-pf/protocol` are peer dependencies, shared with the app. The admin imports no server code and no app contract. `@shadalaya/react` and `swr` are the admin's own dependencies. `@shadalaya/react` is pinned to the version the stylesheet was built against.
 
+A bundler such as Vite warns that `swr` and Base UI mark modules `"use client"`. A browser bundle drops the directive, which is what it wants. Filter `MODULE_LEVEL_DIRECTIVE` in `build.rolldownOptions.onwarn`, as the walkthrough's [`vite.config.ts`](../../README.md#5-the-admin-page) does.
+
+## A one-page admin with a token
+
+The root README's [Getting started](../../README.md#5-the-admin-page) has the smallest page: a token form kept in `sessionStorage`, a `fetch` that adds the token and the organization, and `<Admin>`. A test builds and drives it. The crm's [admin page](../../examples/crm/src/web/app.tsx) adds sign-in with a password, an organization switcher and sign-out.
+
 ## Serve the catalog
 
 The admin cannot import an app's contract: the contract imports server code. The app serves `catalog(contract)` as JSON instead, behind its session, beside its RPC endpoint:
