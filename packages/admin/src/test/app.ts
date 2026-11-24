@@ -213,11 +213,17 @@ export function adminApp() {
   const served = catalog(fw.contract, { prefix: '/rpc' });
   const sent: Sent[] = [];
   const canned = new Map<string, Response>();
+  const held = new Map<string, Promise<void>>();
   let actor = member;
   const fetch: typeof globalThis.fetch = async (input, init) => {
     const request = new Request(input, init);
     const { pathname } = new URL(request.url);
     if (pathname === '/catalog.json') return Response.json(served);
+    const gate = held.get(pathname);
+    if (gate !== undefined) {
+      held.delete(pathname);
+      await gate;
+    }
     const answer = canned.get(pathname);
     if (answer !== undefined) {
       canned.delete(pathname);
@@ -252,6 +258,15 @@ export function adminApp() {
     },
     actAs: (next: Actor) => {
       actor = next;
+    },
+    /**
+     * Holds the next call to `path` until the returned function releases
+     * it, so a test sees what renders while it is pending.
+     */
+    hold: (path: string): (() => void) => {
+      const { promise, resolve } = Promise.withResolvers<void>();
+      held.set(path, promise);
+      return () => resolve();
     },
     /** The next call to `path` gets `response`, not the app's answer. */
     answerNext: (path: string, response: Response) => {

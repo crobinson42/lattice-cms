@@ -65,13 +65,18 @@ export function useCaller(): (
 }
 
 /**
- * After a write: refetches every swr entry of the collections it touched,
- * by their procedures' paths, such as a document, its lists and counts, and
- * a relation's target.
+ * After a write: the swr entries of the collections it touched, by their
+ * procedures' paths, such as a document, its lists and counts, and a
+ * relation's target. `refresh` refetches them where they stand, so a
+ * mounted document never blinks. `drop` empties them and refetches, for a
+ * delete that leaves the page: a list mounts empty and fetches fresh, so it
+ * never shows the deleted row. Emptying alone is not enough: swr would
+ * dedupe the list's next fetch against the one before the delete, then
+ * discard that answer as older than the change.
  */
-export function useRevalidate(): (
-  ...collections: readonly Collection[]
-) => Promise<void> {
+export function useRevalidate(
+  mode: 'refresh' | 'drop',
+): (...collections: readonly Collection[]) => Promise<void> {
   const { mutate } = useSWRConfig();
   return async (...collections) => {
     const paths = new Set(
@@ -79,11 +84,11 @@ export function useRevalidate(): (
         procedures.map(({ path }) => path.join('/')),
       ),
     );
-    await mutate(
-      (key) =>
-        Array.isArray(key) &&
-        Array.isArray(key[0]) &&
-        paths.has(key[0].join('/')),
-    );
+    const touched = (key: unknown) =>
+      Array.isArray(key) &&
+      Array.isArray(key[0]) &&
+      paths.has(key[0].join('/'));
+    if (mode === 'drop') await mutate(touched, undefined);
+    else await mutate(touched);
   };
 }

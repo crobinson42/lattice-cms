@@ -72,7 +72,7 @@ export function MethodAction({
   readonly id: string | undefined;
 }) {
   const call = useCaller();
-  const revalidate = useRevalidate();
+  const revalidate = useRevalidate('refresh');
   const [open, setOpen] = useState(false);
   const [output, setOutput] = useState<
     { readonly value: unknown } | undefined

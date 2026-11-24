@@ -20,7 +20,7 @@ export function DeleteAction({
 }) {
   const { href, navigate } = useRouter();
   const call = useCaller();
-  const revalidate = useRevalidate();
+  const revalidate = useRevalidate('drop');
   const [asking, setAsking] = useState(false);
   const [refusal, setRefusal] = useState<Refusal | undefined>();
   const procedure = collection.operations.delete;
@@ -33,8 +33,11 @@ export function DeleteAction({
       setRefusal(refusalOf(error));
       return;
     }
-    await revalidate(collection);
+    // Emptied before the list mounts, and awaited after leaving, so the
+    // deleted document's own refetch never shows on its page.
+    const dropped = revalidate(collection);
     navigate(href(collection.slug));
+    await dropped;
   };
   return (
     <div className="flex flex-col gap-2">

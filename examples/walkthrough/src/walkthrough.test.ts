@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Browser, chromium, type Page } from 'playwright';
-import { afterAll, beforeAll, describe, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { pack, runReadme, type Started } from './runner.js';
 
 // The root README's Getting started, run as written in an empty directory,
@@ -133,10 +133,6 @@ describe('Getting started', () => {
     await page.getByRole('button', { name: 'Delete' }).click();
     await confirm(page, 'Delete');
     await page.getByRole('heading', { name: 'Companies' }).waitFor();
-    // The list shows its cached page until it refetches on mount, about one
-    // fetch, so the deleted company leaves rather than never shows.
-    await page
-      .getByRole('link', { name: 'Acme' })
-      .waitFor({ state: 'detached' });
+    expect(await page.getByRole('link', { name: 'Acme' }).count()).toBe(0);
   });
 });

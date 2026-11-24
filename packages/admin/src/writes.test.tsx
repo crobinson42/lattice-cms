@@ -229,6 +229,23 @@ describe('delete', () => {
     expect(app.sentTo('/rpc/companies/delete')).toEqual([{ id: lonely.id }]);
   });
 
+  it('never shows the deleted document in its list, not even before the list refetches', async () => {
+    const app = adminApp();
+    await app.repos.companies.insert({ name: 'Other' }, app.scope.companies);
+    await app.repos.companies.insert({ name: 'Lonely' }, app.scope.companies);
+    open('/admin/companies', app.fetch);
+    fireEvent.click(await screen.findByRole('link', { name: 'Lonely' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    // The list's refetch waits, so a cached page would render meanwhile.
+    const release = app.hold('/rpc/companies/find');
+    await answer('Delete');
+    await screen.findByRole('heading', { name: 'Companies' });
+    expect(screen.queryAllByRole('link', { name: 'Lonely' })).toEqual([]);
+    release();
+    await screen.findByRole('link', { name: 'Other' });
+    expect(screen.queryAllByRole('link', { name: 'Lonely' })).toEqual([]);
+  });
+
   it('sends nothing when the confirmation is cancelled', async () => {
     const app = adminApp();
     const lonely = await app.repos.companies.insert(

@@ -39,7 +39,7 @@ export function CreatePage({
 }) {
   const { href, navigate } = useRouter();
   const call = useCaller();
-  const revalidate = useRevalidate();
+  const revalidate = useRevalidate('refresh');
   const { create } = collection.operations;
   const singular = singularHeading(collection.label);
   if (create === undefined) {
@@ -91,7 +91,7 @@ export function EditPage({
 }) {
   const { href, navigate } = useRouter();
   const call = useCaller();
-  const revalidate = useRevalidate();
+  const revalidate = useRevalidate('refresh');
   const { get, update } = collection.operations;
   // The detail page's call, so the document is already cached.
   const { data, error, isLoading } = useCall(get, {

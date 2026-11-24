@@ -172,7 +172,7 @@ function SetEditor({
   readonly onDone: () => void;
 }) {
   const call = useCaller();
-  const revalidate = useRevalidate();
+  const revalidate = useRevalidate('refresh');
   const target = useCollection(relation.target);
   const schema = linkSchemaOf(relation);
   const loaded = useAllLinks(relation, id);
