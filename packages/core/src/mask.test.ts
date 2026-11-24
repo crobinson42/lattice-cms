@@ -1,4 +1,5 @@
 import { NoopLogger } from '@hexok/logger';
+import { isPFError } from '@ts-pf/protocol';
 import { createLocalClient } from '@ts-pf/server';
 import { FetchHandler } from '@ts-pf/server-http';
 import { Adapter, type UseCase } from 'hexok';
@@ -13,6 +14,7 @@ import {
   framework,
   MemoryStore,
   many,
+  type Repo,
   ref,
   unscoped,
 } from './index.js';
@@ -459,6 +461,150 @@ describe('no query reveals a field a caller may not read', () => {
     expect(
       answerOf(await rpc('manager', 'deals/find', { sort: ['-amount'] })),
     ).toMatchObject({ docs: [{ amount: 4242 }] });
+  });
+});
+
+describe('no update changes a field a caller may not read (0035)', () => {
+  const Notes = collection('notes', {
+    schema: z.object({ title: z.string(), secret: z.string().optional() }),
+    maskable: ['secret'],
+  });
+  const Memos = collection('memos', {
+    schema: z.object({ title: z.string(), secret: z.string().optional() }),
+    maskable: ['secret'],
+  });
+
+  /** An override of memos' update: it writes the title only. */
+  class MemoUpdate extends Family('memos.update', { collection: Memos }) {
+    constructor(private readonly memos: Repo<typeof Memos>) {
+      super();
+    }
+    async execute(
+      _ctx: Ctx,
+      input: {
+        id: string;
+        title?: string | undefined;
+        secret?: string | null | undefined;
+      },
+    ): Promise<Doc<typeof Memos>> {
+      const updated = await this.memos.update(
+        input.id,
+        { title: input.title ?? '' },
+        unscoped,
+      );
+      if (updated === null) throw new Error('no memo');
+      return updated;
+    }
+  }
+
+  const managers = {
+    read: ({ actor }: { actor: { role: Role } }) => actor.role === 'manager',
+  };
+
+  function setup() {
+    const built = framework({ family: Family })
+      .collection(Notes, { access: open, fields: { secret: managers } })
+      .collection(Memos, {
+        access: open,
+        fields: { secret: managers },
+        overrides: { update: MemoUpdate },
+      })
+      .build({
+        store: new MemoryStore(),
+        events: { publish: async (_event: object) => {} },
+        overrides: ({ repos }) => ({
+          memos: { update: new MemoUpdate(repos.memos) },
+        }),
+      });
+    const as = (role: Role) =>
+      createLocalClient(built.app, {
+        context: { actor: { userId: role, role }, logger: new NoopLogger() },
+      });
+    return { ...built, member: as('member'), manager: as('manager') };
+  }
+
+  /** The code and data a call is refused with. */
+  async function refusal(call: Promise<unknown>) {
+    const error = await call.then(
+      () => undefined,
+      (caught: unknown) => caught,
+    );
+    return isPFError(error) ? { code: error.code, data: error.data } : error;
+  }
+
+  const refused = {
+    code: 'VALIDATION',
+    data: {
+      issues: [
+        {
+          path: ['secret'],
+          message: '"secret" is not readable, so it cannot be changed',
+        },
+      ],
+    },
+  };
+
+  it('refuses a value or a null on it from a non-reader, and leaves the document as it was', async () => {
+    const { member, repos } = setup();
+    const note = await repos.notes.insert(
+      { title: 't', secret: 's' },
+      unscoped,
+    );
+
+    for (const secret of ['other', null]) {
+      expect(
+        await refusal(member.notes.update({ id: note.id, secret })),
+      ).toEqual(refused);
+    }
+    expect(await repos.notes.get(note.id, unscoped)).toEqual(note);
+    // A patch that leaves the field out goes through.
+    expect(
+      await member.notes.update({ id: note.id, title: 'u' }),
+    ).toMatchObject({ title: 'u' });
+  });
+
+  it('lets a reader change it and clear it', async () => {
+    const { manager, repos } = setup();
+    const note = await repos.notes.insert(
+      { title: 't', secret: 's' },
+      unscoped,
+    );
+
+    expect(
+      await manager.notes.update({ id: note.id, secret: 'other' }),
+    ).toMatchObject({ secret: 'other' });
+    const cleared = await manager.notes.update({ id: note.id, secret: null });
+    expect(cleared).not.toHaveProperty('secret');
+    expect(await repos.notes.get(note.id, unscoped)).not.toHaveProperty(
+      'secret',
+    );
+  });
+
+  it('refuses it the same way on an override’s update', async () => {
+    const { member, manager, repos } = setup();
+    const memo = await repos.memos.insert(
+      { title: 't', secret: 's' },
+      unscoped,
+    );
+
+    expect(
+      await refusal(member.memos.update({ id: memo.id, secret: 'other' })),
+    ).toEqual(refused);
+    expect(
+      await refusal(member.memos.update({ id: memo.id, secret: null })),
+    ).toEqual(refused);
+    expect(
+      await manager.memos.update({ id: memo.id, title: 'u', secret: 'x' }),
+    ).toMatchObject({ title: 'u' });
+  });
+
+  it('leaves create’s blind writes alone', async () => {
+    const { member, repos } = setup();
+    const created = await member.notes.create({ title: 't', secret: 's' });
+    expect(created).not.toHaveProperty('secret');
+    expect(await repos.notes.get(created.id, unscoped)).toMatchObject({
+      secret: 's',
+    });
   });
 });
 

@@ -439,7 +439,11 @@ describe('onDelete', () => {
     expect(isPFError(error) && error.data).toEqual({
       collection: 'categories',
       id: c1.id,
-      by: { collection: 'post_categories', field: 'categoriesId' },
+      by: {
+        collection: 'post_categories',
+        field: 'categoriesId',
+        relation: { collection: 'posts', name: 'categories' },
+      },
     });
 
     await a.tags.delete({ id: tag.id });

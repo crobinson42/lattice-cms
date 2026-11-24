@@ -162,7 +162,7 @@ function summaryOf(described: Described): string {
     case 'create':
       return `Create one ${singular}.`;
     case 'update':
-      return `Update one ${singular} by id. Send only the fields to change.`;
+      return `Update one ${singular} by id. Send only the fields to change, and null to clear an optional one.`;
     case 'delete':
       return `Delete one ${singular} by id.`;
     case 'list':

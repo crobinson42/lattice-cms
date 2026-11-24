@@ -308,10 +308,21 @@ export function refsOf(slug: string, shape: z.core.$ZodShape): RefField[] {
   return refs;
 }
 
-/** A collection that refers to another one, through one of its ref fields. */
+/** A relation as REFERENCED names it: its parent collection and its name. */
+export type RelationName = {
+  readonly collection: string;
+  readonly name: string;
+};
+
+/**
+ * A collection that refers to another one, through one of its ref fields.
+ * A join collection's refs carry the relation that derived it, since the
+ * join is not in the catalog.
+ */
 export type Referrer = {
   readonly collection: AnyCollection;
   readonly ref: RefField;
+  readonly relation: RelationName | undefined;
 };
 
 /** The referrers of each collection, by its slug. */
@@ -319,11 +330,22 @@ export type Referrers = ReadonlyMap<string, readonly Referrer[]>;
 
 /** Who refers to each collection among `collections`. */
 export function referrersOf(collections: readonly AnyCollection[]): Referrers {
+  const relations = new Map(
+    collections.flatMap((parent) =>
+      Object.entries(parent.relations).map(
+        ([name, relation]): [string, RelationName] => [
+          relation.through.slug,
+          { collection: parent.slug, name },
+        ],
+      ),
+    ),
+  );
   const referrers = new Map<string, Referrer[]>();
   for (const collection of collections) {
+    const relation = relations.get(collection.slug);
     for (const ref of collection.refs) {
       const list = referrers.get(ref.slug) ?? [];
-      list.push({ collection, ref });
+      list.push({ collection, ref, relation });
       referrers.set(ref.slug, list);
     }
   }

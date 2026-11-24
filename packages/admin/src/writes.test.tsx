@@ -164,7 +164,7 @@ describe('edit', () => {
     ]);
   });
 
-  it('says a field cannot be cleared, and sends nothing', async () => {
+  it('clears an optional field with null', async () => {
     const app = adminApp();
     const acme = await app.repos.companies.insert(
       { name: 'Acme', domain: 'acme.test' },
@@ -174,9 +174,26 @@ describe('edit', () => {
     await screen.findByRole('heading', { name: 'Edit company' });
     type('Domain', '');
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByRole('heading', { name: 'Acme' });
+    expect(app.sentTo('/rpc/companies/update')).toEqual([
+      { id: acme.id, domain: null },
+    ]);
     expect(
-      await screen.findByText("This field can't be cleared here."),
-    ).toBeTruthy();
+      await app.repos.companies.get(acme.id, app.scope.companies),
+    ).not.toHaveProperty('domain');
+  });
+
+  it('says a required field is required, and sends nothing', async () => {
+    const app = adminApp();
+    const acme = await app.repos.companies.insert(
+      { name: 'Acme' },
+      app.scope.companies,
+    );
+    open(`/admin/companies/${acme.id}/edit`, app.fetch);
+    await screen.findByRole('heading', { name: 'Edit company' });
+    type('Name', '');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('This field is required.')).toBeTruthy();
     expect(app.sentTo('/rpc/companies/update')).toEqual([]);
     expect(window.location.pathname).toBe(`/admin/companies/${acme.id}/edit`);
   });
@@ -272,6 +289,19 @@ describe('delete', () => {
     await waitFor(() => expect(firstCells()).toEqual(['Cara']));
     expect(window.location.pathname).toBe('/admin/contacts');
     expect(screen.getByLabelText('Company id value')).toBeTruthy();
+  });
+
+  it('explains a REFERENCED from a relation, with a link to the parents’ list', async () => {
+    const { app, cara } = await seeded();
+    open(`/admin/contacts/${cara.id}`, app.fetch);
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    await answer('Delete');
+    const blocked = await screen.findByRole('link', {
+      name: 'Deals still list this contact (Contacts).',
+    });
+    fireEvent.click(blocked);
+    await screen.findByRole('heading', { name: 'Deals' });
+    expect(window.location.pathname).toBe('/admin/deals');
   });
 });
 

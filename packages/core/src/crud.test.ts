@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { operations } from './collection.js';
 import { AppUseCase, allowAll, callContext } from './fixtures/context.js';
 import { noSubscribers } from './fixtures/events.js';
-import { collection, framework, MemoryStore } from './index.js';
+import { collection, framework, MemoryStore, unscoped } from './index.js';
 import type { FindQuery, Patch, StoredDoc } from './store.js';
 import type { AnyWhere } from './where.js';
 
@@ -497,6 +497,152 @@ describe('a patch never applies a default', () => {
       expect(updated[field]).toBe(created[field]);
     },
   );
+});
+
+describe('null in a patch clears an optional field', () => {
+  const Contacts = collection('contacts', {
+    schema: z.object({
+      name: z.string(),
+      email: z.string().optional(),
+      phone: z.string().nullable().optional(),
+      status: z.enum(['lead', 'customer']).default('lead'),
+    }),
+  });
+  // An object-level refinement sees the document after the clear.
+  const Reachable = collection('reachable', {
+    schema: z
+      .object({ email: z.string().optional(), phone: z.string().optional() })
+      .refine((doc) => doc.email !== undefined || doc.phone !== undefined, {
+        path: ['email'],
+        message: 'Give an email or a phone',
+      }),
+  });
+
+  function contacts() {
+    const store = new RecordingStore();
+    const published: unknown[] = [];
+    const { app, repos } = framework({ family: AppUseCase })
+      .collection(Contacts, { access: allowAll })
+      .collection(Reachable, { access: allowAll })
+      .build({
+        store,
+        events: {
+          async publish(event: { readonly payload: unknown }) {
+            published.push(event.payload);
+          },
+        },
+      });
+    const local = createLocalClient(app, { context: callContext() });
+    return { store, published, local, repos };
+  }
+
+  const ada = { name: 'Ada', email: 'ada@x.test', phone: '1' };
+
+  it('removes the key: the result, the stored document and the event lack it', async () => {
+    const { local, store, published } = contacts();
+    const created = await local.contacts.create(ada);
+
+    const updated = await local.contacts.update({
+      id: created.id,
+      email: null,
+    });
+
+    expect(updated).not.toHaveProperty('email');
+    expect(await store.get('contacts', created.id)).not.toHaveProperty('email');
+    expect(store.patches).toEqual([
+      { email: undefined, updatedAt: '2026-01-01T00:00:00.000Z' },
+    ]);
+    expect(published.at(-1)).toMatchObject({
+      doc: { id: created.id, name: 'Ada' },
+      previous: { email: 'ada@x.test' },
+    });
+    expect(published.at(-1)).not.toHaveProperty('doc.email');
+  });
+
+  it('Repo.update removes a key set to undefined', async () => {
+    const { local, store, repos } = contacts();
+    const created = await local.contacts.create(ada);
+
+    const updated = await repos.contacts.update(
+      created.id,
+      { email: undefined },
+      unscoped,
+    );
+
+    expect(updated).not.toHaveProperty('email');
+    expect(await store.get('contacts', created.id)).not.toHaveProperty('email');
+  });
+
+  it('stores null in a nullable field', async () => {
+    const { local, store } = contacts();
+    const created = await local.contacts.create(ada);
+
+    const updated = await local.contacts.update({
+      id: created.id,
+      phone: null,
+    });
+
+    expect(updated.phone).toBeNull();
+    expect(await store.get('contacts', created.id)).toMatchObject({
+      phone: null,
+    });
+  });
+
+  it('refuses null on a required or a defaulted field, at its path', async () => {
+    const { local, store } = contacts();
+    const created = await local.contacts.create(ada);
+
+    const refusals = [
+      // @ts-expect-error a required field takes no null
+      await failure(local.contacts.update({ id: created.id, name: null })),
+      // @ts-expect-error a defaulted field takes no null
+      await failure(local.contacts.update({ id: created.id, status: null })),
+    ];
+    expect(refusals).toMatchObject([
+      { code: 'VALIDATION', data: { issues: [{ path: ['name'] }] } },
+      { code: 'VALIDATION', data: { issues: [{ path: ['status'] }] } },
+    ]);
+    expect(store.patches).toEqual([]);
+  });
+
+  it('validates the document after the clear', async () => {
+    const { local } = contacts();
+    const created = await local.reachable.create({ email: 'e@x.test' });
+
+    const error = await failure(
+      local.reachable.update({ id: created.id, email: null }),
+    );
+
+    expect(error).toEqual({
+      code: 'VALIDATION',
+      data: {
+        issues: [{ path: ['email'], message: 'Give an email or a phone' }],
+      },
+    });
+  });
+
+  it('shows null only on the fields it clears, in JSON Schema and in types', () => {
+    const { update } = operations(Contacts.schema, Contacts.output);
+    expect(z.toJSONSchema(update.input, { io: 'input' })).toMatchObject({
+      properties: {
+        name: { type: 'string' },
+        email: { type: ['string', 'null'] },
+        phone: { type: ['string', 'null'] },
+        status: { type: 'string', enum: ['lead', 'customer'] },
+      },
+      required: ['id'],
+    });
+    expect([...update.cleared]).toEqual(['email']);
+
+    const { local } = contacts();
+    type Patch = Parameters<typeof local.contacts.update>[0];
+    expectTypeOf<Patch['email']>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<Patch['phone']>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<Patch['name']>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<Patch['status']>().toEqualTypeOf<
+      'lead' | 'customer' | undefined
+    >();
+  });
 });
 
 describe('caller input types', () => {

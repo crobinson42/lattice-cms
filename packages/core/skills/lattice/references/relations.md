@@ -87,4 +87,4 @@ expectTypeOf(got.companyId).toEqualTypeOf<
 - `"<field>" is a list of ids; it cannot cascade (use restrict or nullify)`, and `"<field>" is required; nullify needs it .optional() or .nullable()`.
 - `deals overrides delete, so deals.<field> cannot cascade; use restrict or nullify`.
 - `relation "<name>" has the name of a field, an action or an access key`.
-- At runtime, deleting a referenced document is `REFERENCED` with `{ collection, id, by: { collection, field } }`. A relation on `find`'s `populate` is `VALIDATION`.
+- At runtime, deleting a referenced document is `REFERENCED` with `{ collection, id, by: { collection, field } }`. When a `many()` relation's links refer to it, `by` names the join collection, and `by.relation` names the relation: `{ collection: 'deals', name: 'contacts' }`. A relation on `find`'s `populate` is `VALIDATION`.

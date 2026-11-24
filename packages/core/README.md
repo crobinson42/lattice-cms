@@ -455,7 +455,7 @@ const Projects = collection('projects', {
 
 | `onDelete` | When a referenced document is deleted |
 | --- | --- |
-| `restrict` (default) | The delete is refused with `REFERENCED` (409), `{ collection, id, by: { collection, field } }`, while any document refers to it |
+| `restrict` (default) | The delete is refused with `REFERENCED` (409), `{ collection, id, by: { collection, field, relation? } }`, while any document refers to it |
 | `cascade` | The referring documents are deleted too, and their own refs are followed in turn. A cycle stops at a document already deleted. A list of ids cannot cascade |
 | `nullify` | The ref is cleared: an optional field is removed, a nullable one set to null, and the id pulled from a list. A required ref cannot nullify |
 
@@ -481,7 +481,7 @@ const Posts = collection('posts', {
 });
 ```
 
-- The join collection is `Posts.relations.categories.through`, with slug `through`. Its documents are `{ postsId, categoriesId, ...fields }` plus the system fields and the parent's tenant field. `postsId` cascades from the post; `categoriesId` takes `onDelete` (`restrict` by default, or `cascade`). It has its own events, which the app lists in its catalog like any collection's, and it is in `repos` (`repos.post_categories`), but it has no slice: links change only through `set`.
+- The join collection is `Posts.relations.categories.through`, with slug `through`. Its documents are `{ postsId, categoriesId, ...fields }` plus the system fields and the parent's tenant field. `postsId` cascades from the post; `categoriesId` takes `onDelete` (`restrict` by default, or `cascade`). A category the join restricts is `REFERENCED` with `by: { collection: 'post_categories', field: 'categoriesId', relation: { collection: 'posts', name: 'categories' } }`: the join collection is not in the catalog, so `relation` names the relation a client can show. It has its own events, which the app lists in its catalog like any collection's, and it is in `repos` (`repos.post_categories`), but it has no slice: links change only through `set`.
 - It gets a unique index on the pair, and one on `categoriesId`, both led by the tenant field.
 - `posts.categories.list({ id, where?, sort?, limit?, after? })` pages the post's links, with find's `where`, `sort` and cursor over the link documents. It runs the post's `read` access: a post outside it is `NOT_FOUND`.
 - `posts.categories.set({ id, links })` replaces the post's links: each link is `{ categoriesId, ...fields }`, at most 1000, and a target repeated is `VALIDATION`. It runs the post's `update` access. It diffs, in one `store.transaction()`: links no longer listed are deleted, new ones inserted, and changed fields updated; an unchanged link keeps its id and `createdAt`. Each change emits its own join event, after the commit. It returns the links in the order given. A tenant bypass cannot set.
@@ -561,6 +561,7 @@ export const Deals = collection('deals', {
 - A withheld field is left out of what a client receives: `get`, `find`, `create`, `update` and `delete`, a relation's `list`, and documents populated into another collection's read, under the caller's rule for that collection. It is masked where every procedure returns to a client (HTTP, `createLocalClient`, MCP), so overrides and methods are masked too.
 - A client's type has the field optional: `deal.amount` is `number | undefined`, for every caller, since types cannot follow the actor. `ClientDoc<C>` names that document; `Doc<C>` stays the stored one.
 - A `where` or a `sort` on a field the caller may not read, at any depth, on `find` or `count`, is `VALIDATION` naming its path. So no filter, count, order or cursor reveals it. A caller who may read it filters and sorts as usual.
+- An `update` whose patch names a field the caller may not read, with a value or `null`, is `VALIDATION` at its path: `"amount" is not readable, so it cannot be changed`. A caller cannot see what the write would destroy. The family's guard checks it, so an override of `update` is refused too. `create` still takes the field, so a caller who may not read a required maskable field can create the document.
 - A method that returns a collection's documents declares `output: Deals.clientOutput`, or a schema built from it (`.extend()`, `.pick()`, `shape.amount`). An output that holds a maskable field where it is required, such as `Deals.output`, throws at `build()`, and so does an output Lattice cannot see through (`z.lazy()`, a transform, `z.custom()`, `z.unknown()`, `z.any()`) in an app with a maskable field.
 - Server code sees whole documents: repos, direct `useCases.*.execute` calls and events' `doc`. A page rendered for a user calls through `createLocalClient`. Masking for a webhook happens where the webhook maps the event.
 - In JSON Schema, and so in OpenAPI and MCP, the field is optional, with `x-lattice-maskable: true` and the description "Withheld when the caller may not read it." Its `where` entry says "Refused (VALIDATION) when the caller may not read amount.", and a `sort` that could name it says the same. Meta the app gave the field, such as a `title`, stays.
@@ -632,7 +633,7 @@ Each generated procedure carries `docs({ summary })` and `mcp({ effect })` in it
 | `count` | `read` | Count deals. Filter with where. |
 | `get` | `read` | Get one deal by id. populate expands companyId into documents. |
 | `create` | `write` | Create one deal. |
-| `update` | `write` | Update one deal by id. Send only the fields to change. |
+| `update` | `write` | Update one deal by id. Send only the fields to change, and null to clear an optional one. |
 | `delete` | `destructive` | Delete one deal by id. |
 | a relation's `list` | `read` | List the categories of one post, by its id. … |
 | a relation's `set` | `destructive` | Replace the categories of one post, by its id. Links not given are removed. |
@@ -1052,6 +1053,12 @@ Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `out
 
 `count` takes `{ where? }` and returns `{ count }`: how many documents `find` would return across every page. It runs `read` access and the tenant clause, as `find` does, validates `where` the same way, and writes one log line. A list that needs a total calls `find` and `count` side by side; `find` never counts.
 
+`update` takes `{ id }` and the fields to change. A field left out keeps its value, and a patch never applies a default.
+
+- `null` clears an optional field with no default: the key is removed, and the `updated` event's `doc` lacks it. Its JSON Schema, and so its client type, takes `null`: `closedAt?: string | null`.
+- A nullable field stores `null`. A required or defaulted field refuses `null` with `VALIDATION` at its path.
+- The document after the change is validated with the whole schema, so an object-level `.refine()` holds on update too.
+
 ### Errors
 
 Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404 with `{ collection, id }`), `CONFLICT` (409 with `{ collection, id }`) and `REFERENCED` (409 with `{ collection, id, by }`), plus the app's declared errors. `VALIDATION` is ts-pf's protocol code, with `{ path, message }[]` issues.
@@ -1065,7 +1072,7 @@ Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (4
 `Repo<C>` is a typed view of the store for one collection: `get`, `getMany`, `find`, `count`, `insert`, `update` and `remove`. Use it in hand-written use cases and event handlers. It is trusted: it runs no hooks, no events and no access check.
 
 - `insert` takes the schema's input type and parses it, as create does: defaults apply, unknown keys are dropped, and a failed check throws `LatticeError` `VALIDATION` with create's issues. Then it stamps `id`, `createdAt` and `updatedAt`.
-- `update` takes a typed patch of the schema's output and writes it as given, with no parse. It bumps `updatedAt`.
+- `update` takes a typed patch of the schema's output and writes it as given, with no parse. It bumps `updatedAt`. A key set to `undefined` removes the field.
 
 Every call takes a scope as its last argument: the call's `Scope` from `ctx.access.scope()`, a tenant's from `tenancy.scope()`, or `unscoped`. A row outside the scope acts as missing. `unscoped` reads and writes every row; trusted code that acts for no caller passes it, such as a script. A `Scope` for another collection throws.
 
@@ -1156,7 +1163,7 @@ The tests prove each of these.
 - No call reaches another tenant's rows, and every bypassed call is logged.
 - Events publish only after a successful write.
 - A populated document passes its collection's `read` access and tenant, or comes back as `{ id }`.
-- A field a caller may not read never reaches it through a procedure's output, a filter, a count, a sort or a cursor.
+- A field a caller may not read never reaches it through a procedure's output, a filter, a count, a sort or a cursor, and the caller's update cannot change or clear it.
 - An update patch never resets a field to its default.
 - On update, the merged document is validated with the whole schema.
 

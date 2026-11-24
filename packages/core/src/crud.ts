@@ -162,8 +162,9 @@ async function planDelete(
   for (let node = queue.shift(); node !== undefined; node = queue.shift()) {
     const { id } = node.doc;
     const tenantId = tenantOfDoc(node.collection, node.doc);
-    for (const { collection, ref } of referrers.get(node.collection.slug) ??
-      []) {
+    for (const { collection, ref, relation } of referrers.get(
+      node.collection.slug,
+    ) ?? []) {
       const where =
         both(
           { [ref.field]: ref.array ? { has: id } : { eq: id } },
@@ -174,7 +175,11 @@ async function planDelete(
           throw LatticeError.REFERENCED({
             collection: node.collection.slug,
             id,
-            by: { collection: collection.slug, field: ref.field },
+            by: {
+              collection: collection.slug,
+              field: ref.field,
+              ...(relation === undefined ? {} : { relation }),
+            },
           });
         }
         continue;
@@ -494,7 +499,17 @@ const operations: Record<
     // The merged document must pass the whole schema, as a create would, so
     // an object-level refinement holds on update too. Parsing also drops
     // stored keys the schema no longer has.
-    const merged = parse(call.ops.create.input, { ...data, ...patch });
+    // A null on a field it clears removes the key (0035); a nullable field
+    // keeps its null as a value.
+    const { cleared } = call.ops.update;
+    const merged = parse(
+      call.ops.create.input,
+      Object.fromEntries(
+        Object.entries({ ...data, ...patch }).filter(
+          ([key, value]) => value !== null || !cleared.has(key),
+        ),
+      ),
+    );
     // beforeChange sees the whole document after the change, as on create.
     // A hook that returns the tenant field changes nothing: update never
     // writes it.

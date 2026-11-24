@@ -135,6 +135,7 @@ exports[`GET /openapi.json > describes the API at /rpc, shaped for codegen 1`] =
     "OrganizationsUpdateOutput",
     "ReferencedData",
     "ReferencedDataBy",
+    "ReferencedDataByRelation",
     "RpcError",
     "ValidationErrorData",
     "ValidationErrorDataIssuesItem",

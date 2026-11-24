@@ -287,6 +287,8 @@ describe('onDelete', () => {
       id: other.id,
       by: { collection: 'contacts', field: 'companyId' },
     });
+    // Only a join's REFERENCED names a relation.
+    expect(isPFError(error) && error.data).not.toHaveProperty('by.relation');
     expect(await repos.companies.get(other.id, unscoped)).not.toBeNull();
   });
 

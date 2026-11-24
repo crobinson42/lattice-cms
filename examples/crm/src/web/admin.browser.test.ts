@@ -229,7 +229,7 @@ describe('the admin in a browser', () => {
     );
   });
 
-  it('sets a deal’s contacts on its relation tab', async () => {
+  it('sets a deal’s contacts on its relation tab, and a linked contact cannot go', async () => {
     const page = await signIn('max@crm.test');
     await openList(page, 'Deals');
     await page.getByRole('link', { name: 'Deal A' }).click();
@@ -242,7 +242,18 @@ describe('the admin in a browser', () => {
     await page.getByRole('button', { name: 'Save links' }).click();
     await confirm(page, 'Save links');
     await page.getByText('1 link', { exact: true }).waitFor();
-    await page.getByRole('link', { name: 'Cara' }).waitFor();
+    await page.getByRole('link', { name: 'Cara' }).click();
+
+    // The refusal names the relation: its join collection is not in the
+    // catalog.
+    await page.getByRole('heading', { name: 'Cara' }).waitFor();
+    await page.getByRole('button', { name: 'Delete' }).click();
+    await confirm(page, 'Delete');
+    await page
+      .getByRole('link', { name: 'Deals still list this contact (Contacts).' })
+      .click();
+    await page.getByRole('heading', { name: 'Deals' }).waitFor();
+    await page.getByRole('link', { name: 'Deal A' }).waitFor();
   });
 
   it('renders a deep link on reload, and signs out', async () => {

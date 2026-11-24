@@ -84,8 +84,8 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 9. Limits the admin surfaced (while uploads wait)
 
-- [ ] `null` in an update patch clears an optional field, and update refuses a field withheld from the caller ([0035](../decisions/0035-a-caller-cannot-update-a-field-withheld-from-it.md)). The admin clears fields.
-- [ ] REFERENCED's data gains an optional `by.relation: { collection, name }`, and the admin names and links the parent collection. The link filtered to the exact parents waits for an inverse relation read (Phase 4).
+- [x] `null` in an update patch clears an optional field, and update refuses a field withheld from the caller ([0035](../decisions/0035-a-caller-cannot-update-a-field-withheld-from-it.md)). The admin clears fields.
+- [x] REFERENCED's data gains an optional `by.relation: { collection, name }`, and the admin names and links the parent collection. The link filtered to the exact parents waits for an inverse relation read (Phase 4).
 
 ## Carried from earlier phases
 
@@ -121,4 +121,5 @@ Add a line here when the work teaches something the plan did not know. Each line
 - The walkthrough found: TypeScript 7 (npm's latest) is the native compiler with no JavaScript API, so the CLI's peer is `>=5.8 <7`; the generated test broke on a first ref, so it now builds nothing; and the admin's dependencies flood an app's Vite build with `"use client"` warnings.
 - Shrinking the walkthrough's edge and page (about 160 of its lines) would take exports: a member edge in core and a token page in the admin. Not proposed until a second real app repeats them.
 - mongodb-memory-server in several packages under turbo could pick the same port. Each setup retries a start up to 3 times on "already in use".
+- `npx biome check --write .` at the root reformats `.github/*.yml`, which `npm run lint` never checks. To settle.
 - Tests that checked a JSON body for a secret number as a substring were flaky: random hex ids and database names can contain it. Secrets now have a fraction (`4242.5`), which no hex id holds.

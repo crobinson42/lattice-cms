@@ -87,7 +87,7 @@ describe('procedure meta', () => {
       'posts/create': ['write', 'Create one post.'],
       'posts/update': [
         'write',
-        'Update one post by id. Send only the fields to change.',
+        'Update one post by id. Send only the fields to change, and null to clear an optional one.',
       ],
       // An override keeps the generated node, and its meta.
       'posts/delete': ['destructive', 'Delete one post by id.'],
@@ -99,7 +99,7 @@ describe('procedure meta', () => {
       'deals/create': ['write', 'Create one deal.'],
       'deals/update': [
         'write',
-        'Update one deal by id. Send only the fields to change.',
+        'Update one deal by id. Send only the fields to change, and null to clear an optional one.',
       ],
       'deals/delete': ['destructive', 'Delete one deal by id.'],
       'tasks/find': [
@@ -114,7 +114,7 @@ describe('procedure meta', () => {
       'tasks/create': ['write', 'Create one task.'],
       'tasks/update': [
         'write',
-        'Update one task by id. Send only the fields to change.',
+        'Update one task by id. Send only the fields to change, and null to clear an optional one.',
       ],
       'tasks/delete': ['destructive', 'Delete one task by id.'],
       // A declared label, where the slug's would be wrong.
@@ -127,7 +127,7 @@ describe('procedure meta', () => {
       'people/create': ['write', 'Create one person.'],
       'people/update': [
         'write',
-        'Update one person by id. Send only the fields to change.',
+        'Update one person by id. Send only the fields to change, and null to clear an optional one.',
       ],
       'people/delete': ['destructive', 'Delete one person by id.'],
       'people/boards/list': [

@@ -33,9 +33,22 @@ const systemShape = {
 // key into the store, and its index signature would reach every client type.
 type Schema<Shape extends z.core.$ZodShape> = z.ZodObject<Shape, z.core.$strip>;
 
-// The shape `schema.partial().extend({ id })` would have, as Zod types it.
+/**
+ * A patch field: optional, and also nullable when null clears the field,
+ * as `clears` decides at runtime.
+ */
+type PatchField<S extends z.core.$ZodType> = S extends {
+  _zod: { optout: 'optional' };
+}
+  ? null extends z.output<S>
+    ? z.ZodOptional<S>
+    : z.ZodOptional<z.ZodNullable<S>>
+  : z.ZodOptional<S>;
+
+// The shape `schema.partial().extend({ id })` would have, as Zod types it,
+// with null on each field it clears.
 type PatchShape<Shape extends z.core.$ZodShape> = z.core.util.Extend<
-  { -readonly [K in keyof Shape]: z.ZodOptional<Shape[K]> },
+  { -readonly [K in keyof Shape]: PatchField<Shape[K]> },
   { id: z.ZodString }
 >;
 
@@ -55,12 +68,21 @@ function withoutDefault(schema: z.core.$ZodType): z.core.$ZodType {
 }
 
 /**
- * The update input: `id` and every field optional, with no defaults. Zod 4's
- * `.partial()` keeps `default` and `prefault`, even inside `.optional()`, so
- * a patch that omits a defaulted field would reset it. Each field is rebuilt
- * without them. The overload states the type `.partial()` would give; the
- * implementation rebuilds the shape in a loop, which a mapped type cannot
- * express.
+ * Whether null in a patch clears `field` (0035): an optional field with no
+ * default, whose schema refuses null. A nullable field stores null instead,
+ * and a required or defaulted one refuses it.
+ */
+function clears(field: z.core.$ZodType): boolean {
+  return field._zod.optout === 'optional' && !z.safeParse(field, null).success;
+}
+
+/**
+ * The update input: `id` and every field optional, with no defaults, and
+ * null on each field it clears. Zod 4's `.partial()` keeps `default` and
+ * `prefault`, even inside `.optional()`, so a patch that omits a defaulted
+ * field would reset it. Each field is rebuilt without them. The overload
+ * states the type; the implementation rebuilds the shape in a loop, which a
+ * mapped type cannot express.
  */
 function patchSchema<Shape extends z.core.$ZodShape>(
   schema: Schema<Shape>,
@@ -68,13 +90,22 @@ function patchSchema<Shape extends z.core.$ZodShape>(
 function patchSchema(schema: z.ZodObject): z.ZodObject {
   return z.object({
     ...Object.fromEntries(
-      Object.entries(schema.shape).map(([name, field]) => [
-        name,
-        z.optional(withoutDefault(field)),
-      ]),
+      Object.entries(schema.shape).map(([name, field]) => {
+        const inner = withoutDefault(field);
+        return [name, z.optional(clears(field) ? z.nullable(inner) : inner)];
+      }),
     ),
     id: z.string(),
   });
+}
+
+/** The fields a patch's null clears: update removes their keys. */
+function clearedFields(schema: z.ZodObject): ReadonlySet<string> {
+  return new Set(
+    Object.entries(schema.shape)
+      .filter(([, field]) => clears(field))
+      .map(([name]) => name),
+  );
 }
 
 /** The fields Lattice adds to a collection's schema: system and tenant. */
@@ -193,7 +224,11 @@ export function operations<
     },
     get: { input: id, output },
     create: { input: schema, output },
-    update: { input: patchSchema(schema), output },
+    update: {
+      input: patchSchema(schema),
+      output,
+      cleared: clearedFields(schema),
+    },
     delete: { input: id, output },
   };
 }

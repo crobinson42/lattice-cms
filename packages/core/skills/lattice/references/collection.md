@@ -27,6 +27,7 @@ Lattice adds `id`, `createdAt` and `updatedAt` to every document, and the tenant
 - `indexes` lists the indexes `build().ensure()` creates. Name fields as stored, system and tenant fields included. A tenanted index leads with the tenant field. Lattice adds one per ref; declare the rest.
 - The admin titles a document by its first required, unmasked string field named `name`, `title`, `label` or `email`, in lists and pickers.
 - `.hooks({ beforeChange, afterRead })` transforms data and nothing else.
+- Make a field `.optional()` when a user may clear it. Generated update takes `null` to clear it, and the admin sends `null` when the field is emptied. A required or defaulted field cannot be cleared.
 
 ```ts
 // examples/crm/src/domain/collections/deals.ts

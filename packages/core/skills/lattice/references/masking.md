@@ -24,6 +24,7 @@ Masking withholds a field from a caller whose rule says no. The collection names
 - A withheld field is absent from what a client receives: generated reads and writes, a relation's `list`, populated documents, overrides and methods. Masking happens in the router, on every client path: HTTP, `createLocalClient` and MCP.
 - A client's type has the field optional for every caller: `deal.amount` is `number | undefined`. `ClientDoc<C>` names that document. `Doc<C>` stays whole.
 - A `where` or `sort` on a field the caller may not read is `VALIDATION`, at any depth. No filter, count, order or cursor reveals it.
+- An `update` that names a field the caller may not read, with a value or `null`, is `VALIDATION` at its path, overrides included. The caller cannot see what it would destroy. `create` still takes the field: a member creates a deal with its amount.
 - Server code sees whole documents: repos, direct `useCases` calls and events' `doc`. A webhook or integration event maps the document field by field and decides what leaves.
 
 A method that returns the collection's documents declares `output: Deals.clientOutput`, or a schema built from it:
@@ -68,3 +69,4 @@ A rule sees the actor, not the row.
 - `deals.companyId is a ref; it cannot be maskable`, and `deals.amount is maskable, so it cannot be in a unique index: a CONFLICT would reveal its value`.
 - A method output that holds a maskable field as required, or that Lattice cannot see through (`z.lazy()`, a transform, `z.custom()`, `z.unknown()`), throws at `build()`: `the output of "deals.close" ...`.
 - At runtime, a query on an unreadable field is `VALIDATION`, with the message `"amount" is not readable` at its path.
+- An update of an unreadable field is `VALIDATION`, with `"amount" is not readable, so it cannot be changed` at its path. A form for that caller leaves the field out.

@@ -243,13 +243,17 @@ export type Body = {
   readonly problems: readonly Issue[];
 };
 
-/** Why a cleared field is not sent: update cannot unset a field. */
-const cannotClear = "This field can't be cleared here.";
+/**
+ * Why a cleared field is not sent: only update's optional fields take null,
+ * which clears them, so a field that does not is required or defaulted.
+ */
+const cannotClear = 'This field is required.';
 
 /**
  * The input `drafts` make: only the fields that differ from `baseline`.
  * An untouched field is not sent, so update leaves it as it is and create
- * applies its default. A field cleared to nothing cannot be sent.
+ * applies its default. A field cleared to nothing sends null where the
+ * schema takes it, which clears it on update, and cannot be sent otherwise.
  */
 export function bodyOf(
   fields: readonly InputField[],

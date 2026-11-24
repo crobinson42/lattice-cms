@@ -255,6 +255,23 @@ export function applyMask(
   }
 }
 
+/**
+ * The keys of an update's patch that name a withheld field, for VALIDATION
+ * issues (0035): a caller cannot change, or clear, what it cannot read.
+ */
+export function withheldWrites(
+  input: unknown,
+  withheld: ReadonlySet<string>,
+): { path: (string | number)[]; message: string }[] {
+  if (!isRecord(input)) return [];
+  return Object.entries(input)
+    .filter(([key, value]) => value !== undefined && withheld.has(key))
+    .map(([key]) => ({
+      path: [key],
+      message: `"${key}" is not readable, so it cannot be changed`,
+    }));
+}
+
 /** The where and sort paths that name a withheld field, for VALIDATION issues. */
 export function withheldPaths(
   input: unknown,

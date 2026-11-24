@@ -22,7 +22,15 @@ const definitions = {
   REFERENCED: {
     message: 'Other documents refer to this one',
     data: target.extend({
-      by: z.object({ collection: z.string(), field: z.string() }),
+      // A join collection is not in the catalog: `relation` names the
+      // parent collection's relation that derived it.
+      by: z.object({
+        collection: z.string(),
+        field: z.string(),
+        relation: z
+          .object({ collection: z.string(), name: z.string() })
+          .optional(),
+      }),
     }),
   },
 };

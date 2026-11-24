@@ -109,6 +109,25 @@ describe('declared errors', () => {
     expect(contract.posts.get['~pf'].errors.NOT_FOUND.status).toBe(404);
   });
 
+  it('REFERENCED’s data may name the relation of a join collection', () => {
+    const { contract } = setup();
+    const { data } = contract.posts.delete['~pf'].errors.REFERENCED;
+    expect(z.toJSONSchema(data).properties?.by).toMatchObject({
+      properties: {
+        collection: { type: 'string' },
+        field: { type: 'string' },
+        relation: {
+          type: 'object',
+          properties: {
+            collection: { type: 'string' },
+            name: { type: 'string' },
+          },
+        },
+      },
+      required: ['collection', 'field'],
+    });
+  });
+
   it('a client call types every declared code and the protocol codes', async () => {
     const { local } = setup();
     const error = await refused(local.posts.get({ id: 'nope' }));
