@@ -63,7 +63,8 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 - [ ] `lattice collection <name>`: scaffolds a collection, its registration in the contract, and a test, in the crm's layout.
 - [ ] `lattice migrate`: runs `migrate()` from the app's own migration list. How the CLI loads the app's store and list: a config file, or an app entry it imports.
-- [ ] Propose the commands and the config shape first.
+- [x] Decided in [0034](../decisions/0034-the-cli-edits-app-code-or-refuses-and-runs-built-code.md): `collection`, `migration` and `migrate`; edits through the app's TypeScript, or a refusal that prints the lines; `migrate` imports a built `{ store, migrations }` module; an optional `"lattice"` key in `package.json`. Approved: node:util parseArgs, `typescript` as a peer, core as a peer and store-mongo as an optional one, and core exporting `labelOf` and its reserved slug keys.
+- [ ] `lattice migration <name>`: the next numbered migration, appended to the list.
 
 ### 6. The agent skill
 
