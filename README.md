@@ -15,7 +15,7 @@ Status: before 1.0. Nothing is published yet; 0.1.0 is the first release. File u
 
 - Design: [docs/architecture.md](docs/architecture.md)
 - Decisions in force: [docs/decisions/README.md](docs/decisions/README.md)
-- Current work: [docs/plans/phase-3.md](docs/plans/phase-3.md)
+- Current work: Phase 3 is done; the phases are in [docs/architecture.md](docs/architecture.md#phased-build-plan)
 - Working on this repo, by hand or with an agent: [AGENTS.md](AGENTS.md)
 
 ## Getting started

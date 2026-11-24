@@ -53,8 +53,8 @@ Lattice owns only the rows marked **Lattice** ([0001](decisions/0001-build-on-he
 | MCP tools | `@ts-pf/mcp` | Every operation becomes a tool, described by Lattice's procedure meta |
 | OpenAPI, other languages | `@ts-pf/openapi`, `@ts-pf/codegen` | Codegen profile for non-TypeScript clients |
 | Typed clients | `@ts-pf/client` + `client-http`, `@ts-pf/swr`, `@ts-pf/mvc-kit` | Web and admin clients use the same contract |
-| File uploads | `@ts-pf/file` (multipart) + a blob storage port (missing) | Phase 3 |
-| Admin UI | **Lattice** `admin` package: a React component that renders the `catalog()` JSON the app serves ([0032](decisions/0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md)) | Phase 3 |
+| File uploads | `@ts-pf/file` (multipart) + `@hexok/blob` (not released) | Not built. Picked up when an app needs files; a brief for `@hexok/blob` and `@hexok/blob-s3` is with the maintainer |
+| Admin UI | **Lattice** `admin` package: a React component that renders the `catalog()` JSON the app serves ([0032](decisions/0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md)) | `examples/crm` serves it at `/admin` |
 | CLI | **Lattice** `cli`, bin `lattice` ([0034](decisions/0034-the-cli-edits-app-code-or-refuses-and-runs-built-code.md)) | Scaffolds collections and migrations, and runs migrations |
 
 ## Core model: a collection compiles into hexok and ts-pf
@@ -292,7 +292,7 @@ Pagination is cursor-based ([0008](decisions/0008-cursor-pagination.md)): `limit
 ### Indexes and migrations
 
 - Indexes are declared on the collection. `ensure()` creates missing ones at startup and never drops one.
-- Data migrations are `{ id, name, up({ db, session?, signal, logger }) }` objects in an explicit list. `migrate(store, migrations, { logger })` from store-mongo runs the pending ones in order, forward only, and the Phase 3 CLI calls it. A `_migrations` collection records what ran. A lease lock in `_migrations_lock` stops two processes running them at once; the second waits ([0027](decisions/0027-migrations-lock-in-the-database-they-migrate.md)).
+- Data migrations are `{ id, name, up({ db, session?, signal, logger }) }` objects in an explicit list. `migrate(store, migrations, { logger })` from store-mongo runs the pending ones in order, forward only, and `lattice migrate` calls it. A `_migrations` collection records what ran. A lease lock in `_migrations_lock` stops two processes running them at once; the second waits ([0027](decisions/0027-migrations-lock-in-the-database-they-migrate.md)).
 - There is no schema migration step for Mongo. A breaking field change is a data migration.
 
 ## Relations
@@ -573,6 +573,8 @@ What the built system does not do yet, or does with a known gap. Each is a candi
 - **Type-check cost.** Budgets count type instantiations, which do not drift with the machine: core's sources at most 462k (440k today), the crm server's check (`tsconfig.check.json`) at most 470k (448k), and the admin's sources at most 27k (25k). Over budget means stop and ask the maintainer. Wall time is reported for context: about 1.0 s, 0.8 s and 0.3 s. The crm's check skips declaration emit, which `tsc -b` still checks, and its admin page and browser test have their own project (`tsconfig.web.json`). A plain tenanted collection costs an app about 36k instantiations, and a `many()` relation about 44k. Half of a plain collection's cost is ts-pf's MCP toolkit (about 1.9k per Lattice procedure), and most of a relation's is its join collection. Hexok's anonymous `Event()` class types make declarations large. [0003](decisions/0003-collections-compile-at-runtime.md)'s revisit condition does not hold yet.
 - **Labels and meta.** The slug-to-singular default handles common English endings only; `news` or `people` declare a label. Zod meta keys are not checked for typos, because Zod's JSON Schema meta has an index signature.
 - **Admin.** An app's Vite build warns about `"use client"` directives in swr and Base UI; the admin README says to filter `MODULE_LEVEL_DIRECTIVE`. A `REFERENCED` from a `many()` relation links to the parents' list unfiltered: no read gives a target's parents yet (Phase 4).
+- **Getting started.** A reader types or pastes about 290 lines, most of it the edge and the token page. Shrinking them would take exports (a member edge in core, a token page in the admin); not proposed until a second real app repeats them.
+- **File uploads.** Not built. A collection cannot declare a file field until `@hexok/blob` exists.
 - **OpenAPI names.** The codegen profile makes up component names for unnamed schemas, such as a where field or Lattice's `Withheld` shape. They can change when the contract changes. Named schemas (`.meta({ id })`) would make them stable.
 
 ## Proposed changes to hexok and ts-pf
@@ -594,11 +596,11 @@ Phase 0 needed one ts-pf fix, released in 0.5.2: client input is typed by the sc
 | A public memory queue with delay and retries | `@hexok/queue` | Nice to have | Build it | Every app testing webhooks without Redis writes one. The crm's `test/memory-queue.ts` is a model |
 | Export `MessageClass` | `@hexok/integration-events` | Phase 2 step 6 | Released in 0.2.2 and used | A declaration-emitting app could not export a message class (TS2883) |
 | Tracing port | hexok | Phase 2 (done) | No new package. Lattice calls `@opentelemetry/api` directly | The OTel API is already vendor-neutral and a no-op without an SDK, so an app can solve this today (gate question 2) |
-| Blob storage port, `@hexok/blob` + `@hexok/blob-s3` | hexok | Phase 3 | Build it, shaped like `email` / `sms` | Any product with uploads needs it. S3 covers DigitalOcean Spaces |
+| Blob storage port, `@hexok/blob` + `@hexok/blob-s3` | hexok | When an app needs files | Build it, shaped like `email` / `sms`; brief with the maintainer | Any product with uploads needs it. S3 covers DigitalOcean Spaces |
 | Mongo client lifecycle | `@latticecms/store-mongo` | Phase 1 (done) | Kept in Lattice | Only the store uses it. Move to hexok when a second package needs it, the way `ioredis-lifecycle` was extracted |
 | Outbox relay | `@latticecms/store-mongo` | Phase 4 | Keep it in Lattice | It is Mongo-specific. `@hexok/integration-events` already accepts a stable `id` |
 | Middleware context narrowing | ts-pf (`Q4`, deferred to v2) | Nice to have | Wait for ts-pf v2 | Generated routers can declare the actor key up front, as ts-pf documents today |
-| Admin metadata on procedures | ts-pf | Phase 3 | No change | Procedure `.meta()` already flows into `catalog()` |
+| Admin metadata on procedures | ts-pf | Phase 3 | Not needed | Procedure `.meta()` and Zod `.meta()` already flow into `catalog()` ([0033](decisions/0033-the-catalog-carries-lattice-facts-and-the-admin-derives-its-ui.md)) |
 | Named `EventClass<Token, Schema>` interface returned by `Event()` | hexok | Nice to have | Build it | `Event()` returns an anonymous class type, so a consumer's catalog `.d.ts` inlines every event class (3.8k lines for 10 events in `examples/crm`). A named type cuts that about 8 times for every hexok app. Lattice types `Collection.events` with it when released |
 
 ## Repository and packages
@@ -614,7 +616,7 @@ packages/
                                                /store (adapter surface), /store/conformance
   store-mongo/     @latticecms/store-mongo     MongoStore, Where translation, migrate(), spans
   admin/           @latticecms/admin           <Admin>: renders the served catalog, on @shadalaya + swr
-  cli/             @latticecms/cli             lattice collection; migration and migrate (Phase 3)
+  cli/             @latticecms/cli             lattice collection, migration and migrate
   store-postgres/  @latticecms/store-postgres  (Phase 4)
 examples/
   crm/             The reference app, not a product: HTTP (/rpc, /mcp, /auth, /openapi.json, /catalog.json, /admin)
@@ -632,6 +634,7 @@ examples/
 - npm does not check a workspace link against a peer range, so only a packed install catches a wrong internal range. Turbo ignores `peerDependencies` when ordering builds, so an adapter also lists core as a devDependency.
 - Packages ship `dist` and `src` (no tests), so source maps resolve. They are MIT licensed. CI runs the four checks; the Release workflow's "Version Packages" pull request publishes with npm provenance.
 - Every `@ts-pf/*` package moves together on one version, ^1.0.0 today. `@latticecms/core` pins one ts-pf minor and one hexok major, and a bump is its own changeset.
+- Tests that start a real server on MongoDB run one file at a time, in the crm's `servers` vitest project: each `start()` builds every index in a fresh database, and overlapping builds stall. Each package's mongodb-memory-server setup retries a start on a port collision. A secret value in a test that checks a JSON body has a fraction (`4242.5`), so no random hex id can contain it.
 - The root README's Getting started is a script: `examples/walkthrough` packs the published packages at 0.1.0, installs the tarballs in an empty app, runs the README's bash blocks, writes its file blocks, starts the app and drives the admin in Chromium. A block it cannot classify fails it. It runs as its own CI job, and `npm run walkthrough` locally. `WALKTHROUGH_FROM=registry` runs it against npm.
 - A package README is its docs page, as in hexok and ts-pf. A README code block whose first line names a file (`// packages/…` or `// examples/…`) must be a run of that file's lines; `examples/crm`'s `readme-quotes.test.ts` checks it. Core's quick start is a crm file that a test runs.
 - No casts. Where a value built at runtime meets a precise type, one asserted overload states the precise type over an erased implementation. There are 8 in core: `build`, `contractOf`, `patchSchema`, `relationsOf`, `repo`, `sortSchema`, `tenantShapes` and `whereSchema`. Adding one needs a reason in review. Each Zod-typed overload states both of Zod's type parameters, or ts-pf callers get `unknown`.
@@ -649,5 +652,5 @@ Each phase ends at a gate; the next starts when its exit holds. Phase 0 builds t
 | 0. Kernel, in memory (done) | `collection()`, `family()`, `framework()`, `build()`, `MemoryStore`; generated CRUD use cases, contract slice, event classes; overrides, custom methods, family guards, logging | A three-collection example serves `/rpc` and all tests pass on `MemoryStore` |
 | 1. Mongo, relations, access, tenancy (done) | `MongoStore`, `Where` translation, indexes, migrations runner; `ref()`, `many()`, join collections, batched population; `Access` port with default functions, row-level tenancy, `count` | `examples/crm` runs on Mongo; tenant isolation tests pass |
 | 2. Production wiring (done) | `@hexok/auth` recipe, field masking; integration-events and webhooks recipes, a worker, MCP, OpenAPI; OpenTelemetry spans; CI and the release path. The `@hexok/authz` adapter waits for hexok | Core and store-mongo 0.1.0 are ready to publish; `examples/crm` is the reference app |
-| 3. Admin and CLI ([plan](plans/phase-3.md)) | Admin package that renders the served `catalog()` and `.meta()`, on `@shadalaya`; CLI scaffolding and migrations; uploads through `@ts-pf/file` and a blob port | A new tool reaches CRUD, auth and admin in under one day |
-| 4. Hardening | Outbox relay, versions and drafts, Postgres store, index and performance tooling, security review | Ongoing; picked up as products need it |
+| 3. Admin and CLI (done) | Admin package that renders the served `catalog()` and `.meta()`, on `@shadalaya`; CLI scaffolding and migrations; the agent skill; a tested walkthrough; ts-pf 1.0. Uploads were deferred until an app needs files | The root README's Getting started reaches a signed-in admin with CRUD, as a CI job |
+| 4. Hardening | Outbox relay, versions and drafts, Postgres store, index and performance tooling, security review; file uploads when an app needs them, on `@hexok/blob` | Ongoing; picked up as products need it |
