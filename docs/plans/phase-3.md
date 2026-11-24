@@ -82,6 +82,11 @@ Each step ends with its tests passing. Tick it in this file when it does.
 - [ ] `docs/architecture.md` matches what was built, and its Phase 3 markers are removed.
 - [x] Changesets: one per package, each describing 0.1.0 as it ships. Step 4 adds to core's.
 
+### 9. Limits the admin surfaced (while uploads wait)
+
+- [ ] `null` in an update patch clears an optional field, and update refuses a field withheld from the caller ([0035](../decisions/0035-a-caller-cannot-update-a-field-withheld-from-it.md)). The admin clears fields.
+- [ ] REFERENCED's data gains an optional `by.relation: { collection, name }`, and the admin names and links the parent collection. The link filtered to the exact parents waits for an inverse relation read (Phase 4).
+
 ## Carried from earlier phases
 
 Candidates, not commitments. Each needs a reason from this phase's work before it is picked up. `architecture.md` "Known limits" and "Proposed changes" list them all.

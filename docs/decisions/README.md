@@ -40,6 +40,7 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 | [0032](0032-the-admin-is-a-react-package-fed-by-the-served-catalog.md) | The admin is a React package that renders the catalog the app serves | default | An app needs typed per-collection UI code, an app cannot serve JSON next to its RPC endpoint, or shadalaya ships a data table or schema-driven forms. |
 | [0033](0033-the-catalog-carries-lattice-facts-and-the-admin-derives-its-ui.md) | The catalog carries Lattice's facts, and the admin derives its UI from the schema | default | An app needs a widget, title field or column that the schema cannot imply, or Zod's meta stops reaching the JSON Schema that ts-pf emits. |
 | [0034](0034-the-cli-edits-app-code-or-refuses-and-runs-built-code.md) | The CLI edits app code or refuses, and runs built code | default | Apps stop sharing one composition shape, Node loads an app's TypeScript as it is, or the walkthrough's empty-app setup grows past a page. |
+| [0035](0035-a-caller-cannot-update-a-field-withheld-from-it.md) | A caller cannot update a field withheld from it | default | An app needs a role that may set a field it may not read on an existing document, or a field rule needs separate read and write rules. |
 
 ## Proposed
 
