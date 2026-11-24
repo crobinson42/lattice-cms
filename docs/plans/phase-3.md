@@ -72,7 +72,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 7. The walkthrough
 
-- [ ] Move to ts-pf 1.0 first (maintainer's call): a reader's `npm install` gets 1.0, and Lattice's `^0.6.0` peers fail with ERESOLVE.
+- [x] Move to ts-pf 1.0 first (maintainer's call): a reader's `npm install` gets 1.0, and Lattice's `^0.6.0` peers fail with ERESOLVE. Done: `McpEffect` renamed, no output changes, and none of the brief's items shipped in 1.0. `rootRouter()` no longer imports the now-internal `isImplementedProcedure`.
 - [x] Design approved: companies and contacts with a ref in a flat layout; `StaticTokenAuthenticator` with one env token and a per-request membership check (0006, 0030); `MemoryStore`; packed tarballs installed in a temp app; its own workspace (`examples/walkthrough`) and CI job; the root README's Getting started section is the script the test runs. No new exports; recipes in the admin and core READMEs.
 - [ ] A script, run in a test, that goes from an empty app with the published packages to the admin with CRUD on two collections. The README's getting-started section follows it step by step.
 

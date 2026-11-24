@@ -1,6 +1,8 @@
+import { createImplementer } from '@ts-pf/server';
 import type { UseCase } from 'hexok';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+import { rootRouter } from './build.js';
 import { ArchivePost } from './fixtures/archive-post.js';
 import { Comments } from './fixtures/comments.js';
 import { AppUseCase, allowAll } from './fixtures/context.js';
@@ -427,5 +429,20 @@ describe('build checks', () => {
       'update',
       'delete',
     ]);
+  });
+});
+
+// rootRouter() types ts-pf's router() result without checking it. ts-pf's
+// own runtime check is the guard, so a tree that misses a procedure must
+// still throw there.
+describe('the root router', () => {
+  const contract = framework({ family: AppUseCase }).collection(Comments, {
+    access: allowAll,
+  }).contract;
+
+  it('throws through ts-pf when the tree misses an implementation', () => {
+    expect(() =>
+      rootRouter(createImplementer(contract), { comments: {} }),
+    ).toThrow('Missing implementation at "comments.');
   });
 });

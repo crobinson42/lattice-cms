@@ -19,13 +19,12 @@ import {
   router,
 } from '@ts-pf/contract';
 import type { DocsMeta } from '@ts-pf/docs';
-import type { Effect } from '@ts-pf/mcp/meta';
+import type { McpEffect } from '@ts-pf/mcp/meta';
 import { isPFError, isUnexpectedError } from '@ts-pf/protocol';
 import {
   createImplementer,
   type ImplementedProcedure,
   type ImplementedRouter,
-  isImplementedProcedure,
   type MiddlewareFn,
 } from '@ts-pf/server';
 import { validate } from 'hexok';
@@ -97,7 +96,7 @@ const actions = [
 ] as const satisfies readonly Action[];
 
 /** The effects `@ts-pf/mcp` knows, which a method's `effect` must be one of. */
-const effects = ['read', 'write', 'destructive'] satisfies readonly Effect[];
+const effects = ['read', 'write', 'destructive'] satisfies readonly McpEffect[];
 
 /**
  * Names a collection slug, a relation or a method cannot take: ts-pf
@@ -123,7 +122,7 @@ type Schemas = { readonly input: z.ZodType; readonly output: z.ZodType };
  */
 type MethodDescription = {
   readonly summary: string;
-  readonly effect: Effect;
+  readonly effect: McpEffect;
 };
 
 type MethodStatics = Schemas & MethodDescription;
@@ -235,7 +234,7 @@ type MethodCheck<C, Col extends AnyCollection, N, Ctx> = N extends
           readonly input: I;
           readonly output: O;
           readonly summary: string;
-          readonly effect: Effect;
+          readonly effect: McpEffect;
         }
       : Ctor<unknown> &
           MethodStatics & {
@@ -382,7 +381,7 @@ type Procedure<
   In,
   Out,
   D extends ErrorMap,
-  Fx extends Effect,
+  Fx extends McpEffect,
 > = ContractProcedure<
   InferSchemaInput<In>,
   InferSchemaOutput<Out>,
@@ -399,7 +398,7 @@ type Procedure<
  * key is runtime only: clients read it from the catalog, and no type needs
  * it.
  */
-type MetaOf<Fx extends Effect> = {
+type MetaOf<Fx extends McpEffect> = {
   readonly docs: DocsMeta;
   readonly mcp: { readonly effect: Fx };
 };
@@ -1539,44 +1538,42 @@ function instanceOf<Ctx>(
   return instance;
 }
 
-/** Whether a value is an implementer node, which has `router()`. */
-function hasRouter(value: object): value is { router(tree: object): object } {
+/**
+ * Whether a value is an implementer node, which has `router()`. The
+ * predicate claims that `router()` returns the implemented router, as its
+ * signature in ts-pf says, but checks only that `router` is a function.
+ * The claim is not left unguarded: ts-pf's `router()` checks the tree
+ * against the whole contract at runtime, and throws on a missing or extra
+ * implementation (build.test.ts proves it). The predicate goes with
+ * `rootRouter()`.
+ */
+function hasRouter<Ctx>(
+  value: object,
+): value is { router(tree: object): ImplementedRouter<unknown, Ctx> } {
   return 'router' in value && typeof value.router === 'function';
-}
-
-/** Whether `value` is a finished router: procedures and routers, all the way down. */
-function isRouter<Ctx>(
-  value: unknown,
-): value is ImplementedRouter<unknown, Ctx> {
-  if (typeof value !== 'object' || value === null) return false;
-  return Object.values(value).every(
-    (node) => isImplementedProcedure(node) || isRouter(node),
-  );
 }
 
 /**
  * The finished root router. The runtime contract's slice node is
- * `RuntimeProcedure | RuntimeRelation`, and ts-pf (0.6.0) types a node that
+ * `RuntimeProcedure | RuntimeRelation`, and ts-pf (1.0) types a node that
  * may be a procedure as one: `IsContractProcedure` of the union is true, so
  * `RouterImplCheck` wants an implemented procedure where a relation's
  * router sits. The root implementer's `router()` is therefore called
- * through its runtime shape. At runtime ts-pf still checks the tree against
- * the whole contract, sets each procedure's path and adds the root
- * middleware. Remove this when ts-pf's `RouterImplCheck` decides a mixed
- * node by the implementation's node, not the contract's.
+ * through its runtime shape, and its result typed by `hasRouter`. At
+ * runtime ts-pf still checks the tree against the whole contract, sets each
+ * procedure's path and adds the root middleware. This function and
+ * `hasRouter` go when ts-pf ships a `RouterImplCheck` that decides a mixed
+ * node by the implementation's node, or a public guard for an implemented
+ * router. Exported for its test only; it is not in index.ts.
  */
-function rootRouter<Ctx>(
+export function rootRouter<Ctx>(
   implementer: object,
   tree: object,
 ): ImplementedRouter<unknown, Ctx> {
-  if (!hasRouter(implementer)) {
+  if (!hasRouter<Ctx>(implementer)) {
     throw new Error('Lattice: the ts-pf implementer has no router()');
   }
-  const app = implementer.router(tree);
-  if (!isRouter<Ctx>(app)) {
-    throw new Error('Lattice: ts-pf router() returned no router');
-  }
-  return app;
+  return implementer.router(tree);
 }
 
 /** Whether an instance entry is a use case, not a relation's map of them. */

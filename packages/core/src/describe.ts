@@ -1,5 +1,5 @@
 import { type DocsMeta, docs } from '@ts-pf/docs';
-import { type Effect, mcp } from '@ts-pf/mcp/meta';
+import { type McpEffect, mcp } from '@ts-pf/mcp/meta';
 
 /**
  * Every text and fact Lattice writes into a contract, in one place: each
@@ -85,7 +85,7 @@ export type LatticeMeta =
     };
 
 /** A procedure's meta: its summary, its MCP effect, and Lattice's facts. */
-export type ProcedureMeta<Fx extends Effect> = {
+export type ProcedureMeta<Fx extends McpEffect> = {
   readonly docs: DocsMeta;
   readonly mcp: { readonly effect: Fx };
   readonly lattice: LatticeMeta;
@@ -202,7 +202,7 @@ export function generatedMeta<Op extends GeneratedOp>(
 }
 
 /** The meta of a method's procedure, from its `summary` and `effect` statics. */
-export function methodMeta<Fx extends Effect>(method: {
+export function methodMeta<Fx extends McpEffect>(method: {
   readonly slug: string;
   readonly label: Label;
   readonly name: string;

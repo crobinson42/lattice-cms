@@ -1,6 +1,6 @@
 import type { Logger } from '@hexok/logger';
 import { type Attributes, type Span, SpanKind } from '@opentelemetry/api';
-import type { Effect } from '@ts-pf/mcp/meta';
+import type { McpEffect } from '@ts-pf/mcp/meta';
 import { type StandardSchemaV1, UseCase } from 'hexok';
 import { z } from 'zod';
 import { CallAccess } from './access.js';
@@ -21,7 +21,7 @@ export type FamilySpec = {
   readonly input?: z.core.$ZodType;
   readonly output?: z.core.$ZodType;
   readonly summary?: string;
-  readonly effect?: Effect;
+  readonly effect?: McpEffect;
 };
 
 /**

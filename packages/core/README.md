@@ -10,7 +10,7 @@ Status: unpublished, before 1.0. Breaking changes are free until 1.0. The design
 npm install @latticecms/core hexok @ts-pf/contract @ts-pf/protocol @ts-pf/server @ts-pf/docs @ts-pf/mcp zod @hexok/logger @opentelemetry/api
 ```
 
-Everything after `@latticecms/core` is a peer dependency: `hexok` 2, the `@ts-pf/*` packages 0.6, `zod` 4, `@hexok/logger` 0.2 and `@opentelemetry/api` 1. The app installs them, so it and Lattice share one copy of each:
+Everything after `@latticecms/core` is a peer dependency: `hexok` 2, the `@ts-pf/*` packages 1, `zod` 4, `@hexok/logger` 0.2 and `@opentelemetry/api` 1. The app installs them, so it and Lattice share one copy of each:
 
 - a `UseCase`, `Port` or `Errors` class the app imports is the same class Lattice built, so `instanceof` and hexok's checks hold;
 - the contract's types are ts-pf's own, so every ts-pf client, `@ts-pf/openapi` and `@ts-pf/mcp` read them;
