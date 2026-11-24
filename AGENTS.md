@@ -58,7 +58,9 @@ npm workspaces with Turbo. Node 24 (`.nvmrc`), engines `>=22.11`. ESM only.
 
 - `packages/core`: `@latticecms/core`.
 - `packages/store-mongo`: `@latticecms/store-mongo`: `MongoStore` and `migrate()`.
-- `examples/crm`: the example app. Private.
+- `packages/admin`: `@latticecms/admin`: the React admin that renders an app's served catalog.
+- `packages/cli`: `@latticecms/cli`: the `lattice` command.
+- `examples/crm`: the example app. Private. Its admin page is `src/web`, served at `/admin`.
 - `docs/`: architecture, decisions, plans. `scripts/decisions.mjs`: the decisions index.
 
 ## Commands
@@ -72,6 +74,7 @@ npm run type-check
 npm run test         # vitest
 npm run build        # tsc -b
 npm run decisions    # regenerate docs/decisions/README.md
+npx playwright install chromium   # once, for the crm's browser test
 ```
 
 Scope a task with a Turbo filter: `npx turbo run test --filter=@latticecms/core`. Format and fix with `npx biome check --write .`.
