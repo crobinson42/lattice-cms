@@ -121,5 +121,5 @@ Add a line here when the work teaches something the plan did not know. Each line
 - The walkthrough found: TypeScript 7 (npm's latest) is the native compiler with no JavaScript API, so the CLI's peer is `>=5.8 <7`; the generated test broke on a first ref, so it now builds nothing; and the admin's dependencies flood an app's Vite build with `"use client"` warnings.
 - Shrinking the walkthrough's edge and page (about 160 of its lines) would take exports: a member edge in core and a token page in the admin. Not proposed until a second real app repeats them.
 - mongodb-memory-server in several packages under turbo could pick the same port. Each setup retries a start up to 3 times on "already in use".
-- `npx biome check --write .` at the root reformats `.github/*.yml`, which `npm run lint` never checks. To settle.
+- Root lint checked only `scripts/`, so root files that `npx biome check --write .` formats (.github, root JSON) were never linted. Root lint now runs `biome check .`.
 - Tests that checked a JSON body for a secret number as a substring were flaky: random hex ids and database names can contain it. Secrets now have a fraction (`4242.5`), which no hex id holds.
