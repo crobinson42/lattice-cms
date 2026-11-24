@@ -68,7 +68,7 @@ Each step ends with its tests passing. Tick it in this file when it does.
 
 ### 6. The agent skill
 
-- [ ] `skills/lattice/` in `@latticecms/core`, shaped like hexok's skill: collection, access, tenancy, relations, masking, an override, a method, an event handler and a test. Its examples are checked against the crm, as README quotes are.
+- [x] `skills/lattice/` in `@latticecms/core`, shaped like hexok's skill: collection, access, tenancy, relations, masking, an override, a method, an event handler, testing and the CLI (925 lines). Its examples are checked against the crm, as README quotes are.
 
 ### 7. The walkthrough
 
@@ -109,4 +109,6 @@ Add a line here when the work teaches something the plan did not know. Each line
 - Each crm `start()` builds every index in a fresh database, so tests that start a real server on MongoDB stall each other when they overlap. They run one file at a time in the `servers` vitest project. A new server-starting test goes in that list.
 - Adding a collection touches three app files, because core's EventsCheck requires the app's events catalog to list every collection's events. The CLI edits all three.
 - Vite (oxc) resolves an app's tsconfig `references` when it transforms a test, so a copy of an app outside the repo needs the referenced packages beside it. Step 7's walkthrough must account for it.
+- `npx skills experimental_sync -y` finds no skills from the repo root, because only workspace packages depend on the packages that ship them. It needs `-r`. CLAUDE.md is the maintainer's.
+- The crm has no handler on a collection event; its handlers follow its own `DealClosedEvent`. The skill says so and describes one in prose.
 - Tests that checked a JSON body for a secret number as a substring were flaky: random hex ids and database names can contain it. Secrets now have a fraction (`4242.5`), which no hex id holds.

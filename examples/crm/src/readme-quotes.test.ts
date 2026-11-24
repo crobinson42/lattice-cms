@@ -1,15 +1,24 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 /** The repository root: every quoted path is relative to it. */
 const root = new URL('../../../', import.meta.url);
 
-/** The READMEs whose quotes are checked. */
+/** The agent skills' Markdown files: each SKILL.md and its references. */
+const skills = readdirSync(new URL('packages/core/skills', root), {
+  recursive: true,
+  encoding: 'utf8',
+})
+  .filter((path) => path.endsWith('.md'))
+  .map((path) => `packages/core/skills/${path}`);
+
+/** The READMEs and skill files whose quotes are checked. */
 const readmes = [
   'packages/core/README.md',
   'packages/store-mongo/README.md',
   'packages/cli/README.md',
   'examples/crm/README.md',
+  ...skills,
 ];
 
 /**

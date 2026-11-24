@@ -636,7 +636,7 @@ examples/
 - `rootRouter()` in `build.ts` calls ts-pf's `router()` through runtime guards, and `ReadUseCase` names a populating read for declaration emit. Both work around ts-pf typing limits and go when ts-pf changes (proposed changes table).
 - A constraint that any schema must meet, such as `FamilySpec` or `AnyRelation`, uses Zod core's `z.core.$ZodType`, and parses with `z.safeParse(schema, value)`. A concrete classic schema checked against classic `z.ZodType` compares about 60 members, which made each relation cost about 18k instantiations. `AnyCollection` still uses classic types: `Doc<C>` and the shape reads in `build.ts` need them. A method's schemas are classic.
 - A compile error that Lattice raises is a `{ '~error': '…' }` property that names the problem. A key union in an error is wrapped in a template literal, so the message prints the union, not an alias.
-- `@latticecms/core` ships an agent skill (`skills/lattice/`) that walks a feature from collection to override, the way the `hexok` skill does. Phase 3.
+- `@latticecms/core` ships an agent skill (`skills/lattice/`): a SKILL.md and one reference per concept, from collection to CLI, the way the `hexok` skill does. Its code blocks quote crm files, and `readme-quotes.test.ts` checks them.
 
 ## Phased build plan
 

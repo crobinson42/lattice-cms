@@ -34,6 +34,7 @@
   },
   "files": [
     "dist",
+    "skills",
     "src",
     "!src/**/*.test.ts",
     "!src/fixtures"
