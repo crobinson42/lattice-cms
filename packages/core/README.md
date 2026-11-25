@@ -203,6 +203,8 @@ import { framework } from '@latticecms/core';
 import { AppUseCase } from '../../app/use-cases/context.js';
 import { ArchiveDeal } from '../../app/use-cases/deals/archive-deal.js';
 import { CloseDeal } from '../../app/use-cases/deals/close-deal.js';
+import { CreateDeal } from '../../app/use-cases/deals/create-deal.js';
+import { UpdateDeal } from '../../app/use-cases/deals/update-deal.js';
 import { Companies } from '../../domain/collections/companies.js';
 import { Contacts } from '../../domain/collections/contacts.js';
 import { Deals } from '../../domain/collections/deals.js';
@@ -224,7 +226,7 @@ const editable = () => ({
   closedAt: { exists: false },
 });
 
-/** The CRM's API: five collections, one override and one method. No ports. */
+/** The CRM's API: five collections, three overrides and one method. No ports. */
 export const crm = framework({
   family: AppUseCase,
   errors: { declared: clientErrors, map: toRpcError },
@@ -250,7 +252,8 @@ export const crm = framework({
       },
     },
     methods: { close: CloseDeal },
-    overrides: { delete: ArchiveDeal },
+    // A deal closes only through deals.close: create and update refuse to.
+    overrides: { create: CreateDeal, update: UpdateDeal, delete: ArchiveDeal },
   })
   .collection(Memberships, {
     // A member reads the memberships of the organization it acts in: its
@@ -294,7 +297,7 @@ export { AppUseCase, Companies, Contacts, Deals, Memberships, Organizations };
 
 ### `build()`
 
-`build()` wires the definition to a store and a publisher. The method and override instances get the typed repos.
+`build()` wires the definition to a store and a publisher. The method and override instances get the typed repos, and the overrides the generated operations they replace.
 
 ```ts
 // examples/crm/src/servers/app.ts
@@ -302,6 +305,8 @@ import type { CollectionStore } from '@latticecms/core';
 import type { DomainEventPublisher } from '../app/ports/events/domain-event-publisher.js';
 import { ArchiveDeal } from '../app/use-cases/deals/archive-deal.js';
 import { CloseDeal } from '../app/use-cases/deals/close-deal.js';
+import { CreateDeal } from '../app/use-cases/deals/create-deal.js';
+import { UpdateDeal } from '../app/use-cases/deals/update-deal.js';
 import { crm } from './rpc/contract.js';
 
 export type AppPorts = {
@@ -317,8 +322,12 @@ export function createApp({ store, events }: AppPorts) {
     methods: ({ repos }) => ({
       deals: { close: new CloseDeal({ deals: repos.deals, events }) },
     }),
-    overrides: ({ repos }) => ({
-      deals: { delete: new ArchiveDeal({ deals: repos.deals }) },
+    overrides: ({ repos, generated }) => ({
+      deals: {
+        create: new CreateDeal({ create: generated.deals.create }),
+        update: new UpdateDeal({ update: generated.deals.update }),
+        delete: new ArchiveDeal({ deals: repos.deals }),
+      },
     }),
   });
 }
@@ -337,12 +346,59 @@ export type CrmApp = ReturnType<typeof createApp>;
 | `context` | `context({ actor, logger })`: the context for a direct `useCases.*.execute` call |
 | `ensure` | `ensure()`: creates each collection's declared indexes, in definition order, and never drops one |
 
-- `methods` and `overrides` are factories, `({ repos }) => instances`, keyed by slug and then name. Each is required exactly when a collection declared one.
+- `methods` and `overrides` are factories, `({ repos }) => instances`, keyed by slug and then name. Each is required exactly when a collection declared one. `overrides` also receives `generated`; see [An override that adds a rule](#an-override-that-adds-a-rule).
 - `access` replaces the functions given at `.collection()` with another `Access` adapter.
 - `app` adds a fresh `access` to each call's context. A direct caller gets one from `context()`. Access answers are kept on the context, so make one per call or per job.
 - `events` must take every collection's events. One that cannot is a compile error that names each refused token.
 - Await `ensure()` after the store has started and before serving, as the CRM's [`server.ts`](#build) does.
 - `Framework<Actor, D, E, Tenanted>` is the definition's type.
+
+#### An override that adds a rule
+
+An override that only adds a rule checks the input, then returns the generated operation through `generated`. The crm's deals close only through `deals.close`, so its create and update refuse a won or lost stage, and any `closedAt`, then do what the generated ones do:
+
+```ts
+// examples/crm/src/app/use-cases/deals/update-deal.ts
+export class UpdateDeal extends AppUseCase('deals.update', {
+  collection: Deals,
+}) {
+  constructor(
+    private readonly deps: {
+      update: (
+        ctx: AppCtx,
+        input: UpdateInput<typeof Deals>,
+      ) => Promise<Doc<typeof Deals>>;
+    },
+  ) {
+    super();
+  }
+
+  async execute(
+    ctx: AppCtx,
+    input: UpdateInput<typeof Deals>,
+  ): Promise<Doc<typeof Deals>> {
+    refuseClosing(input);
+    return this.deps.update(ctx, input);
+  }
+}
+```
+
+```ts
+// examples/crm/src/servers/app.ts
+    overrides: ({ repos, generated }) => ({
+      deals: {
+        create: new CreateDeal({ create: generated.deals.create }),
+        update: new UpdateDeal({ update: generated.deals.update }),
+        delete: new ArchiveDeal({ deals: repos.deals }),
+      },
+    }),
+```
+
+- `generated.<slug>.<operation>(ctx, input)` runs that generated operation: it parses the input, takes the call's access scope, runs the hooks, writes, and publishes the event. A relation's is `generated.<slug>.<relation>.<op>`. It holds only the operations the app overrides: `generated.deals.update` exists because deals overrides update, and `generated.companies.create` does not.
+- Each body checks what its own action needs: create's access, with the data it writes; a field withheld from the caller in an update patch, or in a find's or count's `where` or `sort`; and a read's `populate` keys. So a call from another override, such as a create override that calls `generated.deals.update`, skips nothing.
+- It runs no guards, logging or spans. The override's own use case has run them, so they run once, and the access function runs once.
+- It is typed as a direct caller sees the generated use case: it takes the schema's input type and returns the stored document. The router masks the override's result, as it masks every result.
+- An override that changes what the operation does, such as `ArchiveDeal`, writes through `repos` instead, and publishes its own events.
 
 The server starts the store, runs the migrations, creates the indexes, then serves:
 
@@ -394,7 +450,7 @@ Access decides what a call may see and change. It is a filter in the query: Latt
 - A `Where` on a field `C` lacks, a key that is not an action or a method, and a method with no function are compile errors.
 - An access `Where` is ANDed with the caller's `where`, so a caller can only narrow it.
 
-A family guard checks access before every `execute`: generated operations, overrides and methods. The refusal is logged once. Each function runs once per call.
+A family guard checks access before every `execute`: generated operations, overrides and methods. The refusal is logged once. Each function runs once per call. Create's function receives the parsed data, and runs again only when an override hands create's body different data.
 
 A hand-written use case gets its filter with `ctx.access.scope(C, action)`, and passes the `Scope` to its repo calls. It may ask for another collection's scope too, such as `ctx.access.scope(Posts, 'find')`.
 
@@ -623,7 +679,7 @@ export class DomainEvents extends EventCatalog('domain-events', {
 }) {}
 ```
 
-- Generated writes publish through `build({ events })` after the store write succeeds. A publish failure reaches the caller, and the write stays. Reads publish nothing. Overrides and methods publish their own events.
+- Generated writes publish through `build({ events })` after the store write succeeds. A publish failure reaches the caller, and the write stays. Reads publish nothing. An override that calls `generated` publishes what the generated operation does. Other overrides and methods publish their own events.
 - Collection events stay inside the product. Another product or a customer gets a mapping of its own: an integration event or a webhook. See [A worker](#a-worker-webhooks-and-integration-events).
 
 ### Tracing
@@ -1166,6 +1222,7 @@ it.each(storeCases.filter((c) => !c.needs?.includes('transactions')))('$name', (
 - `Withheld` is `{ id: string }`: a populated document the caller may not read.
 - `LatticeMeta` is the `lattice` key of each procedure's meta; see [MCP and OpenAPI](#mcp-and-openapi).
 - `ClientDoc<C>` is a collection's document as a client receives it, each maskable field optional.
+- `CreateInput<C>` is what create takes: the schema's input, so a defaulted field may be left out. `UpdateInput<C>` is what update takes: the `id`, and each field to change, with `null` on each field it clears. An override of create or update declares them as its input. Neither has the tenant field.
 - `ReadUseCase<Proc, Ctx>` is the type of a populating read in `useCases`: its `execute` is generic in the `populate` list.
 - `Ref<Slug, OnDelete>`, `Many<Target, Through, Fields, OnDelete>`, `RelationsOf` and `JoinShape` are the types of refs, relations and join collections. `OnDelete` and `ManyOnDelete` are their `onDelete` values. An app names them only when it exports its collections from a package with declarations.
 - `CallAccess` is the type of `ctx.access`. `AccessRequest<Actor>` is what `Access.check` receives.

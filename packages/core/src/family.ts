@@ -5,8 +5,8 @@ import { type StandardSchemaV1, UseCase } from 'hexok';
 import { z } from 'zod';
 import { CallAccess } from './access.js';
 import type { AnyCollection } from './collection.js';
-import { invalid, LatticeError, refusal } from './errors.js';
-import { withheldPaths, withheldWrites } from './mask.js';
+import { invalid, LatticeError, parse, refusal } from './errors.js';
+import { refuseWithheld } from './mask.js';
 import { type Tenant, tenancy } from './tenancy.js';
 import { failed, tracer } from './tracing.js';
 
@@ -203,14 +203,17 @@ export function family<
     // FORBIDDEN check. The answer stays on ctx.access for execute's scope.
     .guard(async ({ ctx, spec, token, input }) => {
       const action = actionOf(spec, token);
-      // Create's function receives the parsed input, as execute will see it.
-      const data =
-        action !== 'create'
-          ? undefined
-          : spec.input === undefined
-            ? input
-            : z.parse(spec.input, input);
+      // Create's function receives the parsed input, as the create body
+      // will see it. The generated create's input schema is the collection's
+      // schema (operations() in collection.ts), for the generated create and
+      // an override alike, so this parse and the body's come from one
+      // schema; building the operations here would rebuild every schema on
+      // every call.
       try {
+        const data =
+          action === 'create'
+            ? parse(spec.collection.schema, input)
+            : undefined;
         await ctx.access.scope(spec.collection, action, data);
       } catch (error) {
         const log = callLogger(ctx.logger, spec, token, caller(ctx.actor));
@@ -222,19 +225,16 @@ export function family<
     // a value the caller cannot see (0035), so each is refused, on every
     // path. Output masking happens where a client receives the result.
     .guard(async ({ ctx, spec, token, input }) => {
-      const action = actionOf(spec, token);
-      if (action !== 'find' && action !== 'count' && action !== 'update') {
-        return;
-      }
-      const withheld = await CallAccess.withheld(ctx.access, spec.collection);
-      if (withheld.size === 0) return;
-      const issues =
-        action === 'update'
-          ? withheldWrites(input, withheld)
-          : withheldPaths(input, withheld);
-      if (issues.length > 0) {
+      try {
+        await refuseWithheld(
+          ctx.access,
+          spec.collection,
+          actionOf(spec, token),
+          input,
+        );
+      } catch (error) {
         const log = callLogger(ctx.logger, spec, token, caller(ctx.actor));
-        throw logThrown(log, token, LatticeError.VALIDATION({ issues }));
+        throw logThrown(log, token, error);
       }
     })
     .hooks({

@@ -50,8 +50,9 @@ import {
 import {
   type EventPublisher,
   type Executable,
-  generated,
-  generatedRelation,
+  generatedUseCase,
+  operationBody,
+  relationBody,
 } from './crud.js';
 import { type EffectOf, generatedMeta, methodMeta } from './describe.js';
 import {
@@ -76,8 +77,8 @@ import {
 } from './mask.js';
 import {
   expansionOf,
+  populateInput,
   populateKeys,
-  populateShape,
   type Withheld,
 } from './populate.js';
 import { type CascadeFields, type RefSlugs, referrersOf } from './relations.js';
@@ -168,6 +169,23 @@ type Entries = Record<string, Entry>;
 type Ops<Col extends AnyCollection> = Operations<
   Col['schema']['shape'],
   TenantField<Col>
+>;
+
+/**
+ * What a collection's create takes: its input schema's input type, so a
+ * defaulted field may be left out. An override of create declares it.
+ */
+export type CreateInput<C extends AnyCollection> = z.input<
+  Ops<C>['create']['input']
+>;
+
+/**
+ * What a collection's update takes: the `id`, and each field to change. It
+ * applies no defaults, and `null` clears an optional field with no default.
+ * An override of update declares it.
+ */
+export type UpdateInput<C extends AnyCollection> = z.input<
+  Ops<C>['update']['input']
 >;
 
 /**
@@ -668,8 +686,58 @@ type Instances<E extends Entries, Kind extends 'methods' | 'overrides', Ctx> = {
 /** Each collection's repo, by slug. */
 type Repos<E extends Entries> = { [S in keyof E]: Repo<E[S]['collection']> };
 
-/** What an instance factory receives: what exists before the use cases. */
-type Wiring<E extends Entries> = { readonly repos: Repos<E> };
+/**
+ * A generated operation's body, as an override calls it: the operation
+ * without the family's guards, logging and spans, which the override's own
+ * use case has run (0036). Typed as a direct caller sees the generated use
+ * case.
+ */
+type GeneratedBody<
+  Schemas_ extends {
+    readonly input: z.core.$ZodType;
+    readonly output: z.core.$ZodType;
+  },
+  Ctx,
+> = (
+  ctx: Ctx,
+  input: z.input<Schemas_['input']>,
+) => Promise<z.output<Schemas_['output']>>;
+
+/**
+ * The body of each operation the app overrides, by slug, and of each
+ * overridden relation operation by relation name: what an override may
+ * call. An operation that is not overridden is not here, so no override
+ * reaches another operation's body.
+ *
+ * The variances are stated, because measuring them instantiates every
+ * operation's input and output for a marker `E`, which cost an app over a
+ * million instantiations. `Ctx` appears only in parameters, so it is `in`.
+ * `E` decides the keys, the inputs and the outputs, so it is invariant: do
+ * not loosen it.
+ */
+type Generated<in out E extends Entries, in Ctx> = {
+  [S in keyof E as [keyof E[S]['overrides']] extends [never] ? never : S]: {
+    [A in keyof E[S]['overrides'] & Action]: GeneratedBody<
+      Ops<E[S]['collection']>[A],
+      Ctx
+    >;
+  } & {
+    [R in keyof E[S]['overrides'] & keyof E[S]['collection']['relations']]: {
+      [Op in keyof E[S]['overrides'][R] & RelationOp]: GeneratedBody<
+        E[S]['collection']['relations'][R][Op],
+        Ctx
+      >;
+    };
+  };
+};
+
+/**
+ * What an instance factory receives: what exists before the use cases. The
+ * overrides factory also receives the generated operations it may call.
+ */
+type Wiring<E extends Entries, Kind, Ctx> = Kind extends 'overrides'
+  ? { readonly repos: Repos<E>; readonly generated: Generated<E, Ctx> }
+  : { readonly repos: Repos<E> };
 
 /**
  * One kind of instance `build()` takes: a factory that returns one instance
@@ -679,9 +747,15 @@ type Wiring<E extends Entries> = { readonly repos: Repos<E> };
 type Factory<E extends Entries, Kind extends 'methods' | 'overrides', Ctx> = [
   keyof Instances<E, Kind, Ctx>,
 ] extends [never]
-  ? { readonly [K in Kind]?: (wiring: Wiring<E>) => Record<never, never> }
+  ? {
+      readonly [K in Kind]?: (
+        wiring: Wiring<E, Kind, Ctx>,
+      ) => Record<never, never>;
+    }
   : {
-      readonly [K in Kind]: (wiring: Wiring<E>) => Instances<E, Kind, Ctx>;
+      readonly [K in Kind]: (
+        wiring: Wiring<E, Kind, Ctx>,
+      ) => Instances<E, Kind, Ctx>;
     };
 
 /** What `build()` takes: the ports, and the method and override instances. */
@@ -867,12 +941,20 @@ type RuntimeInstances<Ctx> = Readonly<
  * signature, so its parameter compares bivariantly with the precise
  * factory the overload states.
  */
-type FactoryFn<Actor> = {
-  factory(wiring: RuntimeWiring): RuntimeInstances<FamilyContext<Actor>>;
+type FactoryFn<Actor, W> = {
+  factory(wiring: W): RuntimeInstances<FamilyContext<Actor>>;
 }['factory'];
 
+/** What the methods factory receives, as the implementation builds it. */
 type RuntimeWiring = {
   readonly repos: Readonly<Record<string, Repo<AnyCollection>>>;
+};
+
+/** What the overrides factory receives: also each overridden body. */
+type RuntimeOverrideWiring = RuntimeWiring & {
+  readonly generated: Readonly<
+    Record<string, Readonly<Record<string, unknown>>>
+  >;
 };
 
 /**
@@ -1102,8 +1184,8 @@ export class Framework<
     readonly store: CollectionStore;
     readonly events: EventPublisher;
     readonly access?: Access<Actor>;
-    readonly methods?: FactoryFn<Actor>;
-    readonly overrides?: FactoryFn<Actor>;
+    readonly methods?: FactoryFn<Actor, RuntimeWiring>;
+    readonly overrides?: FactoryFn<Actor, RuntimeOverrideWiring>;
   }): {
     readonly app: ImplementedRouter<unknown, CallContext<Actor>>;
     readonly useCases: Readonly<
@@ -1140,9 +1222,106 @@ export class Framework<
         repo(store, collection),
       ]),
     );
-    const methodInstances = options.methods?.({ repos });
-    const overrideInstances = options.overrides?.({ repos });
     type Ctx = FamilyContext<Actor>;
+    // Every generated operation, with its body and the class that overrides
+    // it, if any: a generated use case runs the body, and an override may
+    // call it as `generated` (0036). Whether an operation is overridden is
+    // decided here, once, for both.
+    const slices = this.entries.flatMap((entry) => {
+      if (entry.join) return [];
+      const { collection, overrides } = entry;
+      const ops = operations(collection.schema, collection.output);
+      const operationsOf = actions.map((action) => {
+        // A read takes `populate`: one schema, for its input and its body.
+        const populate = populateInput(
+          action === 'get' || action === 'find'
+            ? populateKeys(collection, action)
+            : [],
+        );
+        const declared = overrides[action];
+        return {
+          action,
+          input: ops[action].input.extend(populate.shape),
+          body: operationBody(
+            this.family,
+            store,
+            events,
+            collection,
+            ops,
+            action,
+            populate,
+            referrers,
+            collections,
+          ),
+          override: typeof declared === 'function' ? declared : undefined,
+        };
+      });
+      const relations = Object.entries(collection.relations).map(
+        ([name, relation]) => {
+          const declared = overrides[name];
+          const opOverrides =
+            declared === undefined || typeof declared === 'function'
+              ? {}
+              : declared;
+          return {
+            name,
+            relation,
+            ops: relationOps.map((op) => ({
+              op,
+              body: relationBody(
+                this.family,
+                store,
+                events,
+                collection,
+                name,
+                relation,
+                op,
+                collections,
+              ),
+              override: opOverrides[op],
+            })),
+          };
+        },
+      );
+      return [{ entry, ops, operationsOf, relations }];
+    });
+    // Only the overridden operations' bodies: what each override may call.
+    const generatedBodies = Object.fromEntries(
+      slices.flatMap(({ entry, operationsOf, relations }) => {
+        const declared = {
+          ...Object.fromEntries(
+            operationsOf
+              .filter(({ override }) => override !== undefined)
+              .map(({ action, body }) => [action, body]),
+          ),
+          ...Object.fromEntries(
+            relations.flatMap(({ name, ops }) => {
+              const overridden = ops.filter(
+                ({ override }) => override !== undefined,
+              );
+              return overridden.length === 0
+                ? []
+                : [
+                    [
+                      name,
+                      Object.fromEntries(
+                        overridden.map(({ op, body }) => [op, body]),
+                      ),
+                    ],
+                  ];
+            }),
+          ),
+        };
+        return Object.keys(declared).length === 0
+          ? []
+          : [[entry.collection.slug, declared]];
+      }),
+    );
+    const methodInstances = options.methods?.({ repos });
+    const overrideInstances = options.overrides?.({
+      repos,
+      generated: generatedBodies,
+    });
     // Each operation and method's use case, and each relation operation's,
     // by slug: the procedures of a slice and its nested relation nodes.
     const operationUseCases: Record<
@@ -1153,30 +1332,24 @@ export class Framework<
       string,
       Record<string, Record<string, Executable<Ctx>>>
     > = {};
-    for (const { collection, methods, overrides, join } of this.entries) {
-      if (join) continue;
+    for (const { entry, ops, operationsOf, relations } of slices) {
+      const { collection, methods } = entry;
       const { slug } = collection;
       const sliceUseCases: Record<string, Executable<Ctx>> = {};
-      const ops = operations(collection.schema, collection.output);
-      for (const action of actions) {
-        const declared = overrides[action];
+      for (const { action, input, body, override } of operationsOf) {
         sliceUseCases[action] =
-          typeof declared === 'function'
-            ? instanceOf(
+          override === undefined
+            ? generatedUseCase(
+                this.family,
+                `${slug}.${action}`,
+                { collection, input, output: ops[action].output },
+                body,
+              )
+            : instanceOf(
                 'override',
                 [slug, action],
-                declared,
+                override,
                 overrideInstances,
-              )
-            : generated(
-                this.family,
-                store,
-                events,
-                collection,
-                ops,
-                action,
-                referrers,
-                collections,
               );
       }
       for (const [name, method] of Object.entries(methods)) {
@@ -1192,25 +1365,16 @@ export class Framework<
         string,
         Record<string, Executable<Ctx>>
       > = {};
-      for (const [name, relation] of Object.entries(collection.relations)) {
-        const declared = overrides[name];
+      for (const { name, relation, ops: relationOperations } of relations) {
         const opUseCases: Record<string, Executable<Ctx>> = {};
-        for (const op of relationOps) {
-          const override =
-            declared === undefined || typeof declared === 'function'
-              ? undefined
-              : declared[op];
+        for (const { op, body, override } of relationOperations) {
           opUseCases[op] =
             override === undefined
-              ? generatedRelation(
+              ? generatedUseCase(
                   this.family,
-                  store,
-                  events,
-                  collection,
-                  name,
-                  relation,
-                  op,
-                  collections,
+                  `${slug}.${name}.${op}`,
+                  { collection, ...relation[op] },
+                  body,
                 )
               : instanceOf(
                   'override',
@@ -1412,7 +1576,9 @@ function contractOf(
           }),
         )
         .input(
-          ops.get.input.extend(populateShape(populateKeys(collection, 'get'))),
+          ops.get.input.extend(
+            populateInput(populateKeys(collection, 'get')).shape,
+          ),
         )
         .output(wide)
         .expand({ key: 'populate', fields });
@@ -1433,7 +1599,7 @@ function contractOf(
         )
         .input(
           ops.find.input.extend(
-            populateShape(populateKeys(collection, 'find')),
+            populateInput(populateKeys(collection, 'find')).shape,
           ),
         )
         .output(page(wide))

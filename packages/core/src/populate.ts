@@ -9,12 +9,19 @@ const withheld = z.object({ id: z.string() });
 
 export type Withheld = z.output<typeof withheld>;
 
-/** The `populate` input field for `keys`, or no field when there are none. */
-export function populateShape(keys: readonly string[]): z.core.$ZodShape {
+/**
+ * A read's `populate` input: a list of `keys`, or no field when there are
+ * none. An object, so a read's input extends its `shape`, and typed, so the
+ * read's body takes its list from one parse.
+ */
+export type PopulateInput = z.ZodObject &
+  z.ZodType<{ populate?: string[] | undefined }>;
+
+export function populateInput(keys: readonly string[]): PopulateInput {
   const [first, ...rest] = keys;
   return first === undefined
-    ? {}
-    : { populate: z.array(z.enum([first, ...rest])).optional() };
+    ? z.object({})
+    : z.object({ populate: z.array(z.enum([first, ...rest])).optional() });
 }
 
 /**

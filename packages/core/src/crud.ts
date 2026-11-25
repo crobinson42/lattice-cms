@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { CallAccess } from './access.js';
 import type {
   Action,
@@ -14,7 +14,8 @@ import type {
 import { maxLinks } from './collection.js';
 import { LatticeError, parse } from './errors.js';
 import type { Family, FamilyContext } from './family.js';
-import { linkFields, populateKeys, populateShape } from './populate.js';
+import { refuseWithheld } from './mask.js';
+import { linkFields, type PopulateInput } from './populate.js';
 import type { Referrers, RefField } from './relations.js';
 import { findQuery, stamped, touched } from './repo.js';
 import type { CollectionStore, StoredDoc } from './store.js';
@@ -50,6 +51,8 @@ type Call = {
   readonly ops: Operations<AnyShape>;
   /** The access and tenant filter of this call, for every store call. */
   readonly scope: AnyWhere | undefined;
+  /** What a read's `populate` may name: the schema of that one field. */
+  readonly populate: PopulateInput;
   readonly actorId: string;
   /** The call's tenant on this collection: what create stamps and events carry. */
   readonly tenantId: string | undefined;
@@ -63,9 +66,9 @@ type Call = {
 
 /**
  * The filter that limits what a call may see and change (0005): the call's
- * access scope. The family's access guard has already asked, so this reads
- * its kept answer. Create has no row to filter, and its answer is not kept,
- * so it does not ask again.
+ * access scope. Asked here, so a body called from another operation's
+ * override is still checked (0036); after the family's guard, it reads the
+ * kept answer. Create has no row to filter: its body asks with its data.
  */
 async function scopeOf(
   ctx: FamilyContext<unknown>,
@@ -264,9 +267,6 @@ async function read(
   return afterRead === undefined ? document : afterRead({ doc: document });
 }
 
-/** A read's `populate` list. The family guard has checked each key. */
-const populateList = z.object({ populate: z.array(z.string()).optional() });
-
 /** What populating a read works with. */
 type Populating = Pick<Call, 'store' | 'access' | 'collections'>;
 
@@ -424,7 +424,8 @@ const operations: Record<
 > = {
   async find(call, raw) {
     const { where, sort, limit, after } = parse(call.ops.find.input, raw);
-    const { populate = [] } = parse(populateList, raw);
+    await refuseWithheld(call.access, call.collection, 'find', raw);
+    const { populate = [] } = parse(call.populate, raw);
     const page = await call.store.find(
       findQuery(call.collection.slug, {
         where: both(where, call.scope),
@@ -442,6 +443,7 @@ const operations: Record<
 
   async count(call, raw) {
     const { where } = parse(call.ops.count.input, raw);
+    await refuseWithheld(call.access, call.collection, 'count', raw);
     return {
       count: await call.store.count(
         call.collection.slug,
@@ -452,7 +454,7 @@ const operations: Record<
 
   async get(call, raw) {
     const { id } = parse(call.ops.get.input, raw);
-    const { populate = [] } = parse(populateList, raw);
+    const { populate = [] } = parse(call.populate, raw);
     const doc = await call.store.get(call.collection.slug, id, call.scope);
     if (doc === null) throw notFound(call, id);
     const [document] = await populated(call, call.collection, populate, [
@@ -465,6 +467,9 @@ const operations: Record<
 
   async create(call, raw) {
     const input = parse(call.ops.create.input, raw);
+    // Create has no scope to filter by, so its access is asked here, with
+    // the data it will write.
+    await call.access.scope(call.collection, 'create', input);
     const data = await change(call, { data: input, operation: 'create' });
     // Stamped after beforeChange, so a hook cannot pick the tenant.
     const { tenant } = call.collection;
@@ -489,6 +494,7 @@ const operations: Record<
     // index signature, which would type it unknown.
     const { id } = parse(call.ops.get.input, raw);
     const { id: _, ...patch } = parse(call.ops.update.input, raw);
+    await refuseWithheld(call.access, call.collection, 'update', patch);
     const stored = await call.store.get(call.collection.slug, id, call.scope);
     if (stored === null) throw notFound(call, id);
     const previous = documentOf(call, stored);
@@ -574,67 +580,74 @@ const operations: Record<
   },
 };
 
-/** The generated use case for one operation, in the app's family. */
-export function generated<Actor>(
+/**
+ * What one generated operation does, from parsing its input to its events:
+ * the body its use case runs, and what an override's `generated` calls
+ * (0036). It runs no guards, logging or spans; the calling use case has.
+ */
+export type Body<Ctx> = (ctx: Ctx, input: unknown) => Promise<unknown>;
+
+/** The body of one generated operation. */
+export function operationBody<Actor>(
   family: Family<Actor>,
   store: CollectionStore,
   events: EventPublisher,
   collection: AnyCollection,
   ops: Operations<AnyShape>,
   action: Action,
+  populate: PopulateInput,
   referrers: Referrers,
   collections: ReadonlyMap<string, AnyCollection>,
-): Executable<FamilyContext<Actor>> {
-  const { output } = ops[action];
-  // A read's input takes `populate`, so the family guard checks its keys.
-  const input =
-    action === 'get' || action === 'find'
-      ? ops[action].input.extend(
-          populateShape(populateKeys(collection, action)),
-        )
-      : ops[action].input;
+): Body<FamilyContext<Actor>> {
   const run = operations[action];
-  class Generated extends family(`${collection.slug}.${action}`, {
-    collection,
-    input,
-    output,
-  }) {
-    constructor(
-      private readonly deps: {
-        store: CollectionStore;
-        events: EventPublisher;
+  return async (ctx, raw) =>
+    run(
+      {
+        store,
+        events,
+        collection,
+        ops,
+        scope: await scopeOf(ctx, collection, action),
+        populate,
+        actorId: family.actorId(ctx.actor),
+        tenantId: CallAccess.stampOf(ctx.access, collection),
+        referrers,
+        access: ctx.access,
+        collections,
       },
-    ) {
-      super();
-    }
-
-    async execute(ctx: FamilyContext<Actor>, raw: unknown): Promise<unknown> {
-      return run(
-        {
-          ...this.deps,
-          collection,
-          ops,
-          scope: await scopeOf(ctx, collection, action),
-          actorId: family.actorId(ctx.actor),
-          tenantId: CallAccess.stampOf(ctx.access, collection),
-          referrers,
-          access: ctx.access,
-          collections,
-        },
-        raw,
-      );
-    }
-  }
-  return new Generated({ store, events });
+      raw,
+    );
 }
 
 /**
- * A generated relation operation of `collection`: `<slug>.<name>.list` or
- * `.set`, in the app's family. `list` runs the parent's read and `set` its
- * update (0028): each first gets the parent under that scope, so a parent
- * outside it is NOT_FOUND.
+ * A generated use case, an operation's or a relation operation's, in the
+ * app's family: its guards, logging and span around `body`.
  */
-export function generatedRelation<Actor>(
+export function generatedUseCase<Actor>(
+  family: Family<Actor>,
+  token: string,
+  spec: {
+    readonly collection: AnyCollection;
+    readonly input: z.core.$ZodType;
+    readonly output: z.core.$ZodType;
+  },
+  body: Body<FamilyContext<Actor>>,
+): Executable<FamilyContext<Actor>> {
+  class Generated extends family(token, spec) {
+    async execute(ctx: FamilyContext<Actor>, raw: unknown): Promise<unknown> {
+      return body(ctx, raw);
+    }
+  }
+  return new Generated();
+}
+
+/**
+ * The body of a relation operation of `collection`: `<slug>.<name>.list` or
+ * `.set`. `list` runs the parent's read and `set` its update (0028): each
+ * first gets the parent under that scope, so a parent outside it is
+ * NOT_FOUND.
+ */
+export function relationBody<Actor>(
   family: Family<Actor>,
   store: CollectionStore,
   events: EventPublisher,
@@ -643,8 +656,7 @@ export function generatedRelation<Actor>(
   relation: AnyRelation,
   op: 'list' | 'set',
   collections: ReadonlyMap<string, AnyCollection>,
-): Executable<FamilyContext<Actor>> {
-  const { input, output } = relation[op];
+): Body<FamilyContext<Actor>> {
   const join = relation.through;
   const { parentField, targetField } = relation;
   // The fields of a link, as `set` compares them.
@@ -777,17 +789,7 @@ export function generatedRelation<Actor>(
     return { docs: docs.map((doc) => documentOf({ collection: join }, doc)) };
   }
 
-  const run = op === 'list' ? list : set;
-  class GeneratedRelation extends family(`${collection.slug}.${name}.${op}`, {
-    collection,
-    input,
-    output,
-  }) {
-    async execute(ctx: FamilyContext<Actor>, raw: unknown): Promise<unknown> {
-      return run(ctx, raw);
-    }
-  }
-  return new GeneratedRelation();
+  return op === 'list' ? list : set;
 }
 
 function notFoundIn(collection: AnyCollection, id: string) {

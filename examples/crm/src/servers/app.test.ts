@@ -179,6 +179,97 @@ describe.each(backends)('on $name', (backend) => {
       ]);
     });
 
+    it('create and update cannot close a deal, and refuse before they write', async () => {
+      const { local, repos, events } = setup();
+      const deal = await local.deals.create({
+        title: 'Big one',
+        companyId: 'c1',
+        amount: 1000,
+      });
+      const closedAt = '2026-11-25T00:00:00.000Z';
+
+      const refusals = await Promise.all([
+        asResult(
+          local.deals.create({
+            title: 'Won',
+            companyId: 'c1',
+            amount: 1,
+            stage: 'won',
+          }),
+        ),
+        asResult(
+          local.deals.create({
+            title: 'Closed',
+            companyId: 'c1',
+            amount: 1,
+            stage: 'lost',
+            closedAt,
+          }),
+        ),
+        asResult(local.deals.update({ id: deal.id, stage: 'lost' })),
+        asResult(local.deals.update({ id: deal.id, closedAt })),
+        asResult(local.deals.update({ id: deal.id, closedAt: null })),
+      ]);
+
+      expect(
+        refusals.map((result) =>
+          result.ok || result.error.code !== 'VALIDATION'
+            ? result
+            : result.error.data.issues,
+        ),
+      ).toEqual([
+        [{ path: ['stage'], message: 'Close a deal with deals.close' }],
+        [
+          { path: ['stage'], message: 'Close a deal with deals.close' },
+          { path: ['closedAt'], message: 'deals.close sets closedAt' },
+        ],
+        [{ path: ['stage'], message: 'Close a deal with deals.close' }],
+        [{ path: ['closedAt'], message: 'deals.close sets closedAt' }],
+        [{ path: ['closedAt'], message: 'deals.close sets closedAt' }],
+      ]);
+      expect((await repos.deals.find({}, unscoped)).docs).toEqual([deal]);
+      expect(published(events)).toEqual(['dealsCreated']);
+    });
+
+    it('create and update still work through the overrides, for a member too', async () => {
+      const { app, events } = setup();
+      const member = createLocalClient(app, {
+        context: {
+          actor: { userId: 'u2', organizationId: 'o1', role: 'member' },
+          logger: new NoopLogger(),
+        },
+      });
+
+      // A member sets the amount blind, and does not receive it.
+      const deal = await member.deals.create({
+        title: 'Big one',
+        companyId: 'c1',
+        amount: 1000,
+        ownerId: 'u2',
+      });
+      expect(deal).toMatchObject({ stage: 'lead', ownerId: 'u2' });
+      expect(deal).not.toHaveProperty('amount');
+
+      const moved = await member.deals.update({
+        id: deal.id,
+        stage: 'negotiation',
+        ownerId: null,
+      });
+      expect(moved).toMatchObject({ stage: 'negotiation' });
+      expect(moved).not.toHaveProperty('ownerId');
+      expect(moved).not.toHaveProperty('amount');
+
+      // The guard still refuses a field withheld from the caller.
+      const hidden = await asResult(
+        member.deals.update({ id: deal.id, amount: 1 }),
+      );
+      expect(hidden).toMatchObject({
+        ok: false,
+        error: { code: 'VALIDATION' },
+      });
+      expect(published(events)).toEqual(['dealsCreated', 'dealsUpdated']);
+    });
+
     it('a closed deal can no longer change: update answers NOT_FOUND, as for an archived deal', async () => {
       const { local, events } = setup();
       const deal = await local.deals.create({
@@ -591,6 +682,12 @@ describe.each(backends)('on $name', (backend) => {
       >();
       expectTypeOf<Parameters<Rich['create']>[0]>().toEqualTypeOf<
         Parameters<Plain['create']>[0]
+      >();
+      expectTypeOf<Parameters<Rich['update']>[0]>().toEqualTypeOf<
+        Parameters<Plain['update']>[0]
+      >();
+      expectTypeOf<Awaited<ReturnType<Rich['update']>>>().toEqualTypeOf<
+        Awaited<ReturnType<Plain['update']>>
       >();
       expectTypeOf<Parameters<Rich['find']>[0]>().toEqualTypeOf<
         Parameters<Plain['find']>[0]

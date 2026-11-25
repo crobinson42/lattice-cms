@@ -2,6 +2,8 @@ import { framework } from '@latticecms/core';
 import { AppUseCase } from '../../app/use-cases/context.js';
 import { ArchiveDeal } from '../../app/use-cases/deals/archive-deal.js';
 import { CloseDeal } from '../../app/use-cases/deals/close-deal.js';
+import { CreateDeal } from '../../app/use-cases/deals/create-deal.js';
+import { UpdateDeal } from '../../app/use-cases/deals/update-deal.js';
 import { Companies } from '../../domain/collections/companies.js';
 import { Contacts } from '../../domain/collections/contacts.js';
 import { Deals } from '../../domain/collections/deals.js';
@@ -23,7 +25,7 @@ const editable = () => ({
   closedAt: { exists: false },
 });
 
-/** The CRM's API: five collections, one override and one method. No ports. */
+/** The CRM's API: five collections, three overrides and one method. No ports. */
 export const crm = framework({
   family: AppUseCase,
   errors: { declared: clientErrors, map: toRpcError },
@@ -49,7 +51,8 @@ export const crm = framework({
       },
     },
     methods: { close: CloseDeal },
-    overrides: { delete: ArchiveDeal },
+    // A deal closes only through deals.close: create and update refuse to.
+    overrides: { create: CreateDeal, update: UpdateDeal, delete: ArchiveDeal },
   })
   .collection(Memberships, {
     // A member reads the memberships of the organization it acts in: its

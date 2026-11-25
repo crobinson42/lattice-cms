@@ -54,7 +54,7 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 
 - [x] Companies gain `industry` and `phone`, both optional. Contacts gain `phone` and `title` (job title), both optional.
 - [x] Deals gain `ownerId` (a user id, optional: unassigned is allowed) and `expectedCloseDate` (an ISO date, optional). Stages become `lead`, `qualified`, `proposal`, `negotiation`, `won`, `lost`.
-- [x] A closed deal cannot change: the update access filter adds `closedAt: { exists: false }`, so it answers `NOT_FOUND` as an archived deal does (1a). Refusing a won or lost stage, or a `closedAt`, on create and update waits for step 1c.
+- [x] A closed deal cannot change: the update access filter adds `closedAt: { exists: false }`, so it answers `NOT_FOUND` as an archived deal does (1a). Create and update refuse a won or lost stage, or a `closedAt` (1c).
 - [ ] `activities`: `kind` (`note`, `call`, `email`, `meeting`), `body`, `occurredAt` (date-time), `authorId`, and optional refs `companyId`, `contactId` and `dealId`, which cascade on delete. Tenanted. The author is the caller, never the client: there is no generated `create` access, and an `activities.log` method stamps `authorId` from the actor. Only the author updates or deletes an activity, as an access filter (0005). At least one parent ref is required, if `collection()` takes a refined schema; if it does not, leave the rule out and say so in Discoveries.
 - [ ] `tasks`: `title`, `dueDate` (an ISO date, optional), `done` (default `false`), `assigneeId` (a user id, optional), and the same three optional parent refs, which cascade. Tenanted. Any member reads and writes them.
 - [x] Memberships gain a required `name`, the member's display name in that organization. Read access becomes the caller's organization (support reads all). A migration backfills `name` from `userId`, written with `lattice migration`. `dev:user` takes a name. `/auth` `organizations` is unchanged.
@@ -63,9 +63,9 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 
 ### 1c. Overrides call the generated operation
 
-- [ ] Core: `build()`'s overrides factory receives `generated`, and core exports `Patch<C>` and `Draft<C>`, as [0036](../decisions/0036-an-override-can-call-the-generated-operation.md) says. Guards, logging and spans run once. Tests through `build()`; the core README, the agent skill and `architecture.md` (orchestrator) follow. A changeset.
-- [ ] The crm: `UpdateDeal` and `CreateDeal` refuse `stage` `won` or `lost` and any `closedAt` with `VALIDATION` at that path, naming `deals.close`, then call the generated operation. `deals.close` is the only way to close a deal.
-- [ ] Re-measure core's and the crm's type-check against their budgets.
+- [x] Core: `build()`'s overrides factory receives `generated`, and core exports `CreateInput<C>` and `UpdateInput<C>`, as [0036](../decisions/0036-an-override-can-call-the-generated-operation.md) says. Guards, logging and spans run once. Tests through `build()`; the core README, the agent skill and `architecture.md` (orchestrator) follow. A changeset.
+- [x] The crm: `UpdateDeal` and `CreateDeal` refuse `stage` `won` or `lost` and any `closedAt` with `VALIDATION` at that path, naming `deals.close`, then call the generated operation. `deals.close` is the only way to close a deal.
+- [x] Re-measure core's and the crm's type-check against their budgets.
 
 ### 2. The dev loop
 
@@ -121,3 +121,5 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 - 1a: `deals.create` can set a won or lost stage too, so 1c covers create.
 - 1a: nine optional fields cost the crm check about 16k (450k to 466k).
 - 1a: the CLI's migrate test reads the crm's migrations instead of hard-coding them, so a crm migration no longer breaks it.
+- 1c: `generated` first held every body, which let an override create rows with no create-access check. Now it holds only the declared overrides, and each body checks its own action's needs. The names became `CreateInput`/`UpdateInput`, because core/store already has a `Patch` with the opposite clearing rule.
+- 1c: core's type cost went down (443k to 433k), because one shared generated use case class replaced two per-operation class factories.

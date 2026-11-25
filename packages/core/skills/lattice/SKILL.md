@@ -68,7 +68,7 @@ A field some callers may not read, such as a deal's amount, is `maskable`, with 
 
 ### 6. Overrides and methods
 
-When a generated operation is wrong for the story, override it: a delete that archives. When the story is an action of its own, add a method: closing a deal. Both are hand-written use cases in the app's family. Read [references/override.md](references/override.md) and [references/method.md](references/method.md).
+When a generated operation is wrong for the story, override it: a delete that archives, or an update that refuses to close a deal and then runs the generated update. When the story is an action of its own, add a method: closing a deal. Both are hand-written use cases in the app's family. Read [references/override.md](references/override.md) and [references/method.md](references/method.md).
 
 ### 7. Events and handlers
 
