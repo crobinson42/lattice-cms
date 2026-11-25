@@ -70,9 +70,11 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 
 ### 1d. Flat type cost per collection
 
-- [ ] Find which type in core's composition (or ts-pf's router checks) grows with the number of collections, using a fixture app that adds plain collections one at a time and measures each. Time-boxed: report the cause before building the fix.
-- [ ] Fix it so each plain collection costs about the same, whatever the count. Re-measure core and the crm, and set the crm budget back from the measurement.
-- [ ] A core test or script that guards it: the cost of the nth plain collection stays within a bound.
+- [x] Found (FINDINGS 1d, measured with a fixture of 2 to 12 collections). Lattice's own types cost a flat ~4k per collection. Two upstream causes:
+  - hexok's `family()` intersects its statics with `Spec`: about 38k per collection that has a hand-written use case. That's why activities, with `activities.log`, cost ~100k.
+  - ts-pf's `all(tk)` grows quadratically with the number of procedures.
+- [x] Briefs for both, which the maintainer hands to the hexok and ts-pf teams: [`../briefs/hexok-family-statics.md`](../briefs/hexok-family-statics.md) and [`../briefs/ts-pf-mcp-all-tools.md`](../briefs/ts-pf-mcp-all-tools.md).
+- [ ] When the releases land: upgrade, re-measure core and the crm, and set the crm budget from the measurement.
 
 ### 1e. A refined schema with refs builds
 
