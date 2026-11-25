@@ -232,8 +232,8 @@ An activity records what happened: a note, call, email or meeting on a company, 
 
 - An activity is created only with `activities.log`, a method, not the generated create: its author comes from the actor, never the client ([`log-activity.ts`](src/app/use-cases/activities/log-activity.ts)). `authorId` is not in log's input, so a client cannot name one, and one it sends is dropped. Activities have no `create` access, so `activities.create` is `FORBIDDEN`, and MCP leaves it out. log publishes `activities.created` as the generated create would, by constructing the event from the collection.
 - Only the author updates or deletes an activity. That is an access filter on `authorId`, so another member's activity is `NOT_FOUND`. Any member writes tasks.
+- Each names a company, a contact or a deal: one rule, `.refine(hasParent, parentRequired)`, shared with the three refs in [`parents.ts`](src/domain/parents.ts). A create without one, or an update that clears the last one, is `VALIDATION` at `companyId`.
 - Deleting a company or a contact deletes its activities and tasks (`onDelete: 'cascade'`). A deal's ref restricts: `deals.delete` archives, so an archived deal keeps its history.
-- An activity should name a company, a contact or a deal, but the schema does not require one yet: a refined schema with refs fails when core builds its populated reads.
 - A task's `dueDate` is optional, so `find` filters on it (`dueDate: { lte: … }`) but cannot sort by it.
 
 ## Passwords and their limits

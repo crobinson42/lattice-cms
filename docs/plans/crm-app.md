@@ -78,8 +78,8 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 
 ### 1e. A refined schema with refs builds
 
-- [ ] Core: a collection whose schema has an object-level `.refine()` and a ref builds its contract, and populates. Today `expansionOf` (`populate.ts:102`) extends `clientOutput`, which carries the refinement, and Zod refuses. Outputs should not carry input refinements. A core test with a refined, populated collection. A changeset.
-- [ ] The crm: activities and tasks require at least one parent ref, with `VALIDATION` at `companyId`. Tests on create and update.
+- [x] Core: a collection whose schema has an object-level `.refine()` and a ref builds its contract, and populates. Today `expansionOf` (`populate.ts:102`) extends `clientOutput`, which carries the refinement, and Zod refuses. Outputs should not carry input refinements. A core test with a refined, populated collection. A changeset.
+- [x] The crm: activities and tasks require at least one parent ref, with `VALIDATION` at `companyId`. Tests on create and update.
 
 ### 1f. Optional fields sort, missing last
 
@@ -144,3 +144,4 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 - 1b: the seventh collection costs about 100k where the sixth cost 40k, whichever collection it is (step 1d). Test files count too: `tsconfig.check.json` includes them (1b's test file is about 16k).
 - 1b: a refined collection schema with a ref throws at `.contract` (step 1e). `find` cannot sort on an optional field (step 1f).
 - 1b: ts-pf's codegen profile renames hoisted schema names when collections are added, so generated client type names are not stable as an app grows (architecture.md, Known limits: OpenAPI names).
+- 1e: outputs are built from the schema's fields plus the system fields, so an object-level refine checks input only. A generic schema-wrapping helper cost about 7k more than a shared `.refine(fn, options)`.

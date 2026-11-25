@@ -119,6 +119,7 @@ describe.each(backends)('activities and tasks on $name', (backend) => {
 
       const call = await ann.tasks.create({
         title: 'Call Ada',
+        contactId: 'ada',
         dueDate: '2026-11-30',
         assigneeId: 'u2',
       });
@@ -142,6 +143,47 @@ describe.each(backends)('activities and tasks on $name', (backend) => {
       expect(await ann.tasks.delete({ id: call.id })).toMatchObject({
         id: call.id,
       });
+    });
+  });
+
+  describe('the required parent', () => {
+    it('an activity or a task names a company, a contact or a deal, on create and on update', async () => {
+      const { ann } = setup();
+      const activity = await ann.activities.log({
+        kind: 'note',
+        body: 'On a company',
+        occurredAt,
+        companyId: 'c1',
+      });
+      const task = await ann.tasks.create({ title: 'On a deal', dealId: 'd1' });
+
+      const results = [
+        await asResult(
+          ann.activities.log({ kind: 'note', body: 'Floating', occurredAt }),
+        ),
+        await asResult(ann.tasks.create({ title: 'Floating' })),
+        // Each patch is valid alone; the document after it has no parent.
+        await asResult(
+          ann.activities.update({ id: activity.id, companyId: null }),
+        ),
+        await asResult(ann.tasks.update({ id: task.id, dealId: null })),
+      ];
+
+      for (const result of results) {
+        if (result.ok || result.error.code !== 'VALIDATION') {
+          throw new Error('expected VALIDATION');
+        }
+        expect(result.error.data.issues).toEqual([
+          {
+            path: ['companyId'],
+            message: 'Give a company, a contact or a deal',
+          },
+        ]);
+      }
+      // Moving to another parent in the same patch is fine.
+      expect(
+        await ann.tasks.update({ id: task.id, dealId: null, contactId: 'ada' }),
+      ).toMatchObject({ contactId: 'ada' });
     });
   });
 
@@ -197,7 +239,10 @@ describe.each(backends)('activities and tasks on $name', (backend) => {
         occurredAt,
         companyId: 'c1',
       });
-      const task = await ann.tasks.create({ title: 'Send notes' });
+      const task = await ann.tasks.create({
+        title: 'Send notes',
+        companyId: 'c1',
+      });
 
       expect((await cy.activities.find({})).docs).toEqual([]);
       expect((await cy.tasks.find({})).docs).toEqual([]);
