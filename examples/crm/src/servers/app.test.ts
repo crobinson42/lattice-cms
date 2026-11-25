@@ -9,6 +9,7 @@ import {
 import { asResult } from '@ts-pf/client';
 import { createLocalClient } from '@ts-pf/server';
 import { describe, expect, expectTypeOf, it } from 'vitest';
+import type { Actor } from '../app/use-cases/context.js';
 import { MemoryDomainEventPublisher } from '../infra/events/memory-domain-events.js';
 import { backends, storeOf } from '../test/stores.js';
 import { createApp } from './app.js';
@@ -147,6 +148,62 @@ describe.each(backends)('on $name', (backend) => {
       expect(docs).toEqual([moved]);
     });
 
+    it('takes an owner and an expected close date; a bad date is VALIDATION', async () => {
+      const { local } = setup();
+      const deal = await local.deals.create({
+        title: 'Big one',
+        companyId: 'c1',
+        amount: 1000,
+        ownerId: 'u2',
+        expectedCloseDate: '2026-12-31',
+      });
+      expect(deal).toMatchObject({
+        ownerId: 'u2',
+        expectedCloseDate: '2026-12-31',
+      });
+
+      // An unassigned deal: null clears the owner.
+      const unassigned = await local.deals.update({
+        id: deal.id,
+        ownerId: null,
+      });
+      expect(unassigned).not.toHaveProperty('ownerId');
+
+      const bad = await asResult(
+        local.deals.update({ id: deal.id, expectedCloseDate: '31/12/2026' }),
+      );
+      if (bad.ok || bad.error.code !== 'VALIDATION')
+        throw new Error('expected VALIDATION');
+      expect(bad.error.data.issues.map((issue) => issue.path)).toEqual([
+        ['expectedCloseDate'],
+      ]);
+    });
+
+    it('a closed deal can no longer change: update answers NOT_FOUND, as for an archived deal', async () => {
+      const { local, events } = setup();
+      const deal = await local.deals.create({
+        title: 'Big one',
+        companyId: 'c1',
+        amount: 1000,
+      });
+      await local.deals.close({ id: deal.id, outcome: 'won' });
+
+      const refused = await asResult(
+        local.deals.update({ id: deal.id, title: 'Renamed', stage: 'lead' }),
+      );
+
+      expect(refused).toMatchObject({
+        ok: false,
+        error: { code: 'NOT_FOUND' },
+      });
+      // Still read, and unchanged.
+      expect(await local.deals.get({ id: deal.id })).toMatchObject({
+        title: 'Big one',
+        stage: 'won',
+      });
+      expect(published(events)).toEqual(['dealsCreated', 'dealClosed']);
+    });
+
     it('delete is the ArchiveDeal override: it archives, and the row stays', async () => {
       const { local, repos, events } = setup();
       const deal = await local.deals.create({
@@ -269,6 +326,43 @@ describe.each(backends)('on $name', (backend) => {
       expectTypeOf(again.error.data).toEqualTypeOf<{ id: string }>();
       expect(again.error.data).toEqual({ id: deal.id });
       expect(again.error.status).toBe(409);
+    });
+  });
+
+  describe('memberships', () => {
+    it('a member reads its organization’s memberships, its team, and support reads every one', async () => {
+      const { app, repos } = setup();
+      const ann = await repos.memberships.insert(
+        { userId: 'u1', organizationId: 'o1', role: 'manager', name: 'Ann' },
+        unscoped,
+      );
+      const ben = await repos.memberships.insert(
+        { userId: 'u2', organizationId: 'o1', name: 'Ben' },
+        unscoped,
+      );
+      // Ann in another organization, and someone only there.
+      const elsewhere = await repos.memberships.insert(
+        { userId: 'u1', organizationId: 'o2', name: 'Ann B' },
+        unscoped,
+      );
+      await repos.memberships.insert(
+        { userId: 'u3', organizationId: 'o2', name: 'Cy' },
+        unscoped,
+      );
+      const as = (actor: Actor) =>
+        createLocalClient(app, {
+          context: { actor, logger: new NoopLogger() },
+        });
+      const member = as({ userId: 'u2', organizationId: 'o1', role: 'member' });
+      const support = as({ userId: 'sam', support: true });
+
+      const team = await member.memberships.find({ sort: ['name'] });
+
+      expect(team.docs).toEqual([ann, ben]);
+      expect(
+        await asResult(member.memberships.get({ id: elsewhere.id })),
+      ).toMatchObject({ ok: false, error: { code: 'NOT_FOUND' } });
+      expect(await support.memberships.count({})).toEqual({ count: 4 });
     });
   });
 
@@ -447,13 +541,21 @@ describe.each(backends)('on $name', (backend) => {
         companyId: string;
         // Maskable: a member does not receive it, so every client types it optional.
         amount?: number | undefined;
-        stage: 'lead' | 'proposal' | 'won' | 'lost';
+        stage:
+          | 'lead'
+          | 'qualified'
+          | 'proposal'
+          | 'negotiation'
+          | 'won'
+          | 'lost';
         archived: boolean;
         id: string;
         organizationId: string;
         createdAt: string;
         updatedAt: string;
         closedAt?: string | undefined;
+        ownerId?: string | undefined;
+        expectedCloseDate?: string | undefined;
       }>();
       expectTypeOf(local.deals.close)
         .parameter(0)

@@ -15,6 +15,14 @@ const anyone = () => true;
 // An archived deal is hidden from every read and can no longer change.
 const live = () => ({ archived: { eq: false } });
 
+// A closed deal can no longer change either. Like an archived one, it
+// answers update with NOT_FOUND. It closes through deals.close, which
+// refuses a second close as AlreadyClosed.
+const editable = () => ({
+  archived: { eq: false },
+  closedAt: { exists: false },
+});
+
 /** The CRM's API: five collections, one override and one method. No ports. */
 export const crm = framework({
   family: AppUseCase,
@@ -30,7 +38,7 @@ export const crm = framework({
     access: {
       read: live,
       create: anyone,
-      update: live,
+      update: editable,
       delete: live,
       close: live,
     },
@@ -44,11 +52,17 @@ export const crm = framework({
     overrides: { delete: ArchiveDeal },
   })
   .collection(Memberships, {
-    // A caller lists its own memberships, in every organization. An
-    // organization switcher uses /auth organizations instead, since /rpc
+    // A member reads the memberships of the organization it acts in: its
+    // team, for a team list or an owner picker. Support reads every one.
+    // An organization switcher uses /auth organizations instead, since /rpc
     // needs an organization first. No create, update or delete: only
     // trusted code writes them.
-    access: { read: ({ actor }) => ({ userId: { eq: actor.userId } }) },
+    access: {
+      read: ({ actor }) =>
+        'support' in actor
+          ? true
+          : { organizationId: { eq: actor.organizationId } },
+    },
   })
   .collection(Organizations, {
     // A member reads the organization it acts in, and support every one.

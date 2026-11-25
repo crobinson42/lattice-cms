@@ -1,7 +1,14 @@
 import { collection, many, ref } from '@latticecms/core';
 import { z } from 'zod';
 
-export const dealStages = ['lead', 'proposal', 'won', 'lost'] as const;
+export const dealStages = [
+  'lead',
+  'qualified',
+  'proposal',
+  'negotiation',
+  'won',
+  'lost',
+] as const;
 
 /** What a contact is to a deal. */
 export const contactRole = z.enum(['decision_maker', 'champion', 'other']);
@@ -16,6 +23,9 @@ export const Deals = collection('deals', {
     // deals.delete archives: the row stays, with archived set.
     archived: z.boolean().default(false),
     closedAt: z.iso.datetime().optional(),
+    // The user who works the deal. A deal may be unassigned.
+    ownerId: z.string().min(1).optional(),
+    expectedCloseDate: z.iso.date().optional(),
   }),
   tenant: 'organizationId',
   // The people on a deal, and what each is to it. A contact on a deal

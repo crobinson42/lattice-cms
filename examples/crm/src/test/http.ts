@@ -79,7 +79,7 @@ export function httpSetup(
       role: 'member' | 'manager' = 'member',
     ) {
       await crm.repos.memberships.insert(
-        { userId, organizationId, role },
+        { userId, organizationId, role, name: userId },
         unscoped,
       );
     },

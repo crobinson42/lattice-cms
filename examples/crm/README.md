@@ -30,10 +30,10 @@ export AUTH_TOKEN_SECRETS=<one secret, the same in every terminal>   # make one:
 export AUTH_TOKEN_ISSUER=crm AUTH_TOKEN_AUDIENCE=crm
 ```
 
-Create a user with a password and a membership, then start the server and, in a second terminal, the worker:
+Create a user with a name, a password and a membership, then start the server and, in a second terminal, the worker:
 
 ```bash
-npm run dev:user -w @latticecms/example-crm -- ann ann@example.com 'a long password' Acme manager
+npm run dev:user -w @latticecms/example-crm -- ann 'Ann Lee' ann@example.com 'a long password' Acme manager
 npm start -w @latticecms/example-crm
 npm run worker -w @latticecms/example-crm
 ```
@@ -167,9 +167,9 @@ curl -s localhost:3000/rpc/deals/find "${H[@]}" -d '{"input":{"populate":["compa
 curl -s localhost:3000/openapi.json -H "authorization: Bearer $TOKEN"
 ```
 
-Each answer is `{ "ok": true, "output": … }` or `{ "ok": false, "error": { "code", "message" } }`. Closing the deal publishes `deal.closed`: the worker publishes it on `integration:crm.deals`, which `docker exec crm-redis redis-cli XRANGE integration:crm.deals - +` shows, and sends a webhook to any endpoint `CRM_WEBHOOK_ENDPOINTS` lists for that organization's id.
+Each answer is `{ "ok": true, "output": … }` or `{ "ok": false, "error": { "code", "message" } }`. A closed deal no longer changes: `deals/update` answers it `NOT_FOUND`, as it does an archived deal, and a second `deals/close` is `AlreadyClosed`. Closing the deal publishes `deal.closed`: the worker publishes it on `integration:crm.deals`, which `docker exec crm-redis redis-cli XRANGE integration:crm.deals - +` shows, and sends a webhook to any endpoint `CRM_WEBHOOK_ENDPOINTS` lists for that organization's id.
 
-`npm run dev:user -- <userId> <email> <password> <organization> [member|manager]` sets a user's password (12 characters or more), creates the organization with that name if there is none, adds the membership with that role (default `member`), and prints a token. `npm run dev:session -- <userId> <organization> [member|manager]` prints a token without a password. An organization's id is a UUID; `POST /auth/organizations` gives it. Both are for local development. There is no signup and no password reset.
+`npm run dev:user -- <userId> <name> <email> <password> <organization> [member|manager]` sets a user's password (12 characters or more), creates the organization with that name if there is none, adds the membership under that name with that role (default `member`), and prints a token. An existing membership keeps its name and role. `npm run dev:session -- <userId> <name> <organization> [member|manager]` prints a token without a password. An organization's id is a UUID; `POST /auth/organizations` gives it. Both are for local development. There is no signup and no password reset.
 
 ## MCP
 
@@ -212,11 +212,11 @@ The edge builds the actor before Lattice sees it ([`handler.ts`](src/servers/htt
 
 ## Roles and deal amounts
 
-A membership has a role: `member` (the default) or `manager`. A deal's `amount` is maskable, and the contract's `fields` rule lets managers and support read it.
+A membership has a `name`, the member's display name in that organization, and a role: `member` (the default) or `manager`. A member reads every membership of its organization, its team, so a team list or an owner picker needs no join. Support reads them all. A deal's `amount` is maskable, and the contract's `fields` rule lets managers and support read it.
 
 - A member sees every deal of the organization without its `amount`, on reads, writes and `deals.close`. A `where` or `sort` on `amount` is `VALIDATION`.
 - A manager and support see amounts, and a manager filters and sorts by them.
-- A member may still set an amount on create or update; the response leaves it out.
+- A member may still set an amount on create; the response leaves it out. An update that names `amount` is `VALIDATION`, since a member cannot see what it would overwrite.
 
 | Case | Answer |
 | --- | --- |

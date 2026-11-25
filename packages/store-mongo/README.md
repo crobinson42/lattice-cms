@@ -111,9 +111,10 @@ The app lists its migrations explicitly, in id order:
 ```ts
 // examples/crm/src/infra/migrations/index.ts
 import m0001 from './0001-backfill-deal-archived.js';
+import m0002 from './0002-backfill-membership-name.js';
 
 /** The app's data migrations, in id order. `migrate()` runs each once. */
-export const migrations = [m0001];
+export const migrations = [m0001, m0002];
 ```
 
 At startup, start the store, then migrate, then create indexes, as in [Wiring](#wiring), so a migration can fix duplicates before a unique index is built.

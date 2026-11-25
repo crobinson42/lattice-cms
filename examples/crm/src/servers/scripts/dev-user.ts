@@ -8,14 +8,16 @@ import { createApp } from '../app.js';
 import { storeLogin } from '../auth/login.js';
 
 /**
- * Sets a user's email and password, adds a membership in the organization
- * with that name (creating it if needed), and prints a session token. Local
- * development only. The password needs 12 characters or more.
+ * Sets a user's email and password, adds a membership under the member's
+ * name in the organization with that name (creating it if needed), and
+ * prints a session token. Local development only. The password needs 12
+ * characters or more.
  *
- * npm run dev:user -w @latticecms/example-crm -- <userId> <email> <password> <organization> [member|manager]
+ * npm run dev:user -w @latticecms/example-crm -- <userId> <name> <email> <password> <organization> [member|manager]
  */
 const [
   userId = '',
+  name = '',
   email = '',
   password = '',
   organization = '',
@@ -24,13 +26,14 @@ const [
 const parsed = role.safeParse(given);
 if (
   userId === '' ||
+  name === '' ||
   email === '' ||
   password === '' ||
   organization === '' ||
   !parsed.success
 ) {
   console.error(
-    'usage: npm run dev:user -- <userId> <email> <password> <organization> [member|manager]',
+    'usage: npm run dev:user -- <userId> <name> <email> <password> <organization> [member|manager]',
   );
   process.exit(1);
 }
@@ -60,7 +63,7 @@ try {
   console.log(
     await provisionDevUser(
       { crm, sessions, credentials },
-      { userId, email, password, organization, role: parsed.data },
+      { userId, name, email, password, organization, role: parsed.data },
     ),
   );
 } finally {

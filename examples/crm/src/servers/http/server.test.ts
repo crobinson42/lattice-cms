@@ -40,7 +40,7 @@ describe('the server, over the network, on MongoStore', () => {
     const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
     const token = await openDevSession(
       { crm, sessions },
-      { userId: 'ada', organization: 'Org A' },
+      { userId: 'ada', name: 'Ada', organization: 'Org A' },
     );
     const base = running.url;
     // The organization's id, as a switcher reads it: no organization header.

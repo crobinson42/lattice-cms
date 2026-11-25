@@ -6,9 +6,9 @@ import type { CrmSessions } from './sessions.js';
 
 /**
  * For local development: finds the organization named `organization`, or
- * creates it, makes `userId` a member of it when it is not one yet, and
- * opens a session for it. Returns the token. It skips any password: that is
- * what login checks.
+ * creates it, makes `userId` a member of it under `name` when it is not one
+ * yet, and opens a session for it. Returns the token. It skips any
+ * password: that is what login checks.
  */
 export async function openDevSession(
   deps: {
@@ -17,6 +17,8 @@ export async function openDevSession(
   },
   member: {
     readonly userId: string;
+    /** The member's display name, when the membership is new. */
+    readonly name: string;
     /** The organization's name. */
     readonly organization: string;
     /** The role when the membership is new. Default `member`. */
@@ -42,6 +44,7 @@ export async function openDevSession(
       {
         userId: member.userId,
         organizationId,
+        name: member.name,
         ...(member.role === undefined ? {} : { role: member.role }),
       },
       unscoped,
@@ -63,6 +66,8 @@ export async function provisionDevUser(
   },
   user: {
     readonly userId: string;
+    /** The member's display name, when the membership is new. */
+    readonly name: string;
     readonly email: string;
     readonly password: string;
     /** The organization's name. */
@@ -76,6 +81,7 @@ export async function provisionDevUser(
   );
   return openDevSession(deps, {
     userId: user.userId,
+    name: user.name,
     organization: user.organization,
     ...(user.role === undefined ? {} : { role: user.role }),
   });

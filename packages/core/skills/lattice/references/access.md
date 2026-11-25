@@ -11,6 +11,14 @@ const anyone = () => true;
 
 // An archived deal is hidden from every read and can no longer change.
 const live = () => ({ archived: { eq: false } });
+
+// A closed deal can no longer change either. Like an archived one, it
+// answers update with NOT_FOUND. It closes through deals.close, which
+// refuses a second close as AlreadyClosed.
+const editable = () => ({
+  archived: { eq: false },
+  closedAt: { exists: false },
+});
 ```
 
 ```ts
@@ -19,7 +27,7 @@ const live = () => ({ archived: { eq: false } });
     access: {
       read: live,
       create: anyone,
-      update: live,
+      update: editable,
       delete: live,
       close: live,
     },
@@ -34,16 +42,22 @@ const live = () => ({ archived: { eq: false } });
 - It fails closed. A missing function denies, and `access: {}` denies everything. An override uses the function of the action it replaces.
 - An access `Where` is ANDed with the caller's `where` and the tenant clause. A caller can only narrow it.
 
-A filter on the actor reads only the caller's own rows:
+A filter on the actor narrows a global collection to the caller's organization, and lets support read every row:
 
 ```ts
 // examples/crm/src/servers/rpc/contract.ts
   .collection(Memberships, {
-    // A caller lists its own memberships, in every organization. An
-    // organization switcher uses /auth organizations instead, since /rpc
+    // A member reads the memberships of the organization it acts in: its
+    // team, for a team list or an owner picker. Support reads every one.
+    // An organization switcher uses /auth organizations instead, since /rpc
     // needs an organization first. No create, update or delete: only
     // trusted code writes them.
-    access: { read: ({ actor }) => ({ userId: { eq: actor.userId } }) },
+    access: {
+      read: ({ actor }) =>
+        'support' in actor
+          ? true
+          : { organizationId: { eq: actor.organizationId } },
+    },
   })
 ```
 
