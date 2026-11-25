@@ -22,7 +22,8 @@ The maintainer chose these on 2026-11-25.
 - **Admin: kept at `/admin`.** The SPA serves at `/`. `<Admin>` is a route inside it, with the same session.
 - **Data layer: `@ts-pf/swr` and `swr`.**
 - **Overrides can call the generated operation** ([0036](../decisions/0036-an-override-can-call-the-generated-operation.md), proposed; the maintainer chose this design on 2026-11-25). A core change, made in step 1c, so `deals.update` and `deals.create` can refuse a won or lost stage without copying core's update.
-- **The crm server's type budget is 560k** (raised from 470k on 2026-11-25), for activities, tasks and 1c's overrides.
+- **The crm server's type budget is 640k for now** (raised from 470k to 560k, then to 640k on 2026-11-25). Activities, the seventh collection, cost about 100k where the sixth cost 40k. Step 1d finds the type that grows with the number of collections, and brings the budget back down.
+- **Core sorts optional fields, with missing values last** ([0037](../decisions/0037-an-optional-field-sorts-with-missing-values-last.md), proposed; the maintainer chose it on 2026-11-25), in step 1f, so Tasks sort by due date and deals by expected close date.
 - **Approved dependencies for the crm:** `wouter`, `@shadalaya/react`, `@shadalaya/theme`, `swr`, `@ts-pf/swr`, `@ts-pf/client` and `@ts-pf/client-http` as dependencies of the page; `tailwindcss` and `@tailwindcss/vite` as devDependencies. Anything else is asked for first.
 
 ## In scope
@@ -31,7 +32,7 @@ The crm's domain, its dev loop, its HTTP edge where the SPA changes it, the SPA,
 
 ## Out of scope
 
-Changes to `packages/*` other than step 1c, unless a step is `BLOCKED` on a real gap and the maintainer agrees. Products and line items, pipeline stages per organization, email sync, file attachments (uploads wait for `@hexok/blob`), reports and aggregates beyond counts, notifications, real-time updates, i18n, a mobile layout beyond what shadalaya's sidebar gives for free, signup and password reset. Do not add options for them.
+Changes to `packages/*` other than steps 1c to 1f, unless a step is `BLOCKED` on a real gap and the maintainer agrees. Products and line items, pipeline stages per organization, email sync, file attachments (uploads wait for `@hexok/blob`), reports and aggregates beyond counts, notifications, real-time updates, i18n, a mobile layout beyond what shadalaya's sidebar gives for free, signup and password reset. Do not add options for them.
 
 ## Resource UI profile
 
@@ -55,10 +56,10 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 - [x] Companies gain `industry` and `phone`, both optional. Contacts gain `phone` and `title` (job title), both optional.
 - [x] Deals gain `ownerId` (a user id, optional: unassigned is allowed) and `expectedCloseDate` (an ISO date, optional). Stages become `lead`, `qualified`, `proposal`, `negotiation`, `won`, `lost`.
 - [x] A closed deal cannot change: the update access filter adds `closedAt: { exists: false }`, so it answers `NOT_FOUND` as an archived deal does (1a). Create and update refuse a won or lost stage, or a `closedAt` (1c).
-- [ ] `activities`: `kind` (`note`, `call`, `email`, `meeting`), `body`, `occurredAt` (date-time), `authorId`, and optional refs `companyId`, `contactId` and `dealId`, which cascade on delete. Tenanted. The author is the caller, never the client: there is no generated `create` access, and an `activities.log` method stamps `authorId` from the actor. Only the author updates or deletes an activity, as an access filter (0005). At least one parent ref is required, if `collection()` takes a refined schema; if it does not, leave the rule out and say so in Discoveries.
-- [ ] `tasks`: `title`, `dueDate` (an ISO date, optional), `done` (default `false`), `assigneeId` (a user id, optional), and the same three optional parent refs, which cascade. Tenanted. Any member reads and writes them.
+- [x] `activities`: `kind` (`note`, `call`, `email`, `meeting`), `body`, `occurredAt` (date-time), `authorId`, and optional refs `companyId`, `contactId` and `dealId`, which cascade on delete. Tenanted. The author is the caller, never the client: there is no generated `create` access, and an `activities.log` method stamps `authorId` from the actor. Only the author updates or deletes an activity, as an access filter (0005). At least one parent ref is required: added in step 1e, once a refined schema with refs builds.
+- [x] `tasks`: `title`, `dueDate` (an ISO date, optional), `done` (default `false`), `assigneeId` (a user id, optional), and the same three optional parent refs, which cascade. Tenanted. Any member reads and writes them.
 - [x] Memberships gain a required `name`, the member's display name in that organization. Read access becomes the caller's organization (support reads all). A migration backfills `name` from `userId`, written with `lattice migration`. `dev:user` takes a name. `/auth` `organizations` is unchanged.
-- [ ] The events catalog, the MCP toolset, the OpenAPI and codegen snapshots, and every README and skill quote follow. Tests through `build()` and `createLocalClient` cover each new rule: the close-only rule, the log method's author, author-only edits, cascades, and team reads.
+- [x] The events catalog, the MCP toolset, the OpenAPI and codegen snapshots, and every README and skill quote follow. Tests through `build()` and `createLocalClient` cover each new rule: the close-only rule, the log method's author, author-only edits, cascades, and team reads.
 - Applies: 0004, 0005, 0012, 0018, 0019, 0021, 0028, 0031, 0035.
 
 ### 1c. Overrides call the generated operation
@@ -66,6 +67,21 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 - [x] Core: `build()`'s overrides factory receives `generated`, and core exports `CreateInput<C>` and `UpdateInput<C>`, as [0036](../decisions/0036-an-override-can-call-the-generated-operation.md) says. Guards, logging and spans run once. Tests through `build()`; the core README, the agent skill and `architecture.md` (orchestrator) follow. A changeset.
 - [x] The crm: `UpdateDeal` and `CreateDeal` refuse `stage` `won` or `lost` and any `closedAt` with `VALIDATION` at that path, naming `deals.close`, then call the generated operation. `deals.close` is the only way to close a deal.
 - [x] Re-measure core's and the crm's type-check against their budgets.
+
+### 1d. Flat type cost per collection
+
+- [ ] Find which type in core's composition (or ts-pf's router checks) grows with the number of collections, using a fixture app that adds plain collections one at a time and measures each. Time-boxed: report the cause before building the fix.
+- [ ] Fix it so each plain collection costs about the same, whatever the count. Re-measure core and the crm, and set the crm budget back from the measurement.
+- [ ] A core test or script that guards it: the cost of the nth plain collection stays within a bound.
+
+### 1e. A refined schema with refs builds
+
+- [ ] Core: a collection whose schema has an object-level `.refine()` and a ref builds its contract, and populates. Today `expansionOf` (`populate.ts:102`) extends `clientOutput`, which carries the refinement, and Zod refuses. Outputs should not carry input refinements. A core test with a refined, populated collection. A changeset.
+- [ ] The crm: activities and tasks require at least one parent ref, with `VALIDATION` at `companyId`. Tests on create and update.
+
+### 1f. Optional fields sort, missing last
+
+- [ ] Core and every store, as [0037](../decisions/0037-an-optional-field-sorts-with-missing-values-last.md) says: `SortKey` takes optional and nullable fields, missing values come last in both directions, and the cursor records a missing value. The store conformance suite covers paging across the boundary, ascending and descending, on MemoryStore and MongoStore. The admin's sort control offers those fields. A changeset.
 
 ### 2. The dev loop
 
@@ -123,3 +139,6 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 - 1a: the CLI's migrate test reads the crm's migrations instead of hard-coding them, so a crm migration no longer breaks it.
 - 1c: `generated` first held every body, which let an override create rows with no create-access check. Now it holds only the declared overrides, and each body checks its own action's needs. The names became `CreateInput`/`UpdateInput`, because core/store already has a `Patch` with the opposite clearing rule.
 - 1c: core's type cost went down (443k to 433k), because one shared generated use case class replaced two per-operation class factories.
+- 1b: the seventh collection costs about 100k where the sixth cost 40k, whichever collection it is (step 1d). Test files count too: `tsconfig.check.json` includes them (1b's test file is about 16k).
+- 1b: a refined collection schema with a ref throws at `.contract` (step 1e). `find` cannot sort on an optional field (step 1f).
+- 1b: ts-pf's codegen profile renames hoisted schema names when collections are added, so generated client type names are not stable as an app grows (architecture.md, Known limits: OpenAPI names).

@@ -8,6 +8,8 @@ describe('the contract module', () => {
       'companies',
       'contacts',
       'deals',
+      'activities',
+      'tasks',
       'memberships',
       'organizations',
     ]);

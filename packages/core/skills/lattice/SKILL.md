@@ -17,7 +17,7 @@ Import from `@latticecms/core`. A collection is a slug and a Zod schema. `framew
 
 The app owns authentication, HTTP, the store's lifecycle, migrations' timing and the worker. Lattice owns the collection's procedures, its access and tenant filters, masking, population and its events.
 
-The running shape is `examples/crm`. Companies, contacts and deals belong to organizations. A deal refers to a company, links contacts through a relation, and hides its amount from members. A deal closes once through a method, and its delete is an override that archives it. Use the app's real story. The crm is only the shape.
+The running shape is `examples/crm`. Companies, contacts and deals belong to organizations. A deal refers to a company, links contacts through a relation, and hides its amount from members. A deal closes once through a method, and its delete is an override that archives it. An activity is logged through a method that stamps its author. Use the app's real story. The crm is only the shape.
 
 ## Concepts
 

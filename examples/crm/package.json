@@ -2,7 +2,7 @@
   "name": "@latticecms/example-crm",
   "version": "0.0.0",
   "private": true,
-  "description": "A CRM on Lattice: three tenanted collections on MongoDB, served at /rpc, as MCP tools at /mcp, and as an admin at /admin.",
+  "description": "A CRM on Lattice: companies, contacts, deals, activities and tasks, tenanted, on MongoDB, served at /rpc, as MCP tools at /mcp, and as an admin at /admin.",
   "type": "module",
   "scripts": {
     "build": "tsc -b && vite build",

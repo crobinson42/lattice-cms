@@ -1,14 +1,17 @@
 import { framework } from '@latticecms/core';
+import { LogActivity } from '../../app/use-cases/activities/log-activity.js';
 import { AppUseCase } from '../../app/use-cases/context.js';
 import { ArchiveDeal } from '../../app/use-cases/deals/archive-deal.js';
 import { CloseDeal } from '../../app/use-cases/deals/close-deal.js';
 import { CreateDeal } from '../../app/use-cases/deals/create-deal.js';
 import { UpdateDeal } from '../../app/use-cases/deals/update-deal.js';
+import { Activities } from '../../domain/collections/activities.js';
 import { Companies } from '../../domain/collections/companies.js';
 import { Contacts } from '../../domain/collections/contacts.js';
 import { Deals } from '../../domain/collections/deals.js';
 import { Memberships } from '../../domain/collections/memberships.js';
 import { Organizations } from '../../domain/collections/organizations.js';
+import { Tasks } from '../../domain/collections/tasks.js';
 import { clientErrors, toRpcError } from './errors.js';
 
 /** Any signed-in caller may do this. The edge has already checked the actor. */
@@ -25,7 +28,7 @@ const editable = () => ({
   closedAt: { exists: false },
 });
 
-/** The CRM's API: five collections, three overrides and one method. No ports. */
+/** The CRM's API: seven collections, three overrides and two methods. No ports. */
 export const crm = framework({
   family: AppUseCase,
   errors: { declared: clientErrors, map: toRpcError },
@@ -54,6 +57,21 @@ export const crm = framework({
     // A deal closes only through deals.close: create and update refuse to.
     overrides: { create: CreateDeal, update: UpdateDeal, delete: ArchiveDeal },
   })
+  .collection(Activities, {
+    // Any member reads the timeline. Only the author changes or removes an
+    // activity, as a filter: another member's is NOT_FOUND. No create: log
+    // is the only way in, so the author is always the caller.
+    access: {
+      read: anyone,
+      update: ({ actor }) => ({ authorId: { eq: actor.userId } }),
+      delete: ({ actor }) => ({ authorId: { eq: actor.userId } }),
+      log: anyone,
+    },
+    methods: { log: LogActivity },
+  })
+  .collection(Tasks, {
+    access: { read: anyone, create: anyone, update: anyone, delete: anyone },
+  })
   .collection(Memberships, {
     // A member reads the memberships of the organization it acts in: its
     // team, for a team list or an owner picker. Support reads every one.
@@ -79,4 +97,13 @@ export const crm = framework({
 /** What clients and codegen import. */
 export const contract = crm.contract;
 
-export { AppUseCase, Companies, Contacts, Deals, Memberships, Organizations };
+export {
+  Activities,
+  AppUseCase,
+  Companies,
+  Contacts,
+  Deals,
+  Memberships,
+  Organizations,
+  Tasks,
+};

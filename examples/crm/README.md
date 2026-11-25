@@ -1,6 +1,6 @@
 # examples/crm
 
-A CRM on Lattice: companies, contacts and deals, each organization's own, on MongoDB. It is the example the `@latticecms/core` README quotes, and the app every Lattice change is checked against. It is private and never published.
+A CRM on Lattice: companies, contacts, deals, activities and tasks, each organization's own, on MongoDB. It is the example the `@latticecms/core` README quotes, and the app every Lattice change is checked against. It is private and never published.
 
 ## Run it
 
@@ -225,6 +225,16 @@ A membership has a `name`, the member's display name in that organization, and a
 | A wrong password, an unknown email, or a locked email at login | `401 UNAUTHORIZED`, one body for all |
 
 The reason is logged, never sent. Logs carry no password and no email; a login refusal names a hash of the email instead.
+
+## Activities and tasks
+
+An activity records what happened: a note, call, email or meeting on a company, a contact or a deal ([`activities.ts`](src/domain/collections/activities.ts)). A task is what to do next, with an optional due date and assignee ([`tasks.ts`](src/domain/collections/tasks.ts)). Both are each organization's own, and any member reads them.
+
+- An activity is created only with `activities.log`, a method, not the generated create: its author comes from the actor, never the client ([`log-activity.ts`](src/app/use-cases/activities/log-activity.ts)). `authorId` is not in log's input, so a client cannot name one, and one it sends is dropped. Activities have no `create` access, so `activities.create` is `FORBIDDEN`, and MCP leaves it out. log publishes `activities.created` as the generated create would, by constructing the event from the collection.
+- Only the author updates or deletes an activity. That is an access filter on `authorId`, so another member's activity is `NOT_FOUND`. Any member writes tasks.
+- Deleting a company or a contact deletes its activities and tasks (`onDelete: 'cascade'`). A deal's ref restricts: `deals.delete` archives, so an archived deal keeps its history.
+- An activity should name a company, a contact or a deal, but the schema does not require one yet: a refined schema with refs fails when core builds its populated reads.
+- A task's `dueDate` is optional, so `find` filters on it (`dueDate: { lte: … }`) but cannot sort by it.
 
 ## Passwords and their limits
 

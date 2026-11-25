@@ -49,5 +49,6 @@ These are not decided yet. Treat them as context, not rules.
 | ID | Decision | Strength | Revisit when |
 | --- | --- | --- | --- |
 | [0036](0036-an-override-can-call-the-generated-operation.md) | An override can call the generated operation it replaces | default | An override needs to change a generated operation's input or output schema, or hexok lets a use case call another's body without running its wrapper again. |
+| [0037](0037-an-optional-field-sorts-with-missing-values-last.md) | An optional field sorts, with missing values last | default | An app needs missing values first, or a store cannot page missing values without scanning the collection. |
 
 2 superseded records are history and not listed. Do not follow them.

@@ -80,7 +80,7 @@ It links `.agents/skills/lattice` to `node_modules/@latticecms/core/skills/latti
 
 ## Concepts
 
-The examples come from [`examples/crm`](../../examples/crm): a CRM with tenanted companies, contacts and deals on MongoDB, served to signed-in members of an organization.
+The examples come from [`examples/crm`](../../examples/crm): a CRM with tenanted companies, contacts, deals, activities and tasks on MongoDB, served to signed-in members of an organization.
 
 ### Collections
 
@@ -200,16 +200,19 @@ export class CloseDeal extends AppUseCase('deals.close', {
 ```ts
 // examples/crm/src/servers/rpc/contract.ts
 import { framework } from '@latticecms/core';
+import { LogActivity } from '../../app/use-cases/activities/log-activity.js';
 import { AppUseCase } from '../../app/use-cases/context.js';
 import { ArchiveDeal } from '../../app/use-cases/deals/archive-deal.js';
 import { CloseDeal } from '../../app/use-cases/deals/close-deal.js';
 import { CreateDeal } from '../../app/use-cases/deals/create-deal.js';
 import { UpdateDeal } from '../../app/use-cases/deals/update-deal.js';
+import { Activities } from '../../domain/collections/activities.js';
 import { Companies } from '../../domain/collections/companies.js';
 import { Contacts } from '../../domain/collections/contacts.js';
 import { Deals } from '../../domain/collections/deals.js';
 import { Memberships } from '../../domain/collections/memberships.js';
 import { Organizations } from '../../domain/collections/organizations.js';
+import { Tasks } from '../../domain/collections/tasks.js';
 import { clientErrors, toRpcError } from './errors.js';
 
 /** Any signed-in caller may do this. The edge has already checked the actor. */
@@ -226,7 +229,7 @@ const editable = () => ({
   closedAt: { exists: false },
 });
 
-/** The CRM's API: five collections, three overrides and one method. No ports. */
+/** The CRM's API: seven collections, three overrides and two methods. No ports. */
 export const crm = framework({
   family: AppUseCase,
   errors: { declared: clientErrors, map: toRpcError },
@@ -255,6 +258,21 @@ export const crm = framework({
     // A deal closes only through deals.close: create and update refuse to.
     overrides: { create: CreateDeal, update: UpdateDeal, delete: ArchiveDeal },
   })
+  .collection(Activities, {
+    // Any member reads the timeline. Only the author changes or removes an
+    // activity, as a filter: another member's is NOT_FOUND. No create: log
+    // is the only way in, so the author is always the caller.
+    access: {
+      read: anyone,
+      update: ({ actor }) => ({ authorId: { eq: actor.userId } }),
+      delete: ({ actor }) => ({ authorId: { eq: actor.userId } }),
+      log: anyone,
+    },
+    methods: { log: LogActivity },
+  })
+  .collection(Tasks, {
+    access: { read: anyone, create: anyone, update: anyone, delete: anyone },
+  })
   .collection(Memberships, {
     // A member reads the memberships of the organization it acts in: its
     // team, for a team list or an owner picker. Support reads every one.
@@ -280,7 +298,16 @@ export const crm = framework({
 /** What clients and codegen import. */
 export const contract = crm.contract;
 
-export { AppUseCase, Companies, Contacts, Deals, Memberships, Organizations };
+export {
+  Activities,
+  AppUseCase,
+  Companies,
+  Contacts,
+  Deals,
+  Memberships,
+  Organizations,
+  Tasks,
+};
 ```
 
 `framework({ family, errors? })` starts a definition. `errors` is the app's `{ declared, map }`; an app with no domain errors leaves it out.
@@ -303,6 +330,7 @@ export { AppUseCase, Companies, Contacts, Deals, Memberships, Organizations };
 // examples/crm/src/servers/app.ts
 import type { CollectionStore } from '@latticecms/core';
 import type { DomainEventPublisher } from '../app/ports/events/domain-event-publisher.js';
+import { LogActivity } from '../app/use-cases/activities/log-activity.js';
 import { ArchiveDeal } from '../app/use-cases/deals/archive-deal.js';
 import { CloseDeal } from '../app/use-cases/deals/close-deal.js';
 import { CreateDeal } from '../app/use-cases/deals/create-deal.js';
@@ -321,6 +349,9 @@ export function createApp({ store, events }: AppPorts) {
     events,
     methods: ({ repos }) => ({
       deals: { close: new CloseDeal({ deals: repos.deals, events }) },
+      activities: {
+        log: new LogActivity({ activities: repos.activities, events }),
+      },
     }),
     overrides: ({ repos, generated }) => ({
       deals: {
@@ -666,6 +697,12 @@ export class DomainEvents extends EventCatalog('domain-events', {
   dealsCreated: Deals.events.created,
   dealsUpdated: Deals.events.updated,
   dealsDeleted: Deals.events.deleted,
+  activitiesCreated: Activities.events.created,
+  activitiesUpdated: Activities.events.updated,
+  activitiesDeleted: Activities.events.deleted,
+  tasksCreated: Tasks.events.created,
+  tasksUpdated: Tasks.events.updated,
+  tasksDeleted: Tasks.events.deleted,
   membershipsCreated: Memberships.events.created,
   membershipsUpdated: Memberships.events.updated,
   membershipsDeleted: Memberships.events.deleted,
@@ -971,7 +1008,9 @@ const tk = createToolkit(contract).$context<CallContext<Actor>>();
 
 // No access rule allows these, so every call is FORBIDDEN: as tools they
 // would only cost a model context and wrong turns. They stay on /rpc.
+// activities.log is how an activity is created.
 const alwaysDenied = [
+  tk.activities.create,
   tk.memberships.create,
   tk.memberships.update,
   tk.memberships.delete,
