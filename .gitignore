@@ -1,5 +1,6 @@
 node_modules
 dist
+.astro
 .turbo
 coverage
 *.tsbuildinfo
@@ -9,3 +10,5 @@ coverage
 *.log
 .env
 .env.*
+packages/docs/src/content/docs/packages/
+packages/docs/src/content/docs/getting-started.md

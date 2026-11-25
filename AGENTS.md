@@ -60,6 +60,7 @@ npm workspaces with Turbo. Node 24 (`.nvmrc`), engines `>=22.11`. ESM only.
 - `packages/store-mongo`: `@latticecms/store-mongo`: `MongoStore` and `migrate()`.
 - `packages/admin`: `@latticecms/admin`: the React admin that renders an app's served catalog.
 - `packages/cli`: `@latticecms/cli`: the `lattice` command.
+- `packages/docs`: `@latticecms/docs`, private: the Starlight site at crobinson42.github.io/lattice-cms. Its pages come from the READMEs; the generated ones are gitignored.
 - `examples/crm`: the example app. Private. Its admin page is `src/web`, served at `/admin`.
 - `docs/`: architecture, decisions, plans. `scripts/decisions.mjs`: the decisions index.
 
@@ -75,11 +76,12 @@ npm run test         # vitest
 npm run build        # tsc -b
 npm run decisions    # regenerate docs/decisions/README.md
 npx playwright install chromium   # once, for the crm's browser test
+npm run dev -w @latticecms/docs   # the docs site, at localhost:4321/lattice-cms/
 ```
 
 Scope a task with a Turbo filter: `npx turbo run test --filter=@latticecms/core`. Format and fix with `npx biome check --write .`.
 
-CI (`.github/workflows/ci.yml`) runs `lint`, `type-check`, `test` and `build` on every pull request and push to main. A release is the "Version Packages" pull request that the Release workflow opens from `.changeset/`; merging it publishes to npm.
+CI (`.github/workflows/ci.yml`) runs `lint`, `type-check`, `test` and `build` on every pull request and push to main. A release is the "Version Packages" pull request that the Release workflow opens from `.changeset/`; merging it publishes to npm. The Pages workflow deploys the docs site on every push to main.
 
 ## Before you finish
 

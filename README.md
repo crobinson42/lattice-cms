@@ -2,7 +2,9 @@
 
 Collections that compile into [hexok](https://github.com/crobinson42/hexok) use cases and a [ts-pf](https://github.com/crobinson42/ts-pf) contract, for internal tools, CRMs, admin panels and portals.
 
-Status: before 1.0. Nothing is published yet; 0.1.0 is the first release. File uploads are not built yet.
+Docs: [crobinson42.github.io/lattice-cms](https://crobinson42.github.io/lattice-cms/)
+
+Status: before 1.0. 0.1.0 is published to npm. File uploads are not built yet.
 
 | Package | What it is |
 | --- | --- |

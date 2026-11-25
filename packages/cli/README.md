@@ -2,7 +2,7 @@
 
 The `lattice` command. It adds a collection to a Lattice app: the collection, a test, its registration in the app's composition, and its events in the app's events catalog. It adds a data migration to the app's list, and runs the pending ones as a deploy step. It edits the app's files where their shape gives one place for each edit, or writes nothing and prints the lines to add by hand.
 
-Status: before 1.0, not yet published. The root README's [Getting started](../../README.md#3-collections) uses it on an empty app.
+Status: before 1.0. The root README's [Getting started](../../README.md#3-collections) uses it on an empty app.
 
 ## Install
 

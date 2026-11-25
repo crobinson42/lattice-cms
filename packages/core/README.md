@@ -2,7 +2,7 @@
 
 Collections that compile into hexok use cases, hexok event classes and a ts-pf contract. A collection is a Zod schema with a slug. `framework()` turns a set of them into a typed RPC contract, and `build()` wires that contract to a store and an event publisher. Every generated piece is a real hexok `UseCase`, `Event`, `Errors` and `Port`, and a real ts-pf `router`, so a hand-written one can take its place with the same types.
 
-Status: before 1.0, not yet published. Breaking changes are free until 1.0. The design and the reasons behind it are in [docs/architecture.md](../../docs/architecture.md).
+Status: before 1.0. Breaking changes are free until 1.0. The design and the reasons behind it are in [docs/architecture.md](../../docs/architecture.md).
 
 ## Install
 

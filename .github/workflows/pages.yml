@@ -1,0 +1,57 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Each job states its own permissions.
+permissions: {}
+
+# A deploy in progress finishes; the next one waits for it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  # mongodb-memory-server's postinstall would download a mongod that no job here uses.
+  MONGOMS_DISABLE_POSTINSTALL: "1"
+
+jobs:
+  build:
+    name: Build the docs site
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+      - run: npx turbo run build --filter=@latticecms/docs
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: packages/docs/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

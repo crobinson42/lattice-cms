@@ -2,7 +2,7 @@
 
 An admin for a [Lattice](../core) app. It renders a collection index, list views and detail views for every collection, from the catalog the app serves. There is no per-collection code: what a page shows comes from the procedures' JSON Schema and their `lattice` meta.
 
-Status: before 1.0, not yet published.
+Status: before 1.0.
 
 ## Install
 

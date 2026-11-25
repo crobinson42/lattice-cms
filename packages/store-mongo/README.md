@@ -2,7 +2,7 @@
 
 The MongoDB `CollectionStore` for [`@latticecms/core`](../core). Each collection is a Mongo collection of the same name, and a document's `id` is its `_id`. Filters translate one to one into Mongo queries, and the store passes the conformance suite every Lattice store passes. It also runs the app's data migrations.
 
-Status: before 1.0, not yet published.
+Status: before 1.0.
 
 ## Install
 
