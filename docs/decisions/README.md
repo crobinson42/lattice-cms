@@ -46,6 +46,8 @@ Read the decision rules in [AGENTS.md](../../AGENTS.md#decisions) before you rel
 
 These are not decided yet. Treat them as context, not rules.
 
-None.
+| ID | Decision | Strength | Revisit when |
+| --- | --- | --- | --- |
+| [0036](0036-an-override-can-call-the-generated-operation.md) | An override can call the generated operation it replaces | default | An override needs to change a generated operation's input or output schema, or hexok lets a use case call another's body without running its wrapper again. |
 
 2 superseded records are history and not listed. Do not follow them.
