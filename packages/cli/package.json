@@ -1,6 +1,6 @@
 {
   "name": "@latticecms/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "The lattice command: scaffolds collections and migrations, and runs migrations.",
   "keywords": [
     "lattice",

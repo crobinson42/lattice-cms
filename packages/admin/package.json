@@ -1,6 +1,6 @@
 {
   "name": "@latticecms/admin",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "An admin for a Lattice app, rendered from the catalog it serves.",
   "keywords": [
     "lattice",
