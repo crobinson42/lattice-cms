@@ -5,45 +5,125 @@ on:
     branches: [main]
   workflow_dispatch:
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
+# Each job states its own permissions.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # mongodb-memory-server's postinstall would download a mongod that no job here uses.
+  MONGOMS_DISABLE_POSTINSTALL: "1"
 
 jobs:
-  release:
-    name: Version or publish
+  # With changesets pending, the version job opens or updates the "Version
+  # Packages" pull request. Once that is merged, pack and publish release what
+  # is not on npm yet.
+  select-mode:
+    name: Select mode
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
-      contents: write
-      pull-requests: write
-      id-token: write
-    env:
-      MONGOMS_DISABLE_POSTINSTALL: "1"
+      contents: read
+    outputs:
+      mode: ${{ steps.select-mode.outputs.mode }}
+      publish-plan-artifact-id: ${{ steps.select-mode.outputs.publish-plan-artifact-id }}
     steps:
       - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
       - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
-          cache: npm
-          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - run: npm ci
+
+      - id: select-mode
+        uses: changesets/action/select-mode@v2
+
+  version:
+    name: Version Packages pull request
+    needs: select-mode
+    if: needs.select-mode.outputs.mode == 'version'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - run: npm ci
+
+      - uses: changesets/action/version@v2
+        with:
+          script: npm run version-packages
+          pr-title: Version Packages
+          commit-message: "chore: version packages"
+
+  # The build runs here, without id-token, so no build step can publish.
+  pack:
+    name: Build and pack
+    needs: select-mode
+    if: needs.select-mode.outputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      pack-dir-artifact-id: ${{ steps.pack.outputs.pack-dir-artifact-id }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
 
       - run: npm ci
       - run: npm run build
 
-      # With changesets pending, this opens or updates the "Version Packages"
-      # pull request. Once that is merged, it publishes what is not on npm.
-      - name: Create release pull request or publish to npm
-        uses: changesets/action@v2
+      - id: pack
+        uses: changesets/action/pack@v2
         with:
-          version-script: npm run version-packages
-          publish-script: bash scripts/ci-publish.sh
-          pr-title: Version Packages
-          commit-message: "chore: version packages"
+          publish-plan-artifact-id: ${{ needs.select-mode.outputs.publish-plan-artifact-id }}
+
+  # npm trusts this job through OIDC: its trusted publisher names this file and
+  # the npm environment. No npm token exists.
+  publish:
+    name: Publish to npm
+    needs: pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - run: npm ci
+
+      - uses: changesets/action/publish@v2
+        with:
+          pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
           create-github-releases: true
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_CONFIG_PROVENANCE: true
