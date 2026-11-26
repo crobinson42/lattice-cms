@@ -22,7 +22,7 @@ The maintainer chose these on 2026-11-25.
 - **Admin: kept at `/admin`.** The SPA serves at `/`. `<Admin>` is a route inside it, with the same session.
 - **Data layer: `@ts-pf/swr` and `swr`.**
 - **Overrides can call the generated operation** ([0036](../decisions/0036-an-override-can-call-the-generated-operation.md), proposed; the maintainer chose this design on 2026-11-25). A core change, made in step 1c, so `deals.update` and `deals.create` can refuse a won or lost stage without copying core's update.
-- **The crm server's type budget is 660k for now** (raised from 470k step by step to 660k on 2026-11-25), until hexok's `family()` fix lands; then it is re-measured and lowered. Activities, the seventh collection, cost about 100k where the sixth cost 40k. Step 1d finds the type that grows with the number of collections, and brings the budget back down.
+- **The crm server's type budget is 520k** (it was raised to 660k while the upstream fixes were pending, then lowered after hexok 2.2.8 and ts-pf 1.0.1). Activities, the seventh collection, cost about 100k where the sixth cost 40k. Step 1d finds the type that grows with the number of collections, and brings the budget back down.
 - **The store port's `FindQuery` gains `optional`**, the sort fields a document may lack, filled by core (maintainer, 2026-11-25), so Mongo keeps its index-served sorts.
 - **Core sorts optional fields, with missing values last** ([0037](../decisions/0037-an-optional-field-sorts-with-missing-values-last.md), proposed; the maintainer chose it on 2026-11-25), in step 1f, so Tasks sort by due date and deals by expected close date.
 - **Approved dependencies for the crm:** `wouter`, `@shadalaya/react`, `@shadalaya/theme`, `swr`, `@ts-pf/swr`, `@ts-pf/client` and `@ts-pf/client-http` as dependencies of the page; `tailwindcss` and `@tailwindcss/vite` as devDependencies. Anything else is asked for first.
@@ -75,7 +75,7 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
   - hexok's `family()` intersects its statics with `Spec`: about 38k per collection that has a hand-written use case. That's why activities, with `activities.log`, cost ~100k.
   - Corrected by ts-pf's investigation: Lattice's read procedure types cost O(N) each on first deep evaluation (step 1g). ts-pf also halved `all()`'s own share (ts-pf#74).
 - [x] Briefs for both, which the maintainer hands to the hexok and ts-pf teams: [`../briefs/hexok-family-statics.md`](../briefs/hexok-family-statics.md) and [`../briefs/ts-pf-mcp-all-tools.md`](../briefs/ts-pf-mcp-all-tools.md).
-- [ ] Upgrade to hexok 2.2.8 (released with the fix, hexok#35) and to ts-pf 1.0.1 (the `all()` fix), both in step 1g's first part. Re-measure core and the crm, and set the crm budget from the measurement. hexok expects the collection→AnyCollection check (Zod's cost) to remain, so the saving lands near the brief's "proposed" row.
+- [x] Upgraded to hexok 2.2.8 and ts-pf 1.0.1. The crm server check went from 647k to 499k and the web check from 497k to 353k. The crm budget is now 520k.
 
 ### 1e. A refined schema with refs builds
 
