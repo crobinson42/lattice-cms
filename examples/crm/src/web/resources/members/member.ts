@@ -5,3 +5,13 @@ import type { contract } from '../../../servers/rpc/contract.js';
 export type Member = InferContractOutputs<
   typeof contract
 >['memberships']['find']['docs'][number];
+
+/** The team's member with this user id, or undefined if the team has none. */
+export function memberOf(
+  members: readonly Member[],
+  userId: string | undefined,
+): Member | undefined {
+  return userId === undefined
+    ? undefined
+    : members.find((member) => member.userId === userId);
+}

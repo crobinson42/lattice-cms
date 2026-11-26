@@ -8,7 +8,8 @@ Lattice has no joins. A relation is an id in one document, and population reads 
 ```ts
 // examples/crm/src/domain/collections/deals.ts
   schema: z.object({
-    title: z.string().min(1),
+    // The messages are what a form shows at the field.
+    title: z.string().min(1, 'Enter a title'),
     // An archived deal still refers to its company, so it restricts too.
     companyId: ref('companies'),
 ```

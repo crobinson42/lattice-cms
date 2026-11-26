@@ -1,10 +1,8 @@
 import { Button } from '@shadalaya/react/button';
-import { toast } from '@shadalaya/react/toast';
 import { asResult } from '@ts-pf/client';
 import { PlusIcon, UsersIcon } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
-import { useLocation } from 'wouter';
+import useSWR from 'swr';
 import { useApi } from '../api.js';
 import { useCompanySearch } from '../resources/companies/company-search.js';
 import { contactCount } from '../resources/contacts/contact.format.js';
@@ -15,14 +13,15 @@ import {
   contactSorts,
   defaultContactSort,
 } from '../resources/contacts/contact-sorts.js';
-import { LoadMore, useCursorPages } from '../ui/cursor-pages.js';
-import { DataTable, DataTableSkeleton } from '../ui/data-table.js';
+import { useAfterWrite } from '../ui/after-write.js';
+import { useCursorPages } from '../ui/cursor-pages.js';
+import { CursorTable } from '../ui/cursor-table.js';
 import { FormSheet } from '../ui/form.js';
 import { useListParams } from '../ui/list-params.js';
 import { PageHeader } from '../ui/page-header.js';
 import { SearchBox } from '../ui/search-box.js';
 import { SortSelect } from '../ui/sort-select.js';
-import { EmptyState, ErrorState } from '../ui/states.js';
+import { EmptyState } from '../ui/states.js';
 
 /**
  * The organization's contacts, each with their company: searched by name
@@ -31,8 +30,7 @@ import { EmptyState, ErrorState } from '../ui/states.js';
  */
 export default function ContactsPage() {
   const { rpc, swr } = useApi();
-  const { mutate } = useSWRConfig();
-  const [, navigate] = useLocation();
+  const afterWrite = useAfterWrite();
   const searchCompanies = useCompanySearch();
   const [params, show] = useListParams(contactSorts, defaultContactSort);
   const { sort } = params;
@@ -56,10 +54,11 @@ export default function ContactsPage() {
     const result = await asResult(rpc.contacts.create(input));
     if (!result.ok) return result.error;
     setCreating(false);
-    toast.add({ title: `Created ${result.data.name}`, type: 'success' });
-    void mutate(swr.contacts.matcher());
-    pages.refresh();
-    navigate(`/contacts/${result.data.id}`);
+    afterWrite({
+      changed: swr.contacts.matcher(),
+      says: `Created ${result.data.name}`,
+      goTo: `/contacts/${result.data.id}`,
+    });
     return undefined;
   };
 
@@ -92,47 +91,33 @@ export default function ContactsPage() {
           onChange={(next) => show({ ...params, sort: next })}
         />
       </div>
-      {pages.rows === undefined ? (
-        pages.error === undefined ? (
-          <DataTableSkeleton label="Contacts" columns={contactColumns} />
-        ) : (
-          <ErrorState
-            message="The contacts could not be loaded."
-            onRetry={pages.refresh}
-          />
-        )
-      ) : pages.rows.length === 0 ? (
-        params.q === '' ? (
-          <EmptyState
-            title="No contacts yet"
-            description="Add the people you work with at your companies."
-            action={newContact}
-          />
-        ) : (
-          <EmptyState
-            title={`No contacts match “${params.q}”`}
-            action={
-              <Button
-                variant="outline"
-                onClick={() => show({ ...params, q: '' })}
-              >
-                Clear search
-              </Button>
-            }
-          />
-        )
-      ) : (
-        <>
-          <DataTable
-            label="Contacts"
-            columns={contactColumns}
-            rows={pages.rows}
-            rowKey={({ id }) => id}
-            focusRow={pages.firstNew}
-          />
-          <LoadMore pages={pages} what="contacts" />
-        </>
-      )}
+      <CursorTable
+        label="Contacts"
+        columns={contactColumns}
+        pages={pages}
+        what="contacts"
+        empty={
+          params.q === '' ? (
+            <EmptyState
+              title="No contacts yet"
+              description="Add the people you work with at your companies."
+              action={newContact}
+            />
+          ) : (
+            <EmptyState
+              title={`No contacts match “${params.q}”`}
+              action={
+                <Button
+                  variant="outline"
+                  onClick={() => show({ ...params, q: '' })}
+                >
+                  Clear search
+                </Button>
+              }
+            />
+          )
+        }
+      />
       <FormSheet
         open={creating}
         onOpenChange={setCreating}

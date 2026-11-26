@@ -59,7 +59,7 @@ export function ContactForm(
     <form noValidate onSubmit={onSubmit}>
       <FieldGroup>
         {contactFields.map((field) =>
-          field.type === 'company' ? (
+          field.widget === 'company' ? (
             <CompanySelect
               key={field.name}
               name={field.name}
@@ -72,7 +72,7 @@ export function ContactForm(
               key={field.name}
               name={field.name}
               label={field.label}
-              type={field.type}
+              type={field.widget}
               defaultValue={initial(field.name)}
               error={errors.fields[field.name]}
             />

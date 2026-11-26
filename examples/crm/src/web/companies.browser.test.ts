@@ -282,7 +282,8 @@ describe('companies in a browser', () => {
       .getByRole('button', { name: 'Delete' })
       .click();
     await page.getByText('24 companies').waitFor();
-    // Both pages come back, the second one without the deleted company.
+    // Both loaded pages come back, read fresh: the second one without the
+    // deleted company, and never with it.
     await expect.poll(() => names(page)).toHaveLength(24);
     expect(await names(page)).not.toContain('Bolt 22');
   });

@@ -640,10 +640,13 @@ A collection names the fields a caller's rules may withhold, with `maskable`. Co
 // examples/crm/src/domain/collections/deals.ts
 export const Deals = collection('deals', {
   schema: z.object({
-    title: z.string().min(1),
+    // The messages are what a form shows at the field.
+    title: z.string().min(1, 'Enter a title'),
     // An archived deal still refers to its company, so it restricts too.
     companyId: ref('companies'),
-    amount: z.number().nonnegative(),
+    amount: z
+      .number({ error: 'Enter an amount' })
+      .nonnegative('An amount cannot be negative'),
     stage: z.enum(dealStages).default('lead'),
     // deals.delete archives: the row stays, with archived set.
     archived: z.boolean().default(false),
@@ -663,9 +666,6 @@ export const Deals = collection('deals', {
   },
   // Only managers and support see amounts: the contract's fields rule.
   maskable: ['amount'],
-  // The pipeline view: one organization's deals in a stage, newest first.
-  indexes: [{ fields: { organizationId: 1, stage: 1, createdAt: -1 } }],
-});
 ```
 
 - A withheld field is left out of what a client receives: `get`, `find`, `create`, `update` and `delete`, a relation's `list`, and documents populated into another collection's read, under the caller's rule for that collection. It is masked where every procedure returns to a client (HTTP, `createLocalClient`, MCP), so overrides and methods are masked too.
@@ -1113,7 +1113,7 @@ Every page, `<Admin>` among them, sits under a cache keyed by the organization, 
   key={organizationId ?? 'support'}
   value={{ provider: () => new Map(), shouldRetryOnError: retryable }}
 >
-  {children}
+  <ListsProvider>{children}</ListsProvider>
 </SWRConfig>
 ```
 

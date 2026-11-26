@@ -11,6 +11,7 @@ const servers = [
   'src/web/app.browser.test.ts',
   'src/web/companies.browser.test.ts',
   'src/web/contacts.browser.test.ts',
+  'src/web/deals.browser.test.ts',
 ];
 
 export default defineConfig({

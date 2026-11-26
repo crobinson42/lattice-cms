@@ -1,7 +1,8 @@
 import { Button } from '@shadalaya/react/button';
 import type { SwrKey } from '@ts-pf/swr';
-import { useState } from 'react';
-import useSWRInfinite from 'swr/infinite';
+import { useEffect, useRef, useState } from 'react';
+import useSWRInfinite, { unstable_serialize } from 'swr/infinite';
+import { useLists } from '../api.js';
 import { ErrorState } from './states.js';
 
 /** A page of a `find`: its documents, and the cursor to the next page. */
@@ -43,19 +44,29 @@ export function useCursorPages<
     key({ input: page }),
     page,
   ];
-  const pages = useSWRInfinite(
-    (_index, previous: Page<Row> | null) => {
-      if (previous === null) return pageKey(input);
-      if (previous.next === null) return null;
-      return pageKey({ ...input, after: previous.next });
-    },
-    ([, page]) => read(page),
-    // Every loaded page revalidates together, and a list that opens again
-    // reads again at once, even right after it closed: a write on another
-    // page cannot reach this cache, since SWR's filter mutate skips
-    // infinite keys.
-    { revalidateAll: true, dedupingInterval: 0 },
-  );
+  const getKey = (_index: number, previous: Page<Row> | null) => {
+    if (previous === null) return pageKey(input);
+    if (previous.next === null) return null;
+    return pageKey({ ...input, after: previous.next });
+  };
+  // Every loaded page revalidates together, so a refresh never leaves a
+  // stale page behind the first.
+  const pages = useSWRInfinite(getKey, ([, page]) => read(page), {
+    revalidateAll: true,
+  });
+  // A write finds this list by its key: to refresh it while it is on
+  // screen, or to reset it once it is not (useAfterWrite).
+  const lists = useLists();
+  const cacheKey = unstable_serialize(getKey);
+  const refresh = useRef(pages.mutate);
+  refresh.current = pages.mutate;
+  useEffect(() => {
+    lists.known.add(cacheKey);
+    lists.mounted.set(cacheKey, () => void refresh.current());
+    return () => {
+      lists.mounted.delete(cacheKey);
+    };
+  }, [lists, cacheKey]);
   const [firstNew, setFirstNew] = useState<number>();
   const rows = pages.data?.flatMap(({ docs }) => docs);
   return {

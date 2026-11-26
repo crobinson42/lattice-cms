@@ -30,3 +30,10 @@ it('writes only what differs from the defaults', () => {
     ),
   ).toEqual({ q: 'a&b', sort: 'name' });
 });
+
+it("keeps the list's other keys, such as a filter", () => {
+  expect(
+    writeListParams({ q: 'fuel', sort: 'name' }, 'name', '?stage=won&q=old'),
+  ).toBe('?stage=won&q=fuel');
+  expect(writeListParams({ q: '', sort: 'name' }, 'name', '?q=old')).toBe('');
+});

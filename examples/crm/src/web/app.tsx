@@ -18,6 +18,8 @@ const CompaniesPage = lazy(() => import('./pages/companies-page.js'));
 const CompanyPage = lazy(() => import('./pages/company-page.js'));
 const ContactsPage = lazy(() => import('./pages/contacts-page.js'));
 const ContactPage = lazy(() => import('./pages/contact-page.js'));
+const DealsPage = lazy(() => import('./pages/deals-page.js'));
+const DealPage = lazy(() => import('./pages/deal-page.js'));
 
 /** Every route of the app, in one table. */
 export function App() {
@@ -61,6 +63,18 @@ export function App() {
                         {({ id }) => (
                           <LazyPage fallback={<DetailPageSkeleton />}>
                             <ContactPage key={id} id={id} />
+                          </LazyPage>
+                        )}
+                      </Route>
+                      <Route path="/deals">
+                        <LazyPage fallback={<ListPageSkeleton />}>
+                          <DealsPage />
+                        </LazyPage>
+                      </Route>
+                      <Route path="/deals/:id">
+                        {({ id }) => (
+                          <LazyPage fallback={<DetailPageSkeleton />}>
+                            <DealPage key={id} id={id} />
                           </LazyPage>
                         )}
                       </Route>

@@ -1,10 +1,8 @@
 import { Button } from '@shadalaya/react/button';
-import { toast } from '@shadalaya/react/toast';
 import { asResult } from '@ts-pf/client';
 import { Building2Icon, PlusIcon } from 'lucide-react';
 import { useCallback, useState } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
-import { useLocation } from 'wouter';
+import useSWR from 'swr';
 import { useApi } from '../api.js';
 import { companyCount } from '../resources/companies/company.format.js';
 import type { CompanyCreate } from '../resources/companies/company.js';
@@ -14,14 +12,15 @@ import {
   companySorts,
   defaultCompanySort,
 } from '../resources/companies/company-sorts.js';
-import { LoadMore, useCursorPages } from '../ui/cursor-pages.js';
-import { DataTable, DataTableSkeleton } from '../ui/data-table.js';
+import { useAfterWrite } from '../ui/after-write.js';
+import { useCursorPages } from '../ui/cursor-pages.js';
+import { CursorTable } from '../ui/cursor-table.js';
 import { FormSheet } from '../ui/form.js';
 import { useListParams } from '../ui/list-params.js';
 import { PageHeader } from '../ui/page-header.js';
 import { SearchBox } from '../ui/search-box.js';
 import { SortSelect } from '../ui/sort-select.js';
-import { EmptyState, ErrorState } from '../ui/states.js';
+import { EmptyState } from '../ui/states.js';
 
 /**
  * The organization's companies: searched by name and sorted, both kept in
@@ -30,8 +29,7 @@ import { EmptyState, ErrorState } from '../ui/states.js';
  */
 export default function CompaniesPage() {
   const { rpc, swr } = useApi();
-  const { mutate } = useSWRConfig();
-  const [, navigate] = useLocation();
+  const afterWrite = useAfterWrite();
   const [params, show] = useListParams(companySorts, defaultCompanySort);
   const { sort } = params;
   const search = useCallback((q: string) => show({ q, sort }), [show, sort]);
@@ -53,10 +51,11 @@ export default function CompaniesPage() {
     const result = await asResult(rpc.companies.create(input));
     if (!result.ok) return result.error;
     setCreating(false);
-    toast.add({ title: `Created ${result.data.name}`, type: 'success' });
-    void mutate(swr.companies.matcher());
-    pages.refresh();
-    navigate(`/companies/${result.data.id}`);
+    afterWrite({
+      changed: swr.companies.matcher(),
+      says: `Created ${result.data.name}`,
+      goTo: `/companies/${result.data.id}`,
+    });
     return undefined;
   };
 
@@ -89,47 +88,33 @@ export default function CompaniesPage() {
           onChange={(next) => show({ ...params, sort: next })}
         />
       </div>
-      {pages.rows === undefined ? (
-        pages.error === undefined ? (
-          <DataTableSkeleton label="Companies" columns={companyColumns} />
-        ) : (
-          <ErrorState
-            message="The companies could not be loaded."
-            onRetry={pages.refresh}
-          />
-        )
-      ) : pages.rows.length === 0 ? (
-        params.q === '' ? (
-          <EmptyState
-            title="No companies yet"
-            description="Add the companies you sell to."
-            action={newCompany}
-          />
-        ) : (
-          <EmptyState
-            title={`No companies match “${params.q}”`}
-            action={
-              <Button
-                variant="outline"
-                onClick={() => show({ ...params, q: '' })}
-              >
-                Clear search
-              </Button>
-            }
-          />
-        )
-      ) : (
-        <>
-          <DataTable
-            label="Companies"
-            columns={companyColumns}
-            rows={pages.rows}
-            rowKey={({ id }) => id}
-            focusRow={pages.firstNew}
-          />
-          <LoadMore pages={pages} what="companies" />
-        </>
-      )}
+      <CursorTable
+        label="Companies"
+        columns={companyColumns}
+        pages={pages}
+        what="companies"
+        empty={
+          params.q === '' ? (
+            <EmptyState
+              title="No companies yet"
+              description="Add the companies you sell to."
+              action={newCompany}
+            />
+          ) : (
+            <EmptyState
+              title={`No companies match “${params.q}”`}
+              action={
+                <Button
+                  variant="outline"
+                  onClick={() => show({ ...params, q: '' })}
+                >
+                  Clear search
+                </Button>
+              }
+            />
+          )
+        }
+      />
       <FormSheet
         open={creating}
         onOpenChange={setCreating}

@@ -3,7 +3,13 @@ import { FetchLink } from '@ts-pf/client-http';
 import type { ClientError, InferContractProcedure } from '@ts-pf/contract';
 import { isPFError } from '@ts-pf/protocol';
 import { createSwr } from '@ts-pf/swr';
-import { createContext, type ReactNode, useContext, useMemo } from 'react';
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useMemo,
+  useState,
+} from 'react';
 import { SWRConfig } from 'swr';
 // Types only: the contract's module imports server code, which never
 // reaches the browser (bundle.test.ts checks).
@@ -85,8 +91,35 @@ export function ApiProvider({
         key={organizationId ?? 'support'}
         value={{ provider: () => new Map(), shouldRetryOnError: retryable }}
       >
-        {children}
+        <ListsProvider>{children}</ListsProvider>
       </SWRConfig>
     </ApiContext>
   );
+}
+
+/**
+ * The lists a page a time reads have shown in this organization, by the
+ * key SWR caches them under (`unstable_serialize`), and how to refresh
+ * each one on screen. A write uses it: SWR's filter `mutate` never reaches
+ * these lists.
+ */
+export type Lists = {
+  readonly known: Set<string>;
+  readonly mounted: Map<string, () => void>;
+};
+
+const ListsContext = createContext<Lists | null>(null);
+
+// Inside the organization's SWRConfig, so a switch starts a new set.
+function ListsProvider({ children }: { readonly children: ReactNode }) {
+  const [lists] = useState(
+    (): Lists => ({ known: new Set(), mounted: new Map() }),
+  );
+  return <ListsContext value={lists}>{children}</ListsContext>;
+}
+
+export function useLists(): Lists {
+  const lists = useContext(ListsContext);
+  if (lists === null) throw new Error('useLists() outside <ApiProvider>');
+  return lists;
 }

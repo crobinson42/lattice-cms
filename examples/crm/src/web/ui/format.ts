@@ -1,4 +1,28 @@
-// Dates as the app shows them, in the browser's locale and time zone.
+// Money and dates as the app shows them, in the browser's locale and time
+// zone.
+
+/** The app's one currency. */
+const currency = 'USD';
+
+/** An amount in whole units of the app's currency: "$12,500". */
+export function formatMoney(amount: number): string {
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+/**
+ * A plain date, such as "2026-12-01", as that day wherever the browser is:
+ * "Dec 1, 2026". A date has no time, so it is read as local, not UTC.
+ */
+export function formatDay(isoDate: string): string {
+  const [year = 0, month = 1, day = 1] = isoDate.split('-').map(Number);
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(
+    new Date(year, month - 1, day),
+  );
+}
 
 /** A date-time as a date: "Nov 25, 2026". */
 export function formatDate(iso: string): string {

@@ -36,12 +36,12 @@ export function CompanyForm(
   return (
     <form noValidate onSubmit={onSubmit}>
       <FieldGroup>
-        {companyFields.map(({ name, label, type }) => (
+        {companyFields.map(({ name, label, widget }) => (
           <TextField
             key={name}
             name={name}
             label={label}
-            type={type}
+            type={widget}
             defaultValue={initial(name)}
             error={errors.fields[name]}
           />

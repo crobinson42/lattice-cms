@@ -13,15 +13,16 @@ import { builtPage } from '../test/web.js';
  * Gzipped bytes: the measurement of 2026-11-26, plus 5%.
  * - Startup holds React, the shell, sign-in, the session and the API, and
  *   Base UI's shared chunk, which the sidebar's sheet and the menus use.
- * - The largest page is a company's: the contact form and its combobox
- *   come with it, for the company's contacts section.
+ * - The largest page is a company's: the contact and deal forms, the
+ *   combobox and the members kit come with it, for its contacts and deals
+ *   sections.
  * - The admin loads the alert dialog and the table with it, now that no
  *   page at startup does.
  */
 const budget = {
   startup: 187_900,
   startupWithoutReact: 117_000,
-  page: 27_400,
+  page: 31_400,
   admin: 26_800,
 };
 

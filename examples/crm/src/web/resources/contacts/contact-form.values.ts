@@ -3,6 +3,7 @@ import {
   type FormValues,
   fillCreate,
   fillPatch,
+  text,
 } from '../../ui/form.js';
 import type {
   ContactCreate,
@@ -10,14 +11,23 @@ import type {
   ContactWithCompany,
 } from './contact.js';
 
-/** The form's fields, in its order. The company is picked, not typed. */
+/**
+ * The form's fields, in its order, each typed by what a create takes. The
+ * company is picked, not typed.
+ */
 export const contactFields = [
-  { name: 'name', label: 'Name', type: 'text' },
-  { name: 'email', label: 'Email', type: 'email' },
-  { name: 'companyId', label: 'Company', type: 'company' },
-  { name: 'title', label: 'Title', type: 'text', optional: true },
-  { name: 'phone', label: 'Phone', type: 'tel', optional: true },
-] as const satisfies readonly FormField[];
+  { name: 'name', label: 'Name', widget: 'text', parse: text },
+  { name: 'email', label: 'Email', widget: 'email', parse: text },
+  { name: 'companyId', label: 'Company', widget: 'company', parse: text },
+  {
+    name: 'title',
+    label: 'Title',
+    widget: 'text',
+    parse: text,
+    optional: true,
+  },
+  { name: 'phone', label: 'Phone', widget: 'tel', parse: text, optional: true },
+] as const satisfies readonly FormField<ContactCreate>[];
 
 export type ContactField = (typeof contactFields)[number]['name'];
 

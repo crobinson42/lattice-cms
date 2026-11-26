@@ -3,16 +3,29 @@ import {
   type FormValues,
   fillCreate,
   fillPatch,
+  text,
 } from '../../ui/form.js';
 import type { Company, CompanyCreate, CompanyPatch } from './company.js';
 
-/** The form's fields, in its order. */
+/** The form's fields, in its order, each typed by what a create takes. */
 export const companyFields = [
-  { name: 'name', label: 'Name', type: 'text' },
-  { name: 'domain', label: 'Domain', type: 'text', optional: true },
-  { name: 'industry', label: 'Industry', type: 'text', optional: true },
-  { name: 'phone', label: 'Phone', type: 'tel', optional: true },
-] as const satisfies readonly FormField[];
+  { name: 'name', label: 'Name', widget: 'text', parse: text },
+  {
+    name: 'domain',
+    label: 'Domain',
+    widget: 'text',
+    parse: text,
+    optional: true,
+  },
+  {
+    name: 'industry',
+    label: 'Industry',
+    widget: 'text',
+    parse: text,
+    optional: true,
+  },
+  { name: 'phone', label: 'Phone', widget: 'tel', parse: text, optional: true },
+] as const satisfies readonly FormField<CompanyCreate>[];
 
 export type CompanyField = (typeof companyFields)[number]['name'];
 

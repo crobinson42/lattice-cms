@@ -21,31 +21,80 @@ export type FormValues<F extends string> = (field: F) => string;
 /** Sends a form's input, and answers with the refusal, if any. */
 export type Submit<I> = (input: I) => Promise<ApiError | undefined>;
 
+/** Reads a field's text as the value the API takes. */
+export type Parse<T> = (text: string) => T;
+
+/** Text, as typed. */
+export const text: Parse<string> = (typed) => typed;
+
+/** A number. An empty field is not a number, for the server to refuse. */
+export const number: Parse<number> = (typed) =>
+  typed === '' ? Number.NaN : Number(typed);
+
+/** An ISO date, as a date input gives it: "2026-12-01". */
+export const isoDate: Parse<string> = (typed) => typed;
+
 /**
- * A field of a resource's form: its name, label and input type. An
- * `optional` field may be left empty: a create leaves it out, and an edit
- * clears it with `null`.
+ * One of `values`, as a select of them gives it. A select offers nothing
+ * else, so anything else is the first value.
  */
-export type FormField<N extends string = string> = {
-  readonly name: N;
-  readonly label: string;
-  readonly type: string;
-  readonly optional?: true;
+export function oneOf<const V extends string>(
+  values: readonly [V, ...V[]],
+): Parse<V> {
+  return (typed) => values.find((value) => value === typed) ?? values[0];
+}
+
+/**
+ * The fields of a form for input `I`, by name: each reads its text with a
+ * parser of the field's own type, and only a field `I` lets be absent may
+ * be `optional`. An optional field left empty is left out of a create, and
+ * cleared with `null` in an edit. `widget` says how the form shows it.
+ */
+type Fields<I> = {
+  [K in keyof I & string]-?: {
+    readonly name: K;
+    readonly label: string;
+    readonly widget: string;
+    readonly parse: Parse<NonNullable<I[K]>>;
+    readonly optional?: undefined extends I[K] ? true : never;
+  };
 };
+
+/** A field of a form for input `I`. */
+export type FormField<
+  I,
+  K extends keyof I & string = keyof I & string,
+> = Fields<I>[K];
+
+/** Sets one field: its name and its parser's value have the same `K`. */
+function put<I, K extends keyof I & string>(
+  target: { [P in keyof I]?: I[P] | null },
+  field: Fields<I>[K],
+  typed: string,
+): void {
+  target[field.name] = field.parse(typed);
+}
+
+function clear<I, K extends keyof I & string>(
+  target: { [P in keyof I]?: I[P] | null },
+  field: Fields<I>[K],
+): void {
+  target[field.name] = null;
+}
 
 /**
  * Fills a create's input from the form, trimmed: every required field, and
  * each optional one that is not empty. `input` starts with the required
  * fields, which this overwrites.
  */
-export function fillCreate<F extends string>(
-  input: { [K in F]?: string | undefined },
-  fields: readonly FormField<F>[],
+export function fillCreate<I, F extends keyof I & string>(
+  input: { [P in keyof I]?: I[P] },
+  fields: readonly FormField<I, F>[],
   values: FormValues<F>,
 ): void {
-  for (const { name, optional } of fields) {
-    const value = values(name).trim();
-    if (optional !== true || value !== '') input[name] = value;
+  for (const field of fields) {
+    const typed = values(field.name).trim();
+    if (field.optional !== true || typed !== '') put(input, field, typed);
   }
 }
 
@@ -54,16 +103,17 @@ export function fillCreate<F extends string>(
  * cleared optional field is `null`, which removes it. An emptied required
  * field is sent, for the server to refuse at its field.
  */
-export function fillPatch<F extends string>(
-  patch: { [K in F]?: string | null | undefined },
-  fields: readonly FormField<F>[],
+export function fillPatch<I, F extends keyof I & string>(
+  patch: { [P in keyof I]?: I[P] | null },
+  fields: readonly FormField<I, F>[],
   before: FormValues<F>,
   values: FormValues<F>,
 ): void {
-  for (const { name, optional } of fields) {
-    const value = values(name).trim();
-    if (value === before(name).trim()) continue;
-    patch[name] = optional === true && value === '' ? null : value;
+  for (const field of fields) {
+    const typed = values(field.name).trim();
+    if (typed === before(field.name).trim()) continue;
+    if (field.optional === true && typed === '') clear(patch, field);
+    else put(patch, field, typed);
   }
 }
 

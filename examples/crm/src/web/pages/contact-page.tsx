@@ -1,12 +1,11 @@
 import { Button, buttonVariants } from '@shadalaya/react/button';
 import { Skeleton } from '@shadalaya/react/skeleton';
-import { toast } from '@shadalaya/react/toast';
 import { asResult } from '@ts-pf/client';
 import { isPFError } from '@ts-pf/protocol';
 import { PencilIcon, UserIcon } from 'lucide-react';
 import { useState } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
-import { Link, useLocation } from 'wouter';
+import useSWR from 'swr';
+import { Link } from 'wouter';
 import { useApi } from '../api.js';
 import { useCompanySearch } from '../resources/companies/company-search.js';
 import type {
@@ -18,6 +17,7 @@ import {
   ContactOverview,
   ContactOverviewSkeleton,
 } from '../resources/contacts/contact-overview.js';
+import { useAfterWrite } from '../ui/after-write.js';
 import { ConfirmDelete } from '../ui/confirm-delete.js';
 import { FormSheet } from '../ui/form.js';
 import { PageHeader } from '../ui/page-header.js';
@@ -71,8 +71,7 @@ export default function ContactPage({ id }: { readonly id: string }) {
 
 function Loaded({ contact }: { readonly contact: ContactWithCompany }) {
   const { rpc, swr } = useApi();
-  const { mutate } = useSWRConfig();
-  const [, navigate] = useLocation();
+  const afterWrite = useAfterWrite();
   const searchCompanies = useCompanySearch();
   const [editing, setEditing] = useState(false);
 
@@ -83,8 +82,10 @@ function Loaded({ contact }: { readonly contact: ContactWithCompany }) {
         rpc.contacts.update({ id: contact.id, ...patch }),
       );
       if (!result.ok) return result.error;
-      toast.add({ title: `Saved ${result.data.name}`, type: 'success' });
-      void mutate(swr.contacts.matcher());
+      afterWrite({
+        changed: swr.contacts.matcher(),
+        says: `Saved ${result.data.name}`,
+      });
     }
     setEditing(false);
     return undefined;
@@ -93,9 +94,11 @@ function Loaded({ contact }: { readonly contact: ContactWithCompany }) {
   const remove = async () => {
     const result = await asResult(rpc.contacts.delete({ id: contact.id }));
     if (!result.ok) return result.error;
-    toast.add({ title: `Deleted ${contact.name}`, type: 'success' });
-    void mutate(swr.contacts.matcher());
-    navigate('/contacts');
+    afterWrite({
+      changed: swr.contacts.matcher(),
+      says: `Deleted ${contact.name}`,
+      goTo: '/contacts',
+    });
     return undefined;
   };
 

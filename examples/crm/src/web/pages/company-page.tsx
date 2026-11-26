@@ -1,12 +1,11 @@
 import { Button, buttonVariants } from '@shadalaya/react/button';
 import { Skeleton } from '@shadalaya/react/skeleton';
-import { toast } from '@shadalaya/react/toast';
 import { asResult } from '@ts-pf/client';
 import { isPFError } from '@ts-pf/protocol';
 import { Building2Icon, PencilIcon, PlusIcon } from 'lucide-react';
 import { useState } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
-import { Link, useLocation } from 'wouter';
+import useSWR from 'swr';
+import { Link } from 'wouter';
 import { useApi } from '../api.js';
 import type { Company, CompanyPatch } from '../resources/companies/company.js';
 import { CompanyForm } from '../resources/companies/company-form.js';
@@ -18,17 +17,23 @@ import { useCompanySearch } from '../resources/companies/company-search.js';
 import type { ContactCreate } from '../resources/contacts/contact.js';
 import { companyContactColumns } from '../resources/contacts/contact-columns.js';
 import { ContactForm } from '../resources/contacts/contact-form.js';
+import { type DealCreate, readsAmounts } from '../resources/deals/deal.js';
+import { companyDealColumns } from '../resources/deals/deal-columns.js';
+import { DealForm } from '../resources/deals/deal-form.js';
+import { useAfterWrite } from '../ui/after-write.js';
 import { ConfirmDelete } from '../ui/confirm-delete.js';
-import { LoadMore, useCursorPages } from '../ui/cursor-pages.js';
-import { DataTable, DataTableSkeleton } from '../ui/data-table.js';
+import { useCursorPages } from '../ui/cursor-pages.js';
+import { CursorTable } from '../ui/cursor-table.js';
 import { FormSheet } from '../ui/form.js';
 import { PageHeader } from '../ui/page-header.js';
+import { Section } from '../ui/section.js';
 import type { Crumb } from '../ui/shell.js';
 import { EmptyState, ErrorState } from '../ui/states.js';
+import { TeamGate } from '../workspace/team.js';
 
 const parents: readonly Crumb[] = [{ label: 'Companies', href: '/companies' }];
 
-/** One company: its overview, and edit and delete. */
+/** One company: its overview, its contacts and deals, and edit and delete. */
 export default function CompanyPage({ id }: { readonly id: string }) {
   const { swr } = useApi();
   const { data, error, mutate } = useSWR(
@@ -72,8 +77,7 @@ export default function CompanyPage({ id }: { readonly id: string }) {
 
 function Loaded({ company }: { readonly company: Company }) {
   const { rpc, swr } = useApi();
-  const { mutate } = useSWRConfig();
-  const [, navigate] = useLocation();
+  const afterWrite = useAfterWrite();
   const [editing, setEditing] = useState(false);
 
   const update = async (patch: CompanyPatch) => {
@@ -83,8 +87,10 @@ function Loaded({ company }: { readonly company: Company }) {
         rpc.companies.update({ id: company.id, ...patch }),
       );
       if (!result.ok) return result.error;
-      toast.add({ title: `Saved ${result.data.name}`, type: 'success' });
-      void mutate(swr.companies.matcher());
+      afterWrite({
+        changed: swr.companies.matcher(),
+        says: `Saved ${result.data.name}`,
+      });
     }
     setEditing(false);
     return undefined;
@@ -93,9 +99,11 @@ function Loaded({ company }: { readonly company: Company }) {
   const remove = async () => {
     const result = await asResult(rpc.companies.delete({ id: company.id }));
     if (!result.ok) return result.error;
-    toast.add({ title: `Deleted ${company.name}`, type: 'success' });
-    void mutate(swr.companies.matcher());
-    navigate('/companies');
+    afterWrite({
+      changed: swr.companies.matcher(),
+      says: `Deleted ${company.name}`,
+      goTo: '/companies',
+    });
     return undefined;
   };
 
@@ -121,6 +129,7 @@ function Loaded({ company }: { readonly company: Company }) {
       />
       <CompanyOverview company={company} />
       <CompanyContacts company={company} />
+      <CompanyDeals company={company} />
       <FormSheet
         open={editing}
         onOpenChange={setEditing}
@@ -134,12 +143,12 @@ function Loaded({ company }: { readonly company: Company }) {
 }
 
 /**
- * A section: the company's contacts, a page at a time. New contact opens
- * the form with the company already picked.
+ * The company's contacts, a page at a time. New contact opens the form with
+ * the company already picked.
  */
 function CompanyContacts({ company }: { readonly company: Company }) {
   const { rpc, swr } = useApi();
-  const { mutate } = useSWRConfig();
+  const afterWrite = useAfterWrite();
   const searchCompanies = useCompanySearch();
   const pages = useCursorPages(
     swr.contacts.find.key,
@@ -151,9 +160,10 @@ function CompanyContacts({ company }: { readonly company: Company }) {
     const result = await asResult(rpc.contacts.create(input));
     if (!result.ok) return result.error;
     setCreating(false);
-    toast.add({ title: `Created ${result.data.name}`, type: 'success' });
-    void mutate(swr.contacts.matcher());
-    pages.refresh();
+    afterWrite({
+      changed: swr.contacts.matcher(),
+      says: `Created ${result.data.name}`,
+    });
     return undefined;
   };
   const newContact = (
@@ -163,46 +173,25 @@ function CompanyContacts({ company }: { readonly company: Company }) {
     </Button>
   );
   return (
-    <section id="contacts" aria-labelledby="contacts-heading" className="mt-8">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 id="contacts-heading" className="text-lg font-semibold">
-          Contacts
-        </h2>
-        {pages.rows === undefined || pages.rows.length === 0
-          ? null
-          : newContact}
-      </div>
-      {pages.rows === undefined ? (
-        pages.error === undefined ? (
-          <DataTableSkeleton
-            label={`Contacts at ${company.name}`}
-            columns={companyContactColumns}
-            rows={3}
+    <Section
+      id="contacts"
+      title="Contacts"
+      action={pages.rows?.length ? newContact : undefined}
+    >
+      <CursorTable
+        label={`Contacts at ${company.name}`}
+        columns={companyContactColumns}
+        pages={pages}
+        what="contacts"
+        skeletonRows={3}
+        empty={
+          <EmptyState
+            title="No contacts yet"
+            description={`Add the people you work with at ${company.name}.`}
+            action={newContact}
           />
-        ) : (
-          <ErrorState
-            message="The contacts could not be loaded."
-            onRetry={pages.refresh}
-          />
-        )
-      ) : pages.rows.length === 0 ? (
-        <EmptyState
-          title="No contacts yet"
-          description={`Add the people you work with at ${company.name}.`}
-          action={newContact}
-        />
-      ) : (
-        <>
-          <DataTable
-            label={`Contacts at ${company.name}`}
-            columns={companyContactColumns}
-            rows={pages.rows}
-            rowKey={({ id }) => id}
-            focusRow={pages.firstNew}
-          />
-          <LoadMore pages={pages} what="contacts" />
-        </>
-      )}
+        }
+      />
       <FormSheet
         open={creating}
         onOpenChange={setCreating}
@@ -215,6 +204,82 @@ function CompanyContacts({ company }: { readonly company: Company }) {
           onSubmit={create}
         />
       </FormSheet>
-    </section>
+    </Section>
+  );
+}
+
+/**
+ * The company's deals, a page at a time. New deal opens the form with the
+ * company already picked. It needs the team, for owners and the role.
+ */
+function CompanyDeals({ company }: { readonly company: Company }) {
+  const { rpc, swr } = useApi();
+  const afterWrite = useAfterWrite();
+  const searchCompanies = useCompanySearch();
+  const pages = useCursorPages(
+    swr.deals.find.key,
+    {
+      where: { companyId: { eq: company.id } },
+      sort: ['-createdAt'],
+      limit: 20,
+    },
+    (input) => swr.deals.find(input),
+  );
+  const [creating, setCreating] = useState(false);
+  const create = async (input: DealCreate) => {
+    const result = await asResult(rpc.deals.create(input));
+    if (!result.ok) return result.error;
+    setCreating(false);
+    afterWrite({
+      changed: swr.deals.matcher(),
+      says: `Created ${result.data.title}`,
+    });
+    return undefined;
+  };
+  const newDeal = (
+    <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+      <PlusIcon />
+      New deal
+    </Button>
+  );
+  return (
+    <TeamGate>
+      {(team) => (
+        <Section
+          id="deals"
+          title="Deals"
+          action={pages.rows?.length ? newDeal : undefined}
+        >
+          <CursorTable
+            label={`Deals at ${company.name}`}
+            columns={companyDealColumns(team.members)}
+            pages={pages}
+            what="deals"
+            skeletonRows={3}
+            empty={
+              <EmptyState
+                title="No deals yet"
+                description={`Add what you are selling to ${company.name}.`}
+                action={newDeal}
+              />
+            }
+          />
+          <FormSheet
+            open={creating}
+            onOpenChange={setCreating}
+            title={`New deal at ${company.name}`}
+            description="A title and an amount are required."
+          >
+            <DealForm
+              company={company}
+              members={team.members}
+              readsAmounts={readsAmounts(team.me)}
+              searchCompanies={searchCompanies}
+              onSubmit={create}
+            />
+          </FormSheet>
+        </Section>
+      )}
+    </TeamGate>
   );
 }

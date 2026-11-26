@@ -29,14 +29,24 @@ export function readListParams<S extends string>(
   };
 }
 
-/** The search for `params`, without the defaults: "?q=acme". */
+/**
+ * The search for `params`, without the defaults: "?q=acme". Other keys of
+ * `search`, such as a list's filter, are kept.
+ */
 export function writeListParams<S extends string>(
   { q, sort }: ListParams<S>,
   fallback: S,
+  search = '',
 ): string {
-  const params = new URLSearchParams();
-  if (q !== '') params.set('q', q);
-  if (sort !== fallback) params.set('sort', sort);
+  const params = new URLSearchParams(search);
+  if (q === '') params.delete('q');
+  else params.set('q', q);
+  if (sort === fallback) params.delete('sort');
+  else params.set('sort', sort);
+  return searchOf(params);
+}
+
+function searchOf(params: URLSearchParams): string {
   const search = params.toString();
   return search === '' ? '' : `?${search}`;
 }
@@ -50,11 +60,39 @@ export function useListParams<S extends string>(
   fallback: S,
 ) {
   const [path, navigate] = useLocation();
-  const params = readListParams(useSearch(), sorts, fallback);
+  const search = useSearch();
+  const params = readListParams(search, sorts, fallback);
   const show = useCallback(
     (next: ListParams<S>) =>
-      navigate(`${path}${writeListParams(next, fallback)}`, { replace: true }),
-    [navigate, path, fallback],
+      navigate(`${path}${writeListParams(next, fallback, search)}`, {
+        replace: true,
+      }),
+    [navigate, path, fallback, search],
   );
   return [params, show] as const;
+}
+
+/**
+ * One option of a list kept in the URL, such as a filter: `name`'s value
+ * when it is one of `values`, or undefined. Setting undefined removes it.
+ * The list's other keys are kept.
+ */
+export function useUrlOption<V extends string>(
+  name: string,
+  values: readonly V[],
+) {
+  const [path, navigate] = useLocation();
+  const search = useSearch();
+  const current = new URLSearchParams(search).get(name);
+  const value = values.find((option) => option === current);
+  const set = useCallback(
+    (next: V | undefined) => {
+      const params = new URLSearchParams(search);
+      if (next === undefined) params.delete(name);
+      else params.set(name, next);
+      navigate(`${path}${searchOf(params)}`, { replace: true });
+    },
+    [navigate, path, search, name],
+  );
+  return [value, set] as const;
 }
