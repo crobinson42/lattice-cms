@@ -4,7 +4,6 @@ import {
   useCallback,
   useContext,
   useMemo,
-  useRef,
   useState,
 } from 'react';
 // headers.ts holds only the header's name, so this imports no server code.
@@ -76,8 +75,6 @@ type Session = {
   readonly signIn: (signed: Signed) => void;
   /** Ends the session here. The server is told by whoever calls it. */
   readonly signOut: () => void;
-  /** Whether the user just signed in, once: the first page focuses itself. */
-  readonly takeArrival: () => boolean;
 };
 
 const SessionContext = createContext<Session | null>(null);
@@ -89,24 +86,17 @@ export function SessionProvider({
   readonly children: ReactNode;
 }) {
   const [signed, setSigned] = useState(stored.signed);
-  const arrived = useRef(false);
   const signIn = useCallback((next: Signed) => {
     stored.signIn(next);
-    arrived.current = true;
     setSigned(next);
   }, []);
   const signOut = useCallback(() => {
     stored.clear();
     setSigned(null);
   }, []);
-  const takeArrival = useCallback(() => {
-    const was = arrived.current;
-    arrived.current = false;
-    return was;
-  }, []);
   const value = useMemo(
-    () => ({ signed, signIn, signOut, takeArrival }),
-    [signed, signIn, signOut, takeArrival],
+    () => ({ signed, signIn, signOut }),
+    [signed, signIn, signOut],
   );
   return <SessionContext value={value}>{children}</SessionContext>;
 }

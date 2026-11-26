@@ -1,6 +1,8 @@
 // The admin and its stylesheet load with this chunk only, when /admin
-// first opens: app.tsx imports this module through React.lazy.
+// first opens: app.tsx imports this module through React.lazy. admin.css
+// brings the theme's neutral colors again, so the app's palette follows it.
 import '@latticecms/admin/admin.css';
+import '@shadalaya/theme/atalaya.css';
 import { Admin } from '@latticecms/admin';
 import { Button } from '@shadalaya/react/button';
 import { Link } from 'wouter';

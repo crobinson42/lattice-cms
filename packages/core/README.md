@@ -1108,7 +1108,7 @@ Every page, `<Admin>` among them, sits under a cache keyed by the organization, 
 // examples/crm/src/web/api.tsx
 <SWRConfig
   key={organizationId ?? 'support'}
-  value={{ provider: () => new Map() }}
+  value={{ provider: () => new Map(), shouldRetryOnError: retryable }}
 >
   {children}
 </SWRConfig>

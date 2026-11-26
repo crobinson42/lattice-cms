@@ -113,7 +113,10 @@ describe('the app in a browser', () => {
     expect(path(page)).toBe('/companies');
     expect(await focused(page)).toBe('H1 Companies');
     expect(
-      await page.getByRole('link', { name: 'Companies' }).getAttribute('href'),
+      await page
+        .locator('[data-slot="sidebar"]')
+        .getByRole('link', { name: 'Companies' })
+        .getAttribute('href'),
     ).toBe('/companies');
 
     // The switcher lists both organizations. A switch reloads the page's

@@ -8,11 +8,16 @@ import { builtPage } from '../test/web.js';
 // preloads. Everything else loads later: the admin, with its stylesheet,
 // when /admin first opens.
 
-/** Gzipped bytes: the measurement of 2026-11-26, plus 5%. */
+/**
+ * Gzipped bytes: the measurement of 2026-11-26, plus 5%. Companies added
+ * 16 kB at startup: shadalaya's sheet, alert dialog, toast, table and input
+ * group, swr/infinite, and the companies kit. The admin chunk lost 1 kB of
+ * code it now shares with the app.
+ */
 const budget = {
-  startup: 170_900,
-  startupWithoutReact: 99_960,
-  admin: 25_420,
+  startup: 187_500,
+  startupWithoutReact: 116_600,
+  admin: 24_280,
 };
 
 const assets = new URL('assets/', builtPage);

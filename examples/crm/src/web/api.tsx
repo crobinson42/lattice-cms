@@ -1,5 +1,7 @@
 import { createClient } from '@ts-pf/client';
 import { FetchLink } from '@ts-pf/client-http';
+import type { ClientError, InferContractProcedure } from '@ts-pf/contract';
+import { isPFError } from '@ts-pf/protocol';
 import { createSwr } from '@ts-pf/swr';
 import { createContext, type ReactNode, useContext, useMemo } from 'react';
 import { SWRConfig } from 'swr';
@@ -26,6 +28,20 @@ function clientsFor(fetch: typeof globalThis.fetch) {
 
 export type Api = ReturnType<typeof clientsFor>;
 
+type AnyProcedure = InferContractProcedure<
+  (typeof contract)['companies']['get']
+>;
+
+/**
+ * How a call can be refused, typed as the client types it: Lattice's and
+ * the app's declared errors, and the protocol's, VALIDATION among them.
+ * Every procedure declares the same errors, so one type serves them all.
+ * It names a procedure because InferContractErrors leaves the protocol's
+ * errors out in ts-pf 1.0.1 (docs/briefs/ts-pf-infer-contract-errors.md);
+ * once that is fixed, it can come from there.
+ */
+export type ApiError = ClientError<AnyProcedure['errors']>;
+
 const ApiContext = createContext<Api | null>(null);
 
 /** The clients of the signed-in session, in the picked organization. */
@@ -36,8 +52,22 @@ export function useApi(): Api {
 }
 
 /**
+ * Whether a failed read is worth retrying. A refusal, such as NOT_FOUND, is
+ * the answer: asking again gets it again.
+ */
+function retryable(error: unknown): boolean {
+  return !(
+    isPFError(error) &&
+    error.status !== undefined &&
+    error.status < 500
+  );
+}
+
+/**
  * The clients over `fetch`, and an swr cache of the organization's own: a
  * switch mounts a new cache, so no page shows the last organization's data.
+ * Revalidate with `useSWRConfig().mutate`, which works on this cache: the
+ * `mutate` that `swr` exports works on SWR's default cache, unused here.
  */
 export function ApiProvider({
   fetch,
@@ -53,7 +83,7 @@ export function ApiProvider({
     <ApiContext value={api}>
       <SWRConfig
         key={organizationId ?? 'support'}
-        value={{ provider: () => new Map() }}
+        value={{ provider: () => new Map(), shouldRetryOnError: retryable }}
       >
         {children}
       </SWRConfig>

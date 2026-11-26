@@ -2,13 +2,15 @@
   The app's stylesheet: Tailwind with the shadalaya theme. It scans the
   app's own sources and only the shadalaya components the app imports, and
   the components those import: scanning all of shadalaya makes it several
-  times bigger. A page that imports a new component adds its file name to
+  times bigger. The Atalaya palette overrides the theme's colors, after
+  tokens.css. A page that imports a new component adds its file name to
   the list below; app-css.test.ts fails until it does. The admin's own
   stylesheet loads with the admin's chunk, not here.
 */
 @import "tailwindcss" source(none);
 @import "@shadalaya/theme/tokens.css";
+@import "@shadalaya/theme/atalaya.css";
 @import "@shadalaya/theme/tailwind.css";
 
 @source "./**/*.tsx";
-@source "../../../../node_modules/@shadalaya/react/dist/components/{alert,avatar,button,card,dropdown-menu,empty,field,input,label,native-select,separator,sheet,sidebar,skeleton,spinner,tooltip}.js";
+@source "../../../../node_modules/@shadalaya/react/dist/components/{alert,alert-dialog,avatar,breadcrumb,button,card,dropdown-menu,empty,field,input,input-group,label,native-select,separator,sheet,sidebar,skeleton,spinner,table,textarea,toast,tooltip}.js";

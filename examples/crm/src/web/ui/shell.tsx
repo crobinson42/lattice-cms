@@ -1,3 +1,11 @@
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@shadalaya/react/breadcrumb';
 import { Separator } from '@shadalaya/react/separator';
 import {
   Sidebar,
@@ -12,7 +20,14 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from '@shadalaya/react/sidebar';
-import type { ReactNode, Ref } from 'react';
+import {
+  createContext,
+  Fragment,
+  type ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from 'react';
 import { Link, useLocation } from 'wouter';
 
 /** A sidebar entry: a section of the app, and its icon. */
@@ -22,6 +37,27 @@ export type Section = {
   readonly icon: ReactNode;
 };
 
+/** A page above the current one, in the breadcrumb. */
+export type Crumb = { readonly label: string; readonly href: string };
+
+type Trail = { readonly parents: readonly Crumb[]; readonly title: string };
+
+const TrailContext = createContext<(trail: Trail | undefined) => void>(
+  () => {},
+);
+
+/**
+ * Puts the page in the top bar's breadcrumb while it is shown: `parents`,
+ * then `title`. PageHeader calls it, so the shell knows no page.
+ */
+export function useBreadcrumb(parents: readonly Crumb[], title: string) {
+  const setTrail = useContext(TrailContext);
+  useEffect(() => {
+    setTrail({ parents, title });
+    return () => setTrail(undefined);
+  }, [setTrail, parents, title]);
+}
+
 /** Whether `location` is in the section at `href`, or under it. */
 function inSection(location: string, href: string): boolean {
   return location === href || location.startsWith(`${href}/`);
@@ -29,22 +65,21 @@ function inSection(location: string, href: string): boolean {
 
 /**
  * The frame of a page: the sidebar of sections, and a top bar with the
- * current section's title as the page's heading, then `actions`.
+ * page's breadcrumb, then `actions`. Until the page says where it is, the
+ * breadcrumb is its section. The page has its own heading.
  */
 export function Shell({
   sections,
   actions,
-  headingRef,
   children,
 }: {
   readonly sections: readonly Section[];
   readonly actions: ReactNode;
-  /** The page's h1, for whoever moves focus to it. */
-  readonly headingRef: Ref<HTMLHeadingElement>;
   readonly children: ReactNode;
 }) {
   const [location] = useLocation();
   const current = sections.find(({ href }) => inSection(location, href));
+  const [trail, setTrail] = useState<Trail>();
   return (
     <SidebarProvider>
       <Sidebar>
@@ -73,16 +108,30 @@ export function Shell({
         <header className="flex h-14 items-center gap-2 border-b px-4">
           <SidebarTrigger />
           <Separator orientation="vertical" className="mr-2 h-4" />
-          <h1
-            ref={headingRef}
-            tabIndex={-1}
-            className="font-semibold outline-none"
-          >
-            {current?.label}
-          </h1>
+          <Breadcrumb>
+            <BreadcrumbList>
+              {trail?.parents.map(({ label, href }) => (
+                <Fragment key={href}>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink render={<Link href={href} />}>
+                      {label}
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                </Fragment>
+              ))}
+              <BreadcrumbItem>
+                <BreadcrumbPage>
+                  {trail?.title ?? current?.label}
+                </BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
           <div className="ml-auto flex items-center gap-2">{actions}</div>
         </header>
-        <main className="p-6">{children}</main>
+        <main className="p-6">
+          <TrailContext value={setTrail}>{children}</TrailContext>
+        </main>
       </SidebarInset>
     </SidebarProvider>
   );

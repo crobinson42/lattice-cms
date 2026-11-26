@@ -1,9 +1,8 @@
 import { Building2Icon } from 'lucide-react';
-import { type ReactNode, useEffect, useRef } from 'react';
+import type { ReactNode } from 'react';
 import useSWR from 'swr';
 import { Redirect } from 'wouter';
 import { useApi } from '../api.js';
-import { useSession } from '../session.js';
 import { useSignedIn } from '../signed-in.js';
 import { OrganizationSwitcher } from '../ui/organization-switcher.js';
 import { Shell } from '../ui/shell.js';
@@ -16,18 +15,12 @@ const sections = [
 
 /**
  * The app's pages for a member of an organization, in the shell: it reads
- * the signed-in member for the user menu, and focuses the page's heading
- * when the user has just signed in. Support acts in no organization, so
+ * the signed-in member for the user menu. Support acts in no organization, so
  * the admin is its whole app.
  */
 export function Workspace({ children }: { readonly children: ReactNode }) {
   const { userId, organization, signOut } = useSignedIn();
   const { swr } = useApi();
-  const { takeArrival } = useSession();
-  const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    if (takeArrival()) heading.current?.focus();
-  }, [takeArrival]);
   const { data } = useSWR(
     swr.memberships.find.key({
       input: { where: { userId: { eq: userId } }, limit: 1 },
@@ -38,7 +31,6 @@ export function Workspace({ children }: { readonly children: ReactNode }) {
   return (
     <Shell
       sections={sections}
-      headingRef={heading}
       actions={
         <>
           <OrganizationSwitcher />

@@ -30,7 +30,7 @@ Open <http://localhost:5173/> and sign in. The page serves the app at `/` and th
 | Ben Ortiz | `ben@example.com` | `a long password` | Work in Acme Corp as a member, without amounts |
 | Sam Patel | `sam@example.com` | `a long password` | Read every organization as support, and change nothing |
 
-- `docker compose up -d` starts [`docker-compose.yml`](docker-compose.yml). Its healthcheck initiates the replica set, with the member `localhost:27017`, so the host connects with `replicaSet=rs0`. `docker compose down -v` deletes the data.
+- `docker compose up -d` starts [`docker-compose.yml`](docker-compose.yml). MongoDB listens on 27018 and Redis on 6380, one above the defaults, so the stack runs beside another project's. Its healthcheck initiates the replica set, with the member `localhost:27018`, so the host connects with `replicaSet=rs0`. `docker compose down -v` deletes the data.
 - `npm run seed` writes users, organizations, memberships and passwords as trusted code, and everything else through the API as Ann or Ben, so the data passes the same access, hooks, overrides and methods as the app ([`demo.ts`](src/infra/seed/demo.ts)). Its dates are relative to today. It needs only MongoDB. Run twice, it refuses and says how to reset.
 - `npm run dev` ([`scripts/dev.mjs`](scripts/dev.mjs)) runs `tsc -b --watch`, the server and the worker under `node --watch`, and Vite, with each line prefixed by its process. Vite serves the admin and sends `/rpc`, `/auth` and `/catalog.json` to the server on port 3000. Ctrl-C stops them all.
 
@@ -65,19 +65,62 @@ src/web/
   auth.ts           the /auth client, and the types of its answers
   api.tsx           useApi(): the typed /rpc client and its swr utils
   workspace/        the member's pages in the shell: the sections, the member read, the user menu
-  pages/            one component per route: sign-in, companies, and the admin (lazy)
+  pages/            one component per route: sign-in, companies, a company, and the admin (lazy)
   resources/        one home per resource: its type, formatters and components
-  ui/               what knows no resource: the shell, the organization switcher, states
+  ui/               what knows no resource: the shell, page header, lists, tables, forms, states, dates
 ```
 
 - Any route but `/sign-in` needs a session. Without one, it sends the user to `/sign-in` and back after, to a page of this site only. A signed-in user who opens `/sign-in` goes straight on. `/` goes to `/companies`.
-- [`api.tsx`](src/web/api.tsx) builds the clients once per session and organization: `createClient<typeof contract>` on a `FetchLink`, typed by a type-only import of the contract, and `createSwr` over it. Data comes from `useSWR(swr.memberships.find.key({ input }), swr.memberships.find.fetcher())`, typed by the contract, as [`workspace/workspace.tsx`](src/web/workspace/workspace.tsx) reads the signed-in member. Each organization gets a fresh swr cache, and a switch remounts every page, so none shows another organization's data.
+- [`api.tsx`](src/web/api.tsx) builds the clients once per session and organization: `createClient<typeof contract>` on a `FetchLink`, typed by a type-only import of the contract, and `createSwr` over it. Data comes from `useSWR(swr.companies.get.key({ input: { id } }), swr.companies.get.fetcher())`, typed by the contract. Each organization gets a fresh swr cache, and a switch remounts every page, so none shows another organization's data. A refusal such as `NOT_FOUND` is not retried.
 - [`session.tsx`](src/web/session.tsx) keeps the token, the user's id and the picked organization in `sessionStorage`, for the tab. Its fetch adds `Authorization` and `x-organization-id` to every call. A 401 signs the user out, if its session is still the tab's. Sign-out ends the session here at once, and tells the server without waiting for it.
-- [`ui/shell.tsx`](src/web/ui/shell.tsx) is the frame of a page: the sidebar of sections, and a top bar with the section's title, then what its owner puts there. The workspace puts the organization switcher and the user menu, which shows the member and links to the admin and sign-out. A page adds its section to the workspace's list.
+- [`ui/shell.tsx`](src/web/ui/shell.tsx) is the frame of a page: the sidebar of sections, and a top bar with the page's breadcrumb, then what its owner puts there. Each page has its own `PageHeader`: its h1 takes focus when the page opens, and its title, after the pages above it, is the top bar's breadcrumb. The workspace puts the organization switcher and the user menu, which shows the member and links to the admin and sign-out. A page adds its section to the workspace's list.
 - Pages fetch, and `resources/` and `ui/` take data as props. `resources/members/` holds `Member`, `displayName` and `initials`, and `MemberAvatar`.
-- `app.css` scans the app's sources and only the shadalaya components it imports. A page that imports a new component adds its file name to the list in `app.css`; `app-css.test.ts` fails until it does.
+- `app.css` scans the app's sources and only the shadalaya components it imports. A page that imports a new component adds its file name to the list in `app.css`; `app-css.test.ts` fails until it does. The app uses shadalaya's Atalaya palette: `app.css` imports `atalaya.css` after the theme's tokens. The admin's stylesheet brings the neutral tokens again when `/admin` opens, so [`pages/admin-page.tsx`](src/web/pages/admin-page.tsx) imports `atalaya.css` after it, in the same chunk.
 - The page imports the contracts by type only, and `servers/http/headers.ts`, which holds only a header's name. `bundle.test.ts` checks that no server code reaches the browser.
 - Support acts in no organization, so it lands on `/admin`.
+
+### A resource, end to end
+
+Companies are the pattern the other resources copy. A resource has its own home and its pages; everything else it reuses from `ui/`.
+
+```
+src/web/
+  resources/companies/
+    company.ts                   Company, and its create and update inputs, from the contract's types
+    company.format.ts            the count ("12 companies"), and the website from the domain
+    company-sorts.ts             the sorts a list offers, and the one it starts with
+    company-inline.tsx           CompanyInline: the name, linking to the company
+    company-website.tsx          CompanyWebsite: the domain, opening the site
+    company-columns.tsx          companyColumns: what any table of companies shows
+    company-overview.tsx         CompanyOverview, a detail section, and its skeleton
+    company-form.tsx             CompanyForm: create, or edit when given a company
+    company-form.values.ts       the form's fields, the create input, and the patch of what changed
+  pages/
+    companies-page.tsx           /companies: count, search, sort, pages, New in a sheet
+    company-page.tsx             /companies/:id: overview, Edit in a sheet, Delete behind a confirmation
+```
+
+What a resource reuses, from `ui/`:
+
+| Piece | What it does |
+| --- | --- |
+| `PageHeader` | The page's h1, which takes focus when the page opens, its actions, and its place in the top bar's breadcrumb |
+| `useListParams`, `SearchBox`, `SortSelect` | The list's search and sort in the URL, with a search that waits for a pause |
+| `useCursorPages`, `LoadMore` | A `find` a page at a time, every loaded page fresh after a write, and focus on the first new row |
+| `DataTable`, `DataTableSkeleton` | Rows by the resource's columns, named for assistive tech |
+| `useFormSubmit`, `TextField`, `FormSheet` | A form's submit, with each `VALIDATION` issue at its field, in a sheet that stays open while it sends |
+| `ConfirmDelete` | Delete behind a confirmation, open until the delete settles, and a refusal in words |
+| `EmptyState`, `ErrorState`, `formatDate`, `formatRelative` | The empty and failed states, and dates |
+
+- **Pages fetch, the resource home draws.** A page reads with `useSWR` or `useCursorPages` over `swr.companies.*` and hands the data to the home's components. A component in a resource home never fetches.
+- **Writes go through `rpc` and `asResult`.** `asResult(rpc.companies.create(input))` answers with the created company, or the refusal as an `ApiError` (api.tsx): `error.code` narrows it, and `VALIDATION` carries its issues. After a write, the page revalidates the collection's reads with `useSWRConfig().mutate(swr.companies.matcher())`, and a list on the same page with its own `refresh()`. A list that opens again reads every loaded page again, so a write elsewhere never leaves a stale page.
+- **One form, two modes.** `CompanyForm` creates without a company and edits with one. It sends what changed only, and `null` for a cleared field. The server validates: the form shows a `VALIDATION` issue at its field, so the rules and their messages live in the collection's schema.
+- **The URL holds the list's state.** The search and the sort are in the query, so back, reload and a shared link return to the same list.
+- **Every state has a place.** Loading shows the table's or the overview's skeleton. An empty list offers New company, a search with no match offers Clear search, and a failed read offers Try again. A company that is not there says so, with a link back.
+- **Refusals in words.** A delete refused with `REFERENCED` says what still points at the company: "Acme still has contacts. Remove them first."
+- **Success says so.** A toast confirms a create, an edit or a delete.
+
+A new resource copies these files under its own name, adds its section to [`workspace/workspace.tsx`](src/web/workspace/workspace.tsx) and its routes to [`app.tsx`](src/web/app.tsx).
 
 The server serves `index.html` for every GET that is not an API path, so a reload on a deep link such as `/admin/deals` renders, and caches the hashed files under `/assets/` for good.
 
@@ -272,6 +315,6 @@ An activity records what happened: a note, call, email or meeting on a company, 
 
 `npm test -w @latticecms/example-crm` runs every test on `MemoryStore` and on MongoDB, through mongodb-memory-server. Sessions run in memory with real signed tokens, and the queues on `MemoryQueue` ([`src/test/memory-queue.ts`](src/test/memory-queue.ts)), an adapter of the `@hexok/queue` port with the same delivery rules as RedisQueue. Redis is not needed. Webhooks are sent to a real HTTP server on this machine. MCP tests connect the MCP SDK's own client to `/mcp`.
 
-[`admin.browser.test.ts`](src/web/admin.browser.test.ts) runs the built admin page in headless Chromium, through Playwright, against the HTTP server on a port and MongoDB. It signs in, switches organization and sees only that organization's deals, creates, edits and deletes a company and a deal, checks that a member sees no amount in the list or the form, deletes a company that still has deals and follows the link to them, sets a deal's contacts on its relation tab, reloads a deep link, and signs out. Install Chromium once with `npx playwright install chromium`. [`app.browser.test.ts`](src/web/app.browser.test.ts) runs the app the same way: the sign-in redirect and its return, the organization switch, the admin through the user menu and back, sign-out, a 401, support, and an admin chunk that fails to load. [`bundle.test.ts`](src/web/bundle.test.ts) holds the built page to gzipped budgets: what loads at startup, in all and without React, and the admin chunk, which must load only after startup. It also checks that no server code reaches the page. They read `dist/web`, so `npx turbo run test` builds the crm first. The tests that start a real server on MongoDB, the browser test among them, run after the rest and one file at a time ([`vitest.config.ts`](vitest.config.ts)): each start builds every index, and mongod builds only a few at once, so overlapping starts stall each other.
+[`admin.browser.test.ts`](src/web/admin.browser.test.ts) runs the built admin page in headless Chromium, through Playwright, against the HTTP server on a port and MongoDB. It signs in, switches organization and sees only that organization's deals, creates, edits and deletes a company and a deal, checks that a member sees no amount in the list or the form, deletes a company that still has deals and follows the link to them, sets a deal's contacts on its relation tab, reloads a deep link, and signs out. Install Chromium once with `npx playwright install chromium`. [`app.browser.test.ts`](src/web/app.browser.test.ts) runs the app the same way: the sign-in redirect and its return, the organization switch, the admin through the user menu and back, sign-out, a 401, support, and an admin chunk that fails to load. [`companies.browser.test.ts`](src/web/companies.browser.test.ts) drives Companies: the list, search, sort and pages, create with a refused field, edit, delete, a refused delete, and the empty and not-found states. [`bundle.test.ts`](src/web/bundle.test.ts) holds the built page to gzipped budgets: what loads at startup, in all and without React, and the admin chunk, which must load only after startup. It also checks that no server code reaches the page. They read `dist/web`, so `npx turbo run test` builds the crm first. The tests that start a real server on MongoDB, the browser tests among them, run after the rest and one file at a time ([`vitest.config.ts`](vitest.config.ts)): each start builds every index, and mongod builds only a few at once, so overlapping starts stall each other.
 
 Two tests keep the docs honest. [`readme-quotes.test.ts`](src/readme-quotes.test.ts) checks that every code block whose first line names a file, such as `// examples/crm/src/servers/app.ts`, is that file's text, line for line, allowing only a uniform indent to be removed. It reads the READMEs of core, store-mongo, cli and admin, this one, and every file of core's agent skill. [`quickstart.test.ts`](src/quickstart/quickstart.test.ts) runs core's quick start, which lives in [`src/quickstart`](src/quickstart).
