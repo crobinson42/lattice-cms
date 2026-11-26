@@ -1162,7 +1162,8 @@ Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `out
 - Several fields or operators must all match. `and` and `or` nest. Null and missing follow MongoDB's semantics.
 - `contains` is a case-insensitive substring, never a regex.
 - `has` matches an array with an element equal to its value. A missing or null array has none.
-- `sort` is an array such as `['-createdAt', 'title']`. Only required, non-null string, number and enum fields sort. The default is `['-createdAt']`, and `id` is always the last tiebreak. Its JSON Schema lists every key it accepts, so a client sees the valid keys.
+- `sort` is an array such as `['-createdAt', 'title']`. String, number and enum fields sort, optional and nullable ones too. The default is `['-createdAt']`, and `id` is always the last tiebreak. Its JSON Schema lists every key it accepts, so a client sees the valid keys.
+- A document with no value for a sort field, missing or null, comes after every document with one, ascending or descending. Documents with no value order by the remaining keys, then `id`. The cursor records that its document had no value, so pages stay stable across that boundary.
 - `limit` is 1 to 100, default 20. `next` is an opaque cursor for `after`, or null on the last page.
 - A field or operator the schema does not allow is a type error and `VALIDATION`.
 
@@ -1233,6 +1234,8 @@ export class ArchiveDeal extends AppUseCase('deals.delete', {
 ### Writing a store adapter
 
 `@latticecms/core/store` has what an adapter needs: the `CollectionStore` port, its types (`StoredDoc`, `Patch`, `FindQuery`, `Page`, `Index`), the parsed filter (`AnyWhere`, with `FieldOps` for each field's operators), and the cursor helpers (`orderOf`, `Order`, `after`, `encodeCursor`). A store receives values Lattice has parsed. Filters follow MongoDB's null and missing rules, and the keyset of `after` is itself an `AnyWhere`, so a store applies it like any filter.
+
+`FindQuery.optional` names the sort fields a document may lack. Pass it to `orderOf(query.sort, query.optional)`: each `Order` key then says whether it is optional, and `after` and `encodeCursor` handle a missing value. The store must order a document with no value for a key, missing or null, after every document with one, in either direction, and tie such documents on that key. A plain sort is enough wherever no ascending key is optional.
 
 `@latticecms/core/store/conformance` has `storeCases`: the cases every store passes, asserted with `node:assert`, so any test runner runs them. Give each case a fresh store:
 

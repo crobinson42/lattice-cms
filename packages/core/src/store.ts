@@ -18,6 +18,12 @@ export type FindQuery = {
   readonly where?: AnyWhere;
   /** Keys as `field` or `-field`. Stores add `id` as the last tiebreak. */
   readonly sort: readonly string[];
+  /**
+   * The sort fields a document may have no value for. Such a document comes
+   * after every one with a value, in either direction (0037). `orderOf`
+   * takes it, so a store plans a plain sort when nothing here is ascending.
+   */
+  readonly optional: readonly string[];
   readonly limit: number;
   /** The `next` cursor of the previous page. */
   readonly after?: string;
@@ -214,7 +220,7 @@ export class MemoryStore extends Adapter(CollectionStore) {
   }
 
   async find(query: FindQuery): Promise<Page> {
-    const order = orderOf(query.sort);
+    const order = orderOf(query.sort, query.optional);
     const start =
       query.after === undefined ? undefined : after(order, query.after);
     const matching = [...this.rows(query.collection).values()]

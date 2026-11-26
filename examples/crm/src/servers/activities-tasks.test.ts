@@ -146,6 +146,46 @@ describe.each(backends)('activities and tasks on $name', (backend) => {
     });
   });
 
+  describe('tasks by due date', () => {
+    it('pages soonest first, with undated tasks last', async () => {
+      const { ann } = setup();
+      const titles = [
+        ['Later', '2026-12-05'],
+        ['Undated A', undefined],
+        ['Soon', '2026-12-01'],
+        ['Undated B', undefined],
+        ['Sooner', '2026-11-28'],
+      ] as const;
+      for (const [title, dueDate] of titles) {
+        await ann.tasks.create({
+          title,
+          companyId: 'c1',
+          ...(dueDate === undefined ? {} : { dueDate }),
+        });
+      }
+
+      const seen: string[] = [];
+      let after: string | undefined;
+      do {
+        const page = await ann.tasks.find({
+          sort: ['dueDate', 'title'],
+          limit: 2,
+          ...(after === undefined ? {} : { after }),
+        });
+        seen.push(...page.docs.map((task) => task.title));
+        after = page.next ?? undefined;
+      } while (after !== undefined);
+
+      expect(seen).toEqual([
+        'Sooner',
+        'Soon',
+        'Later',
+        'Undated A',
+        'Undated B',
+      ]);
+    });
+  });
+
   describe('the required parent', () => {
     it('an activity or a task names a company, a contact or a deal, on create and on update', async () => {
       const { ann } = setup();

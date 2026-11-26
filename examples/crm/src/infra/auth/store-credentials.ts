@@ -66,6 +66,7 @@ export class StoreCredentials extends Adapter(Credentials) {
       collection: credentialsCollection,
       where: { email: { eq: normalized(email) } },
       sort: [],
+      optional: [],
       limit: 1,
     });
     const [doc] = docs;

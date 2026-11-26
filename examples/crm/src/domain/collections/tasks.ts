@@ -15,8 +15,7 @@ export const Tasks = collection('tasks', {
     })
     .refine(hasParent, parentRequired),
   tenant: 'organizationId',
-  // My open tasks, overdue or due by a date: find filters on dueDate, and
-  // cannot sort by it, since it is optional.
+  // My open tasks by due date, soonest first. Undated ones sort last.
   indexes: [
     { fields: { organizationId: 1, assigneeId: 1, done: 1, dueDate: 1 } },
   ],

@@ -1,9 +1,11 @@
 import {
   type AnyWhere,
   after,
+  cursorValues,
   encodeCursor,
   type FindQuery,
   type Index,
+  type Order,
   orderOf,
   type Page,
   type Patch,
@@ -73,8 +75,7 @@ export class MongoOperations {
 
   async find(query: FindQuery): Promise<Page> {
     return this.#traced('find', query.collection, async () => {
-      const target = this.#collection(query.collection);
-      const order = orderOf(query.sort);
+      const order = orderOf(query.sort, query.optional);
       // The keyset is a Where, so it is filtered like any other.
       const filter = and(
         toFilter(query.where),
@@ -83,11 +84,14 @@ export class MongoOperations {
           : toFilter(after(order, query.after)),
       );
       // One more than the page tells whether another page follows.
-      const window = await target
-        .find(filter, this.#session)
-        .sort(toSort(order))
-        .limit(query.limit + 1)
-        .toArray();
+      const window = await this.#sorted(
+        query.collection,
+        filter,
+        order,
+        query.limit + 1,
+        query.after !== undefined &&
+          cursorValues(order, query.after)[0] === null,
+      );
       const docs = window.slice(0, query.limit).map((doc) => this.#toDoc(doc));
       const last = docs.at(-1);
       return {
@@ -98,6 +102,105 @@ export class MongoOperations {
             : null,
       };
     });
+  }
+
+  /**
+   * The first `limit` documents matching `filter`, in `order`, with a
+   * missing value after every value (0037). Mongo already sorts a missing or
+   * null value last on a descending key, so only an ascending key that may
+   * be missing needs more than a plain sort:
+   *
+   * - None: a plain sort, which an index on the sort keys serves.
+   * - The first key, and only it: two queries. Rows with a value, in a
+   *   plain sort, which an index on the field serves; then, only when that
+   *   page is not full, rows without one, ordered by the other keys.
+   * - Any other: a computed "has no value" key in an aggregate. Its sort
+   *   cannot use an index, so it sorts the matching rows in memory; it is
+   *   the one order the other two cannot give.
+   */
+  async #sorted(
+    collection: string,
+    filter: Document,
+    order: Order,
+    limit: number,
+    /** Whether the cursor's row had no value for the first key. */
+    pastValues: boolean,
+  ): Promise<MongoDocument[]> {
+    const target = this.#collection(collection);
+    const plain = (where: Document, keys: Order) =>
+      target
+        .find(where, this.#session)
+        .sort(toSort(keys))
+        .limit(limit)
+        .toArray();
+    const lagging = order.flatMap((key, index) =>
+      key.optional && key.direction === 1
+        ? [{ index, field: mongoField(key.field) }]
+        : [],
+    );
+    const [first, ...rest] = order;
+    if (lagging.length === 0 || first === undefined) {
+      return plain(filter, order);
+    }
+    if (lagging.length === 1 && lagging[0]?.index === 0) {
+      // Past the last row with a value, the first query can find nothing,
+      // and would still walk every value in the index on each page.
+      const valued = pastValues
+        ? []
+        : await plain(
+            and(filter, toFilter({ [first.field]: { exists: true } })),
+            order,
+          );
+      if (valued.length === limit) return valued;
+      const missing = await target
+        .find(
+          and(filter, toFilter({ [first.field]: { exists: false } })),
+          this.#session,
+        )
+        .sort(toSort(rest))
+        .limit(limit - valued.length)
+        .toArray();
+      return [...valued, ...missing];
+    }
+    const flag = (index: number) => `__lattice_missing_${index}`;
+    return target
+      .aggregate<MongoDocument>(
+        [
+          { $match: filter },
+          {
+            $addFields: Object.fromEntries(
+              lagging.map(({ index, field }) => [
+                flag(index),
+                {
+                  $cond: [
+                    { $eq: [{ $ifNull: [`$${field}`, null] }, null] },
+                    1,
+                    0,
+                  ],
+                },
+              ]),
+            ),
+          },
+          {
+            $sort: Object.fromEntries(
+              order.flatMap((key, index) => [
+                ...(lagging.some((lag) => lag.index === index)
+                  ? [[flag(index), 1]]
+                  : []),
+                [mongoField(key.field), key.direction],
+              ]),
+            ),
+          },
+          { $limit: limit },
+          {
+            $project: Object.fromEntries(
+              lagging.map(({ index }) => [flag(index), 0]),
+            ),
+          },
+        ],
+        this.#session,
+      )
+      .toArray();
   }
 
   async count(collection: string, where?: AnyWhere): Promise<number> {

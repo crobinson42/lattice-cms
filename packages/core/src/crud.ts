@@ -133,7 +133,7 @@ function keyOf(node: Node): string {
 /** Every document of `collection` matching `where`, page by page. */
 async function* every(
   store: CollectionStore,
-  collection: string,
+  collection: AnyCollection,
   where: AnyWhere,
 ): AsyncGenerator<StoredDoc> {
   let after: string | undefined;
@@ -187,7 +187,7 @@ async function planDelete(
         }
         continue;
       }
-      for await (const doc of every(store, collection.slug, where)) {
+      for await (const doc of every(store, collection, where)) {
         const child = { collection, doc };
         if (ref.onDelete === 'nullify') {
           plan.nullifies.push({ ...child, ref, id });
@@ -395,7 +395,7 @@ async function withLinks(
       tenantClause(join, tenantOfDoc(collection, parent)),
     );
     const { docs } = await call.store.find(
-      findQuery(join.slug, { where, limit: maxLinks }),
+      findQuery(join, { where, limit: maxLinks }),
     );
     const targets = await readable(
       call,
@@ -427,7 +427,7 @@ const operations: Record<
     await refuseWithheld(call.access, call.collection, 'find', raw);
     const { populate = [] } = parse(call.populate, raw);
     const page = await call.store.find(
-      findQuery(call.collection.slug, {
+      findQuery(call.collection, {
         where: both(where, call.scope),
         sort,
         limit,
@@ -688,7 +688,7 @@ export function relationBody<Actor>(
     );
     const parent = await parentOf(ctx, id);
     const page = await store.find(
-      findQuery(join.slug, {
+      findQuery(join, {
         where: both(where, linksOf(id, tenantOfDoc(collection, parent))),
         sort,
         limit,
@@ -716,7 +716,7 @@ export function relationBody<Actor>(
     // and createdAt, and each change owes its own event, after the commit.
     const { docs, owed } = await store.transaction(async (tx) => {
       const existing: StoredDoc[] = [];
-      for await (const doc of every(tx, join.slug, linksOf(id, tenantId))) {
+      for await (const doc of every(tx, join, linksOf(id, tenantId))) {
         existing.push(doc);
       }
       const byTarget = new Map(existing.map((doc) => [doc[targetField], doc]));

@@ -493,7 +493,7 @@ describe('a maskable field', () => {
 
 describe('sort', () => {
   it('lists every key it accepts, ascending and descending', () => {
-    // note is optional, so it cannot be sorted by anyone.
+    // note is optional: it sorts, with missing values last (0037).
     expect(at(inputOf('deals/find'), ['properties', 'sort', 'items'])).toEqual({
       type: 'string',
       enum: [
@@ -501,6 +501,8 @@ describe('sort', () => {
         '-title',
         'amount',
         '-amount',
+        'note',
+        '-note',
         'id',
         '-id',
         'createdAt',
@@ -536,11 +538,10 @@ describe('a maskable field in a query', () => {
   });
 
   it('says so in sort, for the fields that can be sorted', () => {
-    // note is optional, so it cannot be sorted by anyone.
     expect(
       at(inputOf('deals/find'), ['properties', 'sort', 'description']),
     ).toBe(
-      'Field names, "-" first for descending. Sorting on amount is refused (VALIDATION) when the caller may not read it.',
+      'Field names, "-" first for descending. Sorting on amount, note is refused (VALIDATION) when the caller may not read it.',
     );
     expect(
       at(inputOf('tasks/find'), ['properties', 'sort', 'description']),

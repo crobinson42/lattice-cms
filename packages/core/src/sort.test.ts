@@ -65,10 +65,14 @@ describe('sortable field forms', () => {
 });
 
 describe('Sort type', () => {
-  it('lists the required, non-null string, number and enum fields', () => {
+  it('lists the string, number and enum fields, optional and nullable ones too', () => {
     expectTypeOf<Sort<Thing>[number]>().toEqualTypeOf<
       | 'name'
       | '-name'
+      | 'note'
+      | '-note'
+      | 'rank'
+      | '-rank'
       | 'count'
       | '-count'
       | 'kind'
@@ -84,15 +88,13 @@ describe('Sort type', () => {
 
   it('types find({ sort }) with no annotation', () => {
     typeOnly(() => local.things.find({ sort: ['-createdAt', 'name'] }));
+    // Optional and nullable fields sort, with missing values last (0037).
+    typeOnly(() => local.things.find({ sort: ['rank', '-note'] }));
     typeOnly(() => {
       // @ts-expect-error not a field
       local.things.find({ sort: ['nope'] });
       // @ts-expect-error booleans have no order
       local.things.find({ sort: ['-done'] });
-      // @ts-expect-error nullable
-      local.things.find({ sort: ['note'] });
-      // @ts-expect-error optional
-      local.things.find({ sort: ['rank'] });
       // @ts-expect-error arrays have no order
       local.things.find({ sort: ['tags'] });
     });
@@ -103,7 +105,11 @@ describe('parseSort', () => {
   const paths = (value: unknown) =>
     validationPaths(() => parseSort(Things.output, value));
 
-  it('accepts a valid sort and returns it', () => {
+  it('accepts a valid sort and returns it, optional and nullable fields too', () => {
+    expect(parseSort(Things.output, ['rank', '-note'])).toEqual([
+      'rank',
+      '-note',
+    ]);
     expect(parseSort(Things.output, ['-createdAt', 'name', 'id'])).toEqual([
       '-createdAt',
       'name',
@@ -115,8 +121,6 @@ describe('parseSort', () => {
   it('rejects an unknown, unsortable or repeated field with its path', () => {
     expect(paths(['name', 'nope'])).toEqual([[1]]);
     expect(paths(['-done'])).toEqual([[0]]);
-    expect(paths(['note'])).toEqual([[0]]);
-    expect(paths(['rank'])).toEqual([[0]]);
     expect(paths(['tags'])).toEqual([[0]]);
     expect(paths(['name', '-count', '-name'])).toEqual([[2]]);
     expect(paths('name')).toEqual([[]]);
@@ -136,7 +140,7 @@ describe('parseSort', () => {
     };
     expect(messages(['nope', '-done', 'name', '-name'])).toEqual([
       '"nope" is not a field',
-      '"done" cannot be sorted: it is optional, nullable, or not a string, number or enum',
+      '"done" cannot be sorted: it is not a string, number or enum',
     ]);
     expect(messages(['name', '-name'])).toEqual(['"name" is sorted twice']);
   });

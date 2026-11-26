@@ -132,7 +132,7 @@ describe('and', () => {
 
 describe('toSort', () => {
   it('keeps key order and direction, with id as _id', () => {
-    expect(toSort(orderOf(['-a', 'b']))).toEqual([
+    expect(toSort(orderOf(['-a', 'b'], []))).toEqual([
       ['a', -1],
       ['b', 1],
       ['_id', 1],

@@ -342,7 +342,12 @@ describe('repo insert parses like create', () => {
       data: LatticeError.is(error) ? error.data : undefined,
     });
     expect(
-      await store.find({ collection: 'deals', sort: [], limit: 10 }),
+      await store.find({
+        collection: 'deals',
+        sort: [],
+        optional: [],
+        limit: 10,
+      }),
     ).toEqual({ docs: [], next: null });
   });
 });

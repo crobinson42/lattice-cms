@@ -13,10 +13,9 @@ export const parentRefs = {
   dealId: ref('deals').optional(),
 };
 
+/** The parents of a document, by the refs' names: a renamed ref breaks hasParent. */
 type Parents = {
-  readonly companyId?: string | undefined;
-  readonly contactId?: string | undefined;
-  readonly dealId?: string | undefined;
+  readonly [K in keyof typeof parentRefs]?: string | undefined;
 };
 
 /**

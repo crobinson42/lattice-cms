@@ -22,7 +22,8 @@ The maintainer chose these on 2026-11-25.
 - **Admin: kept at `/admin`.** The SPA serves at `/`. `<Admin>` is a route inside it, with the same session.
 - **Data layer: `@ts-pf/swr` and `swr`.**
 - **Overrides can call the generated operation** ([0036](../decisions/0036-an-override-can-call-the-generated-operation.md), proposed; the maintainer chose this design on 2026-11-25). A core change, made in step 1c, so `deals.update` and `deals.create` can refuse a won or lost stage without copying core's update.
-- **The crm server's type budget is 640k for now** (raised from 470k to 560k, then to 640k on 2026-11-25). Activities, the seventh collection, cost about 100k where the sixth cost 40k. Step 1d finds the type that grows with the number of collections, and brings the budget back down.
+- **The crm server's type budget is 660k for now** (raised from 470k step by step to 660k on 2026-11-25), until hexok's `family()` fix lands; then it is re-measured and lowered. Activities, the seventh collection, cost about 100k where the sixth cost 40k. Step 1d finds the type that grows with the number of collections, and brings the budget back down.
+- **The store port's `FindQuery` gains `optional`**, the sort fields a document may lack, filled by core (maintainer, 2026-11-25), so Mongo keeps its index-served sorts.
 - **Core sorts optional fields, with missing values last** ([0037](../decisions/0037-an-optional-field-sorts-with-missing-values-last.md), proposed; the maintainer chose it on 2026-11-25), in step 1f, so Tasks sort by due date and deals by expected close date.
 - **Approved dependencies for the crm:** `wouter`, `@shadalaya/react`, `@shadalaya/theme`, `swr`, `@ts-pf/swr`, `@ts-pf/client` and `@ts-pf/client-http` as dependencies of the page; `tailwindcss` and `@tailwindcss/vite` as devDependencies. Anything else is asked for first.
 
@@ -83,7 +84,7 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 
 ### 1f. Optional fields sort, missing last
 
-- [ ] Core and every store, as [0037](../decisions/0037-an-optional-field-sorts-with-missing-values-last.md) says: `SortKey` takes optional and nullable fields, missing values come last in both directions, and the cursor records a missing value. The store conformance suite covers paging across the boundary, ascending and descending, on MemoryStore and MongoStore. The admin's sort control offers those fields. A changeset.
+- [x] Core and every store, as [0037](../decisions/0037-an-optional-field-sorts-with-missing-values-last.md) says: `SortKey` takes optional and nullable fields, missing values come last in both directions, and the cursor records a missing value. The store conformance suite covers paging across the boundary, ascending and descending, on MemoryStore and MongoStore. The admin's sort control offers those fields. A changeset.
 
 ### 2. The dev loop
 
@@ -145,3 +146,4 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 - 1b: a refined collection schema with a ref throws at `.contract` (step 1e). `find` cannot sort on an optional field (step 1f).
 - 1b: ts-pf's codegen profile renames hoisted schema names when collections are added, so generated client type names are not stable as an app grows (architecture.md, Known limits: OpenAPI names).
 - 1e: outputs are built from the schema's fields plus the system fields, so an object-level refine checks input only. A generic schema-wrapping helper cost about 7k more than a shared `.refine(fn, options)`.
+- 1f: Mongo needs to know which sort keys are optional to keep its index-served sorts, hence `FindQuery.optional`. An ascending optional key that is not first sorts in memory (an aggregate). That's acceptable for a rare sort, but worth an index-design note if a hot list needs it.
