@@ -47,6 +47,7 @@ What the SPA follows, so a reader or agent can predict where a component lives.
 - Data: `src/web/api.tsx` makes the typed client and its swr utils (`useApi()`), with a fresh cache per organization. Pages (`src/web/pages/`) and `src/web/workspace/` (the shell's composition: sections, the signed-in member, the user menu) call `useSWR` and mutations, and pass data down.
 - Session: `src/web/session.tsx` (storage, the session's fetch, `next` paths, `useSession`) and `src/web/signed-in.tsx` (the gate, organizations, `useSignedIn`). A resource component never fetches, except a Select that searches, which takes its search function as a prop.
 - Routes: `src/web/app.tsx` holds every route, so the route table reads in one place.
+- `src/web/pages/` holds route components, and the sections several routes share, which fetch (the activity section, a deal's contacts). Resource folders never fetch, except a picker's search hook. A cursor list is made fresh only through `useAfterWrite`'s list registry; a matcher never reaches it.
 
 ## Steps
 
@@ -128,7 +129,7 @@ Before the SPA, whose typed client evaluates every procedure.
 
 ### 6. Activities and tasks
 
-- [ ] `ActivityTimeline` and an activity composer that calls `activities.log`, on company, contact and deal detail.
+- [x] `ActivityTimeline` and an activity composer that calls `activities.log`, on company, contact and deal detail. An activity logged on a deal or contact also records the company it has at logging time, so a company's timeline is one filter.
 - [ ] Tasks: the Tasks page (mine first, then overdue, due and done), a task form, and done as one click. A task list section on each parent's detail.
 
 ### 7. Dashboard, team and search
@@ -173,3 +174,4 @@ Before the SPA, whose typed client evaluates every procedure.
 - 5b1: startup 179.7 KB gzipped (112.2 KB without React). The largest page chunk is 30.1 KB (a company's page). The web type-check is at 441k.
 - 5b2: a many() relation in the UI is a list the page replaces with `set`: one change at a time, shown at once (SWR's `optimisticData`, rolled back on refusal), a remove waiting for the server. Base UI's dialog restores focus while it unmounts with its row, so focus moves after a frame.
 - 5b2: the board moves a card through `deals.update`, pending until both columns have re-read, then announced. Native HTML5 drag works in headless Chromium. The web type-check is at 461k; the deals page chunk is 32.3 KB.
+- 6a: populated refs need type guards (`isReadableCompany`, `isReadableDeal`, `isReadableContact`), since `in` does not narrow them. Relative times re-render on one shared clock (`useNow`). The web type-check is at 477k; the deal page chunk is 35.7 KB.

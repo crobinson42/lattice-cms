@@ -3,7 +3,8 @@ import {
   DetailListSkeleton,
   PhoneLink,
 } from '../../ui/detail-list.js';
-import { formatDate, formatRelative } from '../../ui/format.js';
+import { formatDate } from '../../ui/format.js';
+import { RelativeTime } from '../../ui/relative-time.js';
 import { CompanyInline } from '../companies/company-inline.js';
 import type { ContactWithCompany } from './contact.js';
 import { ContactEmail } from './contact-email.js';
@@ -41,11 +42,7 @@ export function ContactOverview({
         },
         {
           label: 'Updated',
-          value: (
-            <time dateTime={contact.updatedAt}>
-              {formatRelative(contact.updatedAt)}
-            </time>
-          ),
+          value: <RelativeTime iso={contact.updatedAt} />,
         },
       ]}
     />

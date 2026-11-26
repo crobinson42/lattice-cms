@@ -1,5 +1,6 @@
 import { DetailList, DetailListSkeleton } from '../../ui/detail-list.js';
-import { formatDate, formatDay, formatRelative } from '../../ui/format.js';
+import { formatDate, formatDay } from '../../ui/format.js';
+import { RelativeTime } from '../../ui/relative-time.js';
 import { CompanyInline } from '../companies/company-inline.js';
 import { type Member, memberOf } from '../members/member.js';
 import { MemberInline } from '../members/member-inline.js';
@@ -53,11 +54,7 @@ export function DealOverview({
         },
         {
           label: 'Updated',
-          value: (
-            <time dateTime={deal.updatedAt}>
-              {formatRelative(deal.updatedAt)}
-            </time>
-          ),
+          value: <RelativeTime iso={deal.updatedAt} />,
         },
       ]}
     />

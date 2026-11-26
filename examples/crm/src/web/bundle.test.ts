@@ -13,16 +13,16 @@ import { builtPage } from '../test/web.js';
  * Gzipped bytes: the measurement of 2026-11-26, plus 5%.
  * - Startup holds React, the shell, sign-in, the session and the API, and
  *   Base UI's shared chunk, which the sidebar's sheet and the menus use.
- * - The largest page is the deals page: the board, with its cards, menus,
- *   drag and drop and a read per column, beside the table and the deal
- *   form. A company's page is close behind, with its two sections' forms.
+ * - The largest page is a deal's: its contacts, and the activity section,
+ *   with its timeline, form and kinds, which a company's and a contact's
+ *   pages also carry. The deals page, with the board, is close behind.
  * - The admin loads the alert dialog and the table with it, now that no
  *   page at startup does.
  */
 const budget = {
   startup: 187_900,
   startupWithoutReact: 117_000,
-  page: 33_600,
+  page: 36_900,
   admin: 26_800,
 };
 
@@ -156,7 +156,8 @@ it('carries no server code', async () => {
     'crm:session:': '../infra/auth/sessions.ts',
     'Set MONGODB_URL': '../infra/store.ts',
     'The deal is already closed': '../domain/errors/domain.ts',
-    'Log a note, call, email or meeting':
+    // The whole sentence: the composer's button starts the same way.
+    'on a company, contact or deal. The caller is its author.':
       '../app/use-cases/activities/log-activity.ts',
   };
   for (const [needle, file] of Object.entries(server)) {

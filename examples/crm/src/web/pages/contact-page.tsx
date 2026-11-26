@@ -23,6 +23,7 @@ import { FormSheet } from '../ui/form.js';
 import { PageHeader } from '../ui/page-header.js';
 import type { Crumb } from '../ui/shell.js';
 import { EmptyState, ErrorState } from '../ui/states.js';
+import { ActivitySection } from './activity-section.js';
 
 const parents: readonly Crumb[] = [{ label: 'Contacts', href: '/contacts' }];
 
@@ -124,6 +125,14 @@ function Loaded({ contact }: { readonly contact: ContactWithCompany }) {
         }
       />
       <ContactOverview contact={contact} />
+      <ActivitySection
+        logged={{
+          on: 'contact',
+          id: contact.id,
+          companyId: contact.companyId.id,
+        }}
+        name={contact.name}
+      />
       <FormSheet
         open={editing}
         onOpenChange={setEditing}

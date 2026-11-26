@@ -1,5 +1,6 @@
 import type { Column } from '../../ui/data-table.js';
-import { formatRelative } from '../../ui/format.js';
+import { RelativeTime } from '../../ui/relative-time.js';
+
 import type { Company } from './company.js';
 import { CompanyInline } from './company-inline.js';
 import { CompanyWebsite } from './company-website.js';
@@ -20,10 +21,6 @@ export const companyColumns: readonly Column<Company>[] = [
   {
     key: 'updatedAt',
     header: 'Updated',
-    cell: (company) => (
-      <time dateTime={company.updatedAt}>
-        {formatRelative(company.updatedAt)}
-      </time>
-    ),
+    cell: (company) => <RelativeTime iso={company.updatedAt} />,
   },
 ];

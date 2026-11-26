@@ -557,11 +557,14 @@ async function pipeline(seed: {
           : [{ contactsId: champion, role: 'champion' as const }]),
       ],
     });
+    // The app's rule for an activity's parents: on a deal, the deal and its
+    // company, so the company's timeline shows it too.
     await owner.activities.log({
       kind: activityKinds[index % activityKinds.length] ?? 'note',
       body: `${deal.title}: ${closes ? 'final terms discussed' : 'next steps agreed'}.`,
       occurredAt: at(-((index * 3) % 58) - 1, 9 + (index % 8)),
       dealId: created.id,
+      companyId: company.id,
     });
     if (closes) {
       await owner.deals.close({
@@ -572,7 +575,8 @@ async function pipeline(seed: {
   }
 
   // Calls, emails, meetings and notes on companies and contacts, spread
-  // over the last 60 days.
+  // over the last 60 days. By the same rule, one on a contact records its
+  // company too.
   for (const [index, company] of companies.entries()) {
     const author = client(index % 2 === 0 ? 'ann' : 'ben');
     await author.activities.log({
@@ -588,6 +592,7 @@ async function pipeline(seed: {
         body: 'Followed up on the open questions from last week.',
         occurredAt: at(-((index * 7) % 59) - 1, 11),
         contactId: contact,
+        companyId: company.id,
       });
     }
   }

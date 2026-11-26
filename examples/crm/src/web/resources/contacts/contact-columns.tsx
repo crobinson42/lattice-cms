@@ -1,5 +1,6 @@
 import type { Column } from '../../ui/data-table.js';
-import { formatRelative } from '../../ui/format.js';
+import { RelativeTime } from '../../ui/relative-time.js';
+
 import { CompanyInline } from '../companies/company-inline.js';
 import type { Contact, ContactWithCompany } from './contact.js';
 import { ContactEmail } from './contact-email.js';
@@ -25,11 +26,7 @@ const email: Column<Basics> = {
 const updated: Column<Basics> = {
   key: 'updatedAt',
   header: 'Updated',
-  cell: (contact) => (
-    <time dateTime={contact.updatedAt}>
-      {formatRelative(contact.updatedAt)}
-    </time>
-  ),
+  cell: (contact) => <RelativeTime iso={contact.updatedAt} />,
 };
 
 /** The columns any table of contacts shows, read with their company. */

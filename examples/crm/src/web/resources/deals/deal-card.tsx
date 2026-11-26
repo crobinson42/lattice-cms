@@ -1,7 +1,7 @@
 import { CalendarIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { formatDay } from '../../ui/format.js';
-import { isReadable } from '../companies/company.js';
+import { isReadableCompany } from '../companies/company.js';
 import { displayName } from '../members/member.format.js';
 import type { Member } from '../members/member.js';
 import { MemberAvatar } from '../members/member-avatar.js';
@@ -41,7 +41,9 @@ export function DealCard({
         {actions}
       </div>
       <div className="text-muted-foreground">
-        {isReadable(deal.companyId) ? deal.companyId.name : 'Hidden company'}
+        {isReadableCompany(deal.companyId)
+          ? deal.companyId.name
+          : 'Hidden company'}
       </div>
       <div className="flex items-center justify-between gap-2">
         <DealAmount deal={deal} />

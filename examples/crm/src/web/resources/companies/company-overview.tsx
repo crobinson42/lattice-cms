@@ -3,7 +3,8 @@ import {
   DetailListSkeleton,
   PhoneLink,
 } from '../../ui/detail-list.js';
-import { formatDate, formatRelative } from '../../ui/format.js';
+import { formatDate } from '../../ui/format.js';
+import { RelativeTime } from '../../ui/relative-time.js';
 import type { Company } from './company.js';
 import { CompanyWebsite } from './company-website.js';
 
@@ -38,11 +39,7 @@ export function CompanyOverview({ company }: { readonly company: Company }) {
         },
         {
           label: 'Updated',
-          value: (
-            <time dateTime={company.updatedAt}>
-              {formatRelative(company.updatedAt)}
-            </time>
-          ),
+          value: <RelativeTime iso={company.updatedAt} />,
         },
       ]}
     />

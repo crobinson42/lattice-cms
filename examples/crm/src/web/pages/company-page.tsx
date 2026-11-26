@@ -30,6 +30,7 @@ import { Section } from '../ui/section.js';
 import type { Crumb } from '../ui/shell.js';
 import { EmptyState, ErrorState } from '../ui/states.js';
 import { TeamGate } from '../workspace/team.js';
+import { ActivitySection } from './activity-section.js';
 
 const parents: readonly Crumb[] = [{ label: 'Companies', href: '/companies' }];
 
@@ -130,6 +131,10 @@ function Loaded({ company }: { readonly company: Company }) {
       <CompanyOverview company={company} />
       <CompanyContacts company={company} />
       <CompanyDeals company={company} />
+      <ActivitySection
+        logged={{ on: 'company', id: company.id }}
+        name={company.name}
+      />
       <FormSheet
         open={editing}
         onOpenChange={setEditing}

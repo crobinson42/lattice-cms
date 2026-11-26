@@ -18,6 +18,24 @@ export type DealWithCompany = InferExpandedOutput<
   ['companyId']
 >;
 
+/**
+ * A deal as a populated ref returns it, such as an activity's `dealId` read
+ * with `populate`: the deal, or `{ id }` when the caller may not read it.
+ */
+export type DealRef = NonNullable<
+  InferExpandedOutput<
+    (typeof contract)['activities']['find'],
+    ['dealId']
+  >['docs'][number]['dealId']
+>;
+
+/** Whether the caller may read the populated deal: it has its fields. */
+export function isReadableDeal(
+  deal: DealRef,
+): deal is Extract<DealRef, { readonly title: string }> {
+  return 'title' in deal;
+}
+
 type Inputs = InferContractInputs<typeof contract>['deals'];
 
 /** What creating a deal takes. */

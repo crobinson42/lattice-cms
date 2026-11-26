@@ -17,6 +17,25 @@ export type ContactWithCompany = InferExpandedOutput<
   ['companyId']
 >;
 
+/**
+ * A contact as a populated ref returns it, such as an activity's
+ * `contactId` read with `populate`: the contact, or `{ id }` when the
+ * caller may not read it.
+ */
+export type ContactRef = NonNullable<
+  InferExpandedOutput<
+    (typeof contract)['activities']['find'],
+    ['contactId']
+  >['docs'][number]['contactId']
+>;
+
+/** Whether the caller may read the populated contact: it has its fields. */
+export function isReadableContact(
+  contact: ContactRef,
+): contact is Extract<ContactRef, { readonly name: string }> {
+  return 'name' in contact;
+}
+
 type Inputs = InferContractInputs<typeof contract>['contacts'];
 
 /** What creating a contact takes. */

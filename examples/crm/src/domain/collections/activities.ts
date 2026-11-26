@@ -10,7 +10,8 @@ export const activityKinds = ['note', 'call', 'email', 'meeting'] as const;
  */
 export const activityFields = z.object({
   kind: z.enum(activityKinds),
-  body: z.string().min(1),
+  // The message is what a form shows at the field.
+  body: z.string().min(1, 'Say what happened'),
   occurredAt: z.iso.datetime(),
   ...parentRefs,
 });

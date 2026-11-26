@@ -38,6 +38,7 @@ import { PageHeader } from '../ui/page-header.js';
 import type { Crumb } from '../ui/shell.js';
 import { EmptyState, ErrorState } from '../ui/states.js';
 import { type Team, TeamGate } from '../workspace/team.js';
+import { ActivitySection } from './activity-section.js';
 import { DealContacts } from './deal-contacts.js';
 
 const parents: readonly Crumb[] = [{ label: 'Deals', href: '/deals' }];
@@ -199,6 +200,10 @@ function Loaded({
       )}
       <DealOverview deal={deal} members={team.members} />
       <DealContacts deal={deal} companyId={deal.companyId.id} editable={open} />
+      <ActivitySection
+        logged={{ on: 'deal', id: deal.id, companyId: deal.companyId.id }}
+        name={deal.title}
+      />
       <FormSheet
         open={editing}
         onOpenChange={setEditing}

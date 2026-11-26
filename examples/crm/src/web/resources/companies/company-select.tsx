@@ -1,6 +1,6 @@
 import { SearchSelect } from '../../ui/search-select.js';
 import { companyCount } from './company.format.js';
-import { type Company, type CompanyRef, isReadable } from './company.js';
+import { type Company, type CompanyRef, isReadableCompany } from './company.js';
 
 /** What a pick of a company needs: its id, and its name to show. */
 export type CompanyOption = Pick<Company, 'id' | 'name'>;
@@ -10,7 +10,7 @@ export type CompanyOption = Pick<Company, 'id' | 'name'>;
  * not read keeps its id, so a form that does not change it sends nothing.
  */
 export function companyOption(company: CompanyRef): CompanyOption {
-  return isReadable(company)
+  return isReadableCompany(company)
     ? company
     : { id: company.id, name: 'Hidden company' };
 }

@@ -19,7 +19,9 @@ export type CompanyRef = InferExpandedOutput<
 >['companyId'];
 
 /** Whether the caller may read the populated company: it has its fields. */
-export function isReadable(company: CompanyRef): company is Company {
+export function isReadableCompany(
+  company: CompanyRef,
+): company is Extract<CompanyRef, { readonly name: string }> {
   return 'name' in company;
 }
 

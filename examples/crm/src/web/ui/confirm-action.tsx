@@ -12,6 +12,7 @@ import {
 } from '@shadalaya/react/alert-dialog';
 import { Button } from '@shadalaya/react/button';
 import {
+  type ComponentProps,
   type ReactNode,
   type RefObject,
   useEffect,
@@ -32,6 +33,7 @@ export function ConfirmAction({
   pending: pendingLabel,
   onConfirm,
   variant = 'default',
+  size,
   finalFocus,
   ...opener
 }: {
@@ -41,7 +43,8 @@ export function ConfirmAction({
   readonly confirm: string;
   readonly pending: string;
   readonly onConfirm: () => Promise<string | undefined>;
-  readonly variant?: 'default' | 'outline' | 'destructive';
+  readonly variant?: 'default' | 'outline' | 'ghost' | 'destructive';
+  readonly size?: ComponentProps<typeof Button>['size'];
   /** Where focus goes when it closes, such as the menu button it came from. */
   readonly finalFocus?: RefObject<HTMLElement | null>;
 } & (
@@ -77,7 +80,14 @@ export function ConfirmAction({
       }}
     >
       {'trigger' in opener ? (
-        <AlertDialogTrigger render={<Button variant={variant} />}>
+        <AlertDialogTrigger
+          render={
+            <Button
+              variant={variant}
+              {...(size === undefined ? {} : { size })}
+            />
+          }
+        >
           {opener.trigger}
         </AlertDialogTrigger>
       ) : null}

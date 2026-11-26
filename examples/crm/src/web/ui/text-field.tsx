@@ -12,7 +12,13 @@ export function TextField({
 }: {
   readonly name: string;
   readonly label: string;
-  readonly type?: 'text' | 'tel' | 'email' | 'number' | 'date';
+  readonly type?:
+    | 'text'
+    | 'tel'
+    | 'email'
+    | 'number'
+    | 'date'
+    | 'datetime-local';
   readonly defaultValue: string;
   readonly error: string | undefined;
 }) {

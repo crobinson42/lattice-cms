@@ -35,6 +35,20 @@ export const number: Parse<number> = (typed) =>
 export const isoDate: Parse<string> = (typed) => typed;
 
 /**
+ * An ISO date-time, from a datetime-local input's local time:
+ * "2026-11-26T09:30" in the browser's time zone. At a daylight-saving
+ * change, a skipped or repeated local hour is as the browser resolves it.
+ * Anything that is not a date-time is sent as typed, for the server to
+ * refuse at its field.
+ */
+export const isoDateTime: Parse<string> = (typed) => {
+  const date = new Date(typed);
+  return typed === '' || Number.isNaN(date.getTime())
+    ? typed
+    : date.toISOString();
+};
+
+/**
  * One of `values`, as a select of them gives it. A select offers nothing
  * else, so anything else is the first value.
  */
