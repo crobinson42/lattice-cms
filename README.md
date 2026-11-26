@@ -412,7 +412,7 @@ This app is a first page. Replace these before anyone else uses it:
 - **The store.** `MemoryStore` forgets everything on restart. Use `MongoStore` from [`@latticecms/store-mongo`](packages/store-mongo), and run data migrations with [`lattice migrate`](packages/cli#lattice-migrate).
 - **Sign-in.** One fixed token is one user. Use `@hexok/auth`'s sessions with a login router, as the crm's [`/auth` router](examples/crm/src/servers/auth/router.ts) does. The edge stays the same: it authenticates through the same port.
 - **Memberships.** The server seeds one. Trusted code writes real ones, as the crm's [`dev-user`](examples/crm/src/servers/scripts/dev-user.ts) script does.
-- **The organization.** The page names one. Let the user pick, as the crm's [admin page](examples/crm/src/web/app.tsx) does with its switcher.
+- **The organization.** The page names one. Let the user pick, as the crm's [web app](examples/crm/src/web/ui/organization-switcher.tsx) does with its switcher.
 - **Access.** Companies and contacts are open to any member. Tighten each collection's access in `src/app.ts`; see [core's README](packages/core#access).
 
 [`examples/crm`](examples/crm) is the same app grown up. The [`lattice` agent skill](packages/core/skills/lattice/SKILL.md) walks an agent through each next step.

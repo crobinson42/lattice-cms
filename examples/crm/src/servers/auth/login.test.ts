@@ -81,6 +81,12 @@ describe.each(backends)('login over HTTP on $name', (backend) => {
     const signedIn = await s.login('ann@x.com', password);
 
     expect(signedIn.status).toBe(200);
+    // The user's id comes back too, and it is the session's user.
+    expect(signedIn.body).toMatchObject({ output: { userId: 'ann' } });
+    expect(await s.sessions.authenticate(tokenOf(signedIn.body))).toEqual({
+      ok: true,
+      value: { userId: 'ann' },
+    });
     const response = await s.fetch(
       rpcRequest(
         'deals/find',

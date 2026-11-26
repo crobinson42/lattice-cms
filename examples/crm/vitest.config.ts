@@ -8,6 +8,7 @@ const servers = [
   'src/servers/http/server.test.ts',
   'src/servers/http/tracing.test.ts',
   'src/web/admin.browser.test.ts',
+  'src/web/app.browser.test.ts',
 ];
 
 export default defineConfig({

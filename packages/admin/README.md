@@ -18,7 +18,7 @@ The admin is a React component for a page the app bundles, such as with Vite. A 
 
 ## A one-page admin with a token
 
-The root README's [Getting started](../../README.md#5-the-admin-page) has the smallest page: a token form kept in `sessionStorage`, a `fetch` that adds the token and the organization, and `<Admin>`. A test builds and drives it. The crm's [admin page](../../examples/crm/src/web/app.tsx), quoted below, adds sign-in with a password, an organization switcher and sign-out.
+The root README's [Getting started](../../README.md#5-the-admin-page) has the smallest page: a token form kept in `sessionStorage`, a `fetch` that adds the token and the organization, and `<Admin>`. A test builds and drives it. The crm's [admin page](../../examples/crm/src/web/pages/admin-page.tsx), quoted below, mounts it in an app with sign-in by password, an organization switcher and sign-out.
 
 ## Serve the catalog
 
@@ -54,33 +54,35 @@ export function catalogDocument() {
 Mount `<Admin>` on a catch-all route, and import its stylesheet once. The crm's page:
 
 ```tsx
-// examples/crm/src/web/app.tsx
-    <Admin
-      // A new organization is a new admin, with an empty cache.
-      key={current?.id ?? 'support'}
-      fetch={fetch}
-      catalogUrl="/catalog.json"
-      basePath="/admin"
-      header={
-        current === undefined ? undefined : (
-          <Header
-            organizations={organizations}
-            picked={current.id}
-            onPick={(id) => {
-              session.pick(id);
-              setPicked(id);
-            }}
-            onSignOut={signOut}
-          />
-        )
-      }
-    />
+// examples/crm/src/web/pages/admin-page.tsx
+<Admin
+  fetch={fetch}
+  catalogUrl="/catalog.json"
+  basePath="/admin"
+  header={
+    <div className="flex items-center gap-2">
+      {organization === undefined ? null : (
+        // `~` leaves the nested /admin route for the app's root.
+        <Link
+          href="~/"
+          className="text-sm underline-offset-4 hover:underline"
+        >
+          Back to CRM
+        </Link>
+      )}
+      <OrganizationSwitcher />
+      <Button size="sm" variant="outline" onClick={signOut}>
+        Sign out
+      </Button>
+    </div>
+  }
+/>
 ```
 
-Its `fetch` adds the session token and the organization to every call, and signs the user out on a 401:
+Its `fetch` adds the session token and the organization to every call, and signs the user out on a 401, while that session is still the tab's:
 
-```ts
-// examples/crm/src/web/session.ts
+```tsx
+// examples/crm/src/web/session.tsx
 export function sessionFetch(
   token: string,
   organizationId: string | undefined,
@@ -93,7 +95,9 @@ export function sessionFetch(
       request.headers.set(organizationHeader, organizationId);
     }
     const response = await fetch(request);
-    if (response.status === 401) onUnauthorized();
+    if (response.status === 401 && stored.signed()?.token === token) {
+      onUnauthorized();
+    }
     return response;
   };
 }
@@ -110,7 +114,7 @@ The admin follows the browser's back and forward, and its own links. It does not
 
 The admin has no sign-in and no auth code. The app owns its session: on a 401, its `fetch` can clear the session and show its sign-in page.
 
-**Key it by organization.** `key={organizationId}` remounts the admin when the user switches organization. Each mount has its own cache, so one organization's rows never show under another's. Cache keys do not include the organization header, so without the key a switch would show stale rows until they refetch.
+**Remount it when the organization changes.** Key it by organization, `key={organizationId}`, or key a parent of it, as the crm does: every page of the crm sits under a cache keyed by organization, the admin among them. Each mount has its own cache, so one organization's rows never show under another's. Cache keys do not include the organization header, so without a remount a switch would show stale rows until they refetch.
 
 The stylesheet is compiled at the admin's build, with Tailwind's preflight and the shadalaya tokens. The app needs no Tailwind. Preflight resets element styles, so serve the admin on its own page.
 

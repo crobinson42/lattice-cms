@@ -51,17 +51,39 @@ The crm is the layout `@latticecms/cli` defaults to. Its `package.json` sets `"l
 
 A missing or bad setting fails at startup and names each one. Startup is: start the store, migrate, create indexes, then serve. To migrate as a deploy step instead, run `npx lattice migrate` after `npm run build`; it runs the same list from `dist/servers/scripts/migrate.js`. `SIGINT` and `SIGTERM` stop taking requests, let those in flight finish, and close the stores.
 
-## The admin
+## The web app
 
-`npm run build` builds the web page into `dist/web`, and the server serves it at `/`, with the admin at `/admin` as one of its client routes; `npm run dev` serves it with Vite instead. Sign in as a seeded user from [Run it](#run-it). The top bar's select switches organization, and Sign out ends the session. A support user signs in to the admin with no switcher: support acts in no organization.
+`npm run build` builds the web app into `dist/web`, and the server serves it at `/`; `npm run dev` serves it with Vite instead. It is a React app on [wouter](https://github.com/molefrog/wouter) routes, [`@shadalaya/react`](https://www.npmjs.com/package/@shadalaya/react) components and Tailwind v4, with data through `@ts-pf/swr`. The admin is one of its routes, at `/admin`. Sign in as a seeded user from [Run it](#run-it).
 
-The page is [`src/web`](src/web): `@latticecms/admin`'s `<Admin>`, mounted the way an app mounts it.
+```
+src/web/
+  main.tsx          mounts the app, and imports app.css
+  app.css           Tailwind, the shadalaya theme, and the components the app scans
+  app.tsx           every route, in one table
+  session.tsx       the session: sessionStorage, the fetch that sends it, its provider, and where sign-in returns
+  signed-in.tsx     the sign-in redirect, the user's organizations, and useSignedIn()
+  auth.ts           the /auth client, and the types of its answers
+  api.tsx           useApi(): the typed /rpc client and its swr utils
+  workspace/        the member's pages in the shell: the sections, the member read, the user menu
+  pages/            one component per route: sign-in, companies, and the admin (lazy)
+  resources/        one home per resource: its type, formatters and components
+  ui/               what knows no resource: the shell, the organization switcher, states
+```
 
-- [`app.tsx`](src/web/app.tsx) signs in through `/auth`, lists the user's organizations for the switcher, and keys `<Admin>` by the picked one, so a switch starts with an empty cache.
-- [`session.ts`](src/web/session.ts) keeps the token and the picked organization in `sessionStorage`, for the tab. Its fetch adds `Authorization` and `x-organization-id` to every call, and a 401 signs the user out.
-- [`auth.ts`](src/web/auth.ts) is a ts-pf client on `/auth`, typed by `typeof authContract` with a type-only import, so no server code reaches the browser.
+- Any route but `/sign-in` needs a session. Without one, it sends the user to `/sign-in` and back after, to a page of this site only. A signed-in user who opens `/sign-in` goes straight on. `/` goes to `/companies`.
+- [`api.tsx`](src/web/api.tsx) builds the clients once per session and organization: `createClient<typeof contract>` on a `FetchLink`, typed by a type-only import of the contract, and `createSwr` over it. Data comes from `useSWR(swr.memberships.find.key({ input }), swr.memberships.find.fetcher())`, typed by the contract, as [`workspace/workspace.tsx`](src/web/workspace/workspace.tsx) reads the signed-in member. Each organization gets a fresh swr cache, and a switch remounts every page, so none shows another organization's data.
+- [`session.tsx`](src/web/session.tsx) keeps the token, the user's id and the picked organization in `sessionStorage`, for the tab. Its fetch adds `Authorization` and `x-organization-id` to every call. A 401 signs the user out, if its session is still the tab's. Sign-out ends the session here at once, and tells the server without waiting for it.
+- [`ui/shell.tsx`](src/web/ui/shell.tsx) is the frame of a page: the sidebar of sections, and a top bar with the section's title, then what its owner puts there. The workspace puts the organization switcher and the user menu, which shows the member and links to the admin and sign-out. A page adds its section to the workspace's list.
+- Pages fetch, and `resources/` and `ui/` take data as props. `resources/members/` holds `Member`, `displayName` and `initials`, and `MemberAvatar`.
+- `app.css` scans the app's sources and only the shadalaya components it imports. A page that imports a new component adds its file name to the list in `app.css`; `app-css.test.ts` fails until it does.
+- The page imports the contracts by type only, and `servers/http/headers.ts`, which holds only a header's name. `bundle.test.ts` checks that no server code reaches the browser.
+- Support acts in no organization, so it lands on `/admin`.
 
 The server serves `index.html` for every GET that is not an API path, so a reload on a deep link such as `/admin/deals` renders, and caches the hashed files under `/assets/` for good.
+
+### The admin
+
+[`pages/admin-page.tsx`](src/web/pages/admin-page.tsx) mounts `@latticecms/admin`'s `<Admin>` at `/admin`, the way an app mounts it: through `React.lazy`, so the admin and its stylesheet load only when `/admin` first opens. It uses the session's fetch, and a switch remounts it with an empty cache, as it does every page. A chunk that fails to load, such as an old hash after a deploy, shows an error with a reload. Its header has a link back to the app, the organization switcher and Sign out. A support user gets the admin with no switcher and no link back.
 
 ## Events and the worker
 
@@ -129,7 +151,7 @@ When a deal closes, its organization's endpoints that list `deal.closed` get, si
 
 ## Calling it
 
-- `POST /auth/login` with `{ "input": { "email", "password" } }` returns `{ token }`.
+- `POST /auth/login` with `{ "input": { "email", "password" } }` returns `{ token, userId }`.
 - `POST /auth/logout` with the token ends its session.
 - `POST /auth/organizations` with the token and `{ "input": {} }` returns the user's organizations, `[{ id, name }]` by name, for an organization switcher. It needs no organization header. Support gets none.
 - `POST /rpc/<collection>/<operation>` is the Lattice API. Send `Authorization: Bearer <token>` and `x-organization-id: <organization>`.
@@ -250,6 +272,6 @@ An activity records what happened: a note, call, email or meeting on a company, 
 
 `npm test -w @latticecms/example-crm` runs every test on `MemoryStore` and on MongoDB, through mongodb-memory-server. Sessions run in memory with real signed tokens, and the queues on `MemoryQueue` ([`src/test/memory-queue.ts`](src/test/memory-queue.ts)), an adapter of the `@hexok/queue` port with the same delivery rules as RedisQueue. Redis is not needed. Webhooks are sent to a real HTTP server on this machine. MCP tests connect the MCP SDK's own client to `/mcp`.
 
-[`admin.browser.test.ts`](src/web/admin.browser.test.ts) runs the built admin page in headless Chromium, through Playwright, against the HTTP server on a port and MongoDB. It signs in, switches organization and sees only that organization's deals, creates, edits and deletes a company and a deal, checks that a member sees no amount in the list or the form, deletes a company that still has deals and follows the link to them, sets a deal's contacts on its relation tab, reloads a deep link, and signs out. Install Chromium once with `npx playwright install chromium`. [`bundle.test.ts`](src/web/bundle.test.ts) holds the built page to a gzipped budget, in all and without React. Both read `dist/web`, so `npx turbo run test` builds the crm first. The tests that start a real server on MongoDB, the browser test among them, run after the rest and one file at a time ([`vitest.config.ts`](vitest.config.ts)): each start builds every index, and mongod builds only a few at once, so overlapping starts stall each other.
+[`admin.browser.test.ts`](src/web/admin.browser.test.ts) runs the built admin page in headless Chromium, through Playwright, against the HTTP server on a port and MongoDB. It signs in, switches organization and sees only that organization's deals, creates, edits and deletes a company and a deal, checks that a member sees no amount in the list or the form, deletes a company that still has deals and follows the link to them, sets a deal's contacts on its relation tab, reloads a deep link, and signs out. Install Chromium once with `npx playwright install chromium`. [`app.browser.test.ts`](src/web/app.browser.test.ts) runs the app the same way: the sign-in redirect and its return, the organization switch, the admin through the user menu and back, sign-out, a 401, support, and an admin chunk that fails to load. [`bundle.test.ts`](src/web/bundle.test.ts) holds the built page to gzipped budgets: what loads at startup, in all and without React, and the admin chunk, which must load only after startup. It also checks that no server code reaches the page. They read `dist/web`, so `npx turbo run test` builds the crm first. The tests that start a real server on MongoDB, the browser test among them, run after the rest and one file at a time ([`vitest.config.ts`](vitest.config.ts)): each start builds every index, and mongod builds only a few at once, so overlapping starts stall each other.
 
 Two tests keep the docs honest. [`readme-quotes.test.ts`](src/readme-quotes.test.ts) checks that every code block whose first line names a file, such as `// examples/crm/src/servers/app.ts`, is that file's text, line for line, allowing only a uniform indent to be removed. It reads the READMEs of core, store-mongo, cli and admin, this one, and every file of core's agent skill. [`quickstart.test.ts`](src/quickstart/quickstart.test.ts) runs core's quick start, which lives in [`src/quickstart`](src/quickstart).

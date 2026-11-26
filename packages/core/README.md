@@ -869,7 +869,8 @@ Sign-in is not a Lattice procedure: every Lattice procedure has an actor, and a 
 export const authContract = router({
   login: procedure
     .input(loginInput)
-    .output(z.object({ token: z.string().min(1) }))
+    // The user's id too, so a client can find its own membership and tasks.
+    .output(z.object({ token: z.string().min(1), userId: z.string().min(1) }))
     .errors({
       UNAUTHORIZED: { status: 401, message: 'The credentials are not valid' },
     }),
@@ -896,7 +897,7 @@ export const authContract = router({
           { logger: context.logger },
           input,
         );
-        return { token: await deps.sessions.open({ userId }) };
+        return { token: await deps.sessions.open({ userId }), userId };
       } catch (error) {
         if (!LoginError.is(error)) throw error;
         throw new PFError({
@@ -1081,36 +1082,36 @@ The crm serves it at `GET /openapi.json`, and the catalog itself at `GET /catalo
 [`@latticecms/admin`](../admin) renders the app from the catalog it serves. The crm's page signs in through `/auth`, lists the user's organizations for a switcher from `/auth organizations`, which needs no organization header, and calls the API with the picked one:
 
 ```tsx
-// examples/crm/src/web/app.tsx
-  const auth = useMemo(
-    () => authClient(sessionFetch(token, undefined, onSignedOut)),
-    [token, onSignedOut],
-  );
-  // A 401 signs out through the session's fetch. Anything else, such as a
-  // dropped connection, can be tried again.
-  const load = useCallback(() => {
-    setFailed(false);
-    auth.organizations({}).then(setOrganizations, () => setFailed(true));
-  }, [auth]);
-  useEffect(load, [load]);
-  const current =
-    organizations?.find(({ id }) => id === picked) ?? organizations?.[0];
-  const fetch = useMemo(
-    () => sessionFetch(token, current?.id, onSignedOut),
-    [token, current, onSignedOut],
-  );
+// examples/crm/src/web/signed-in.tsx
+const auth = useMemo(
+  () => authClient(sessionFetch(signed.token, undefined, onSignedOut)),
+  [signed.token, onSignedOut],
+);
+// A 401 signs out through the session's fetch. Anything else, such as a
+// dropped connection, can be tried again.
+const load = useCallback(() => {
+  setFailed(false);
+  auth.organizations({}).then(setOrganizations, () => setFailed(true));
+}, [auth]);
+useEffect(load, [load]);
+const organization =
+  organizations?.find(({ id }) => id === picked) ?? organizations?.[0];
+const fetch = useMemo(
+  () => sessionFetch(signed.token, organization?.id, onSignedOut),
+  [signed.token, organization, onSignedOut],
+);
 ```
 
-`<Admin>` is keyed by the organization, so a switch starts with an empty cache and never shows another organization's rows:
+Every page, `<Admin>` among them, sits under a cache keyed by the organization, so a switch remounts them with an empty cache and never shows another organization's rows:
 
 ```tsx
-// examples/crm/src/web/app.tsx
-    <Admin
-      // A new organization is a new admin, with an empty cache.
-      key={current?.id ?? 'support'}
-      fetch={fetch}
-      catalogUrl="/catalog.json"
-      basePath="/admin"
+// examples/crm/src/web/api.tsx
+<SWRConfig
+  key={organizationId ?? 'support'}
+  value={{ provider: () => new Map() }}
+>
+  {children}
+</SWRConfig>
 ```
 
 The edge checks the organization header on every call, as in [The auth edge](#the-auth-edge). The admin's README has its props, the catalog route and what it renders. The smallest page, a token form, is in the root README's [Getting started](../../README.md#5-the-admin-page).

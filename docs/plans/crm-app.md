@@ -25,7 +25,7 @@ The maintainer chose these on 2026-11-25.
 - **The crm server's type budget is 520k** (it was raised to 660k while the upstream fixes were pending, then lowered after hexok 2.2.8 and ts-pf 1.0.1). Activities, the seventh collection, cost about 100k where the sixth cost 40k. Step 1d finds the type that grows with the number of collections, and brings the budget back down.
 - **The store port's `FindQuery` gains `optional`**, the sort fields a document may lack, filled by core (maintainer, 2026-11-25), so Mongo keeps its index-served sorts.
 - **Core sorts optional fields, with missing values last** ([0037](../decisions/0037-an-optional-field-sorts-with-missing-values-last.md), proposed; the maintainer chose it on 2026-11-25), in step 1f, so Tasks sort by due date and deals by expected close date.
-- **Approved dependencies for the crm:** `wouter`, `@shadalaya/react`, `@shadalaya/theme`, `swr`, `@ts-pf/swr`, `@ts-pf/client` and `@ts-pf/client-http` as dependencies of the page; `tailwindcss` and `@tailwindcss/vite` as devDependencies. Anything else is asked for first.
+- **Approved dependencies for the crm:** `wouter`, `@shadalaya/react`, `@shadalaya/theme`, `swr`, `@ts-pf/swr`, `@ts-pf/client` and `@ts-pf/client-http` as dependencies of the page; `tailwindcss` and `@tailwindcss/vite` as devDependencies; `lucide-react` for icons (added 2026-11-25). Anything else is asked for first.
 
 ## In scope
 
@@ -43,7 +43,8 @@ What the SPA follows, so a reader or agent can predict where a component lives.
 - Resource home: `src/web/resources/<resource>/`, one per collection the SPA shows: `companies`, `contacts`, `deals`, `activities`, `tasks`, `members`.
 - Naming: `<Resource><Role>`, kebab-case files: `deal-stage-badge.tsx` exports `DealStageBadge`. Roles: Inline, Badge, Card, Table (with its column definitions), List, Select, Form, Board (deals only), Timeline (activities only), and Detail sections. Formatters in `<resource>.format.ts`. Build only the roles a page uses.
 - Primitives: `@shadalaya/react`. App-wide pieces that know no resource (the shell, empty, error and loading states, money and date formatting) live in `src/web/ui/`.
-- Data: `src/web/api.ts` makes the typed client and its swr utils. Pages (`src/web/pages/`) call `useSWR` and mutations, and pass data down. A resource component never fetches, except a Select that searches, which takes its search function as a prop.
+- Data: `src/web/api.tsx` makes the typed client and its swr utils (`useApi()`), with a fresh cache per organization. Pages (`src/web/pages/`) and `src/web/workspace/` (the shell's composition: sections, the signed-in member, the user menu) call `useSWR` and mutations, and pass data down.
+- Session: `src/web/session.tsx` (storage, the session's fetch, `next` paths, `useSession`) and `src/web/signed-in.tsx` (the gate, organizations, `useSignedIn`). A resource component never fetches, except a Select that searches, which takes its search function as a prop.
 - Routes: `src/web/app.tsx` holds every route, so the route table reads in one place.
 
 ## Steps
@@ -109,11 +110,11 @@ Before the SPA, whose typed client evaluates every procedure.
 
 ### 4. The SPA foundation **Checkpoint**
 
-- [ ] Tailwind v4 through `@tailwindcss/vite`, with the shadalaya theme. `src/web/api.ts`: the `/rpc` client typed by `typeof contract` and its swr utils, and the `/auth` client. `SWRConfig` is keyed by organization, so a switch starts with an empty cache.
-- [ ] The session: sign-in page, token and organization in `sessionStorage` as today, sign-out, a 401 signs out.
-- [ ] The shell: shadalaya's sidebar with Dashboard, Companies, Contacts, Deals, Tasks and Team; the organization switcher; the user menu with Admin and Sign out. Support, which acts in no organization, is sent to `/admin`.
-- [ ] `<Admin>` at `/admin` through `React.lazy`, with a link back to the app in its header.
-- [ ] `src/web/ui/`: loading, empty and error states, and money and date formatters.
+- [x] Tailwind v4 through `@tailwindcss/vite`, with the shadalaya theme. `src/web/api.ts`: the `/rpc` client typed by `typeof contract` and its swr utils, and the `/auth` client. `SWRConfig` is keyed by organization, so a switch starts with an empty cache.
+- [x] The session: sign-in page, token and organization in `sessionStorage` as today, sign-out, a 401 signs out.
+- [x] The shell: shadalaya's sidebar with Dashboard, Companies, Contacts, Deals, Tasks and Team; the organization switcher; the user menu with Admin and Sign out. Support, which acts in no organization, is sent to `/admin`.
+- [x] `<Admin>` at `/admin` through `React.lazy`, with a link back to the app in its header.
+- [x] `src/web/ui/`: loading, empty and error states, and money and date formatters.
 - [ ] Companies as the first resource, end to end, as the pattern the other resources copy: list with search and cursor pages, detail, create and edit in a sheet, delete with a `REFERENCED` refusal explained.
 - [ ] Measure the web type-check and the bundles; propose budgets.
 - **Checkpoint:** show the maintainer the running app, the folder layout and the measurements before the pattern is repeated.
@@ -158,3 +159,5 @@ Before the SPA, whose typed client evaluates every procedure.
 - 1d (corrected): `all(tk)` was not the quadratic part. Lattice's read procedure types are, on first deep evaluation (step 1g).
 - 2: four commands, not three. `cp .env.example .env` runs once, so the scripts never fall back to the public dev secret. `npm run dev` needs no new dependency (`scripts/dev.mjs`), and rebuilds core and store-mongo through tsc's project references.
 - 3: until the app exists, `main.tsx` sends any path outside `/admin` to it. Step 4's router replaces that placeholder.
+- 4a: login returns `{ token, userId }`, and the session context carries `userId`. A request signs out only the session it was sent with. Signing in clears the old session's storage. `@latticecms/admin` cannot move focus to its own heading, so a sign-in that returns to `/admin` leaves focus on the body (a later admin step).
+- 4a: the app at startup is 162.7 KB gzipped (95.2 KB without React). The lazy admin chunk is 24.2 KB. The web type-check is at 373k.

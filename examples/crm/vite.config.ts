@@ -1,3 +1,4 @@
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
 import { apiPaths } from './src/servers/http/api-paths.js';
 
@@ -9,6 +10,7 @@ import { apiPaths } from './src/servers/http/api-paths.js';
 const api = 'http://localhost:3000';
 
 export default defineConfig({
+  plugins: [tailwindcss()],
   root: 'src/web',
   base: '/',
   build: {
