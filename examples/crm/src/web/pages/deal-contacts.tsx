@@ -344,7 +344,7 @@ function AddContactForm({
   readonly onDeal: readonly string[];
   readonly onAdd: (link: DealContactLink) => Promise<ApiError | undefined>;
 }) {
-  const search = useContactSearch(companyId, onDeal);
+  const search = useContactSearch(companyId, onDeal, 20);
   const { errors, pending, onSubmit } = useFormSubmit(
     ['contactsId', 'role'],
     (values) =>

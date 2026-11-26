@@ -96,3 +96,18 @@ export function useUrlOption<V extends string>(
   );
   return [value, set] as const;
 }
+
+const newValues = ['1'] as const;
+
+/**
+ * A page's create sheet, open while the URL says `?new=1`: so a link, such
+ * as the search palette's "New deal", opens it. Closing it takes the key
+ * off, and keeps the rest.
+ */
+export function useNewSheet() {
+  const [value, set] = useUrlOption('new', newValues);
+  return [
+    value !== undefined,
+    (open: boolean) => set(open ? '1' : undefined),
+  ] as const;
+}

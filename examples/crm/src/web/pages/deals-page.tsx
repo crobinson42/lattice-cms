@@ -6,7 +6,7 @@ import {
 } from '@shadalaya/react/native-select';
 import { asResult } from '@ts-pf/client';
 import { BriefcaseIcon, KanbanIcon, PlusIcon, TableIcon } from 'lucide-react';
-import { type ReactNode, useCallback, useState } from 'react';
+import { type ReactNode, useCallback } from 'react';
 import useSWR from 'swr';
 import { useLocation } from 'wouter';
 import { useApi } from '../api.js';
@@ -36,6 +36,7 @@ import { CursorTable } from '../ui/cursor-table.js';
 import { FormSheet } from '../ui/form.js';
 import {
   useListParams,
+  useNewSheet,
   useUrlOption,
   writeListParams,
 } from '../ui/list-params.js';
@@ -62,7 +63,7 @@ function Deals({ team }: { readonly team: Team }) {
   const { rpc, swr } = useApi();
   const afterWrite = useAfterWrite();
   const [, navigate] = useLocation();
-  const searchCompanies = useCompanySearch();
+  const searchCompanies = useCompanySearch(20);
   const amounts = readsAmounts(team.me);
   const sorts = dealSorts(amounts);
   const [params, show] = useListParams(sorts, defaultDealSort);
@@ -86,7 +87,7 @@ function Deals({ team }: { readonly team: Team }) {
     swr.deals.count.fetcher(),
   );
 
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useNewSheet();
   const create = async (input: DealCreate) => {
     const result = await asResult(rpc.deals.create(input));
     if (!result.ok) return result.error;

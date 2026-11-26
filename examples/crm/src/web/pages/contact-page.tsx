@@ -74,7 +74,7 @@ export default function ContactPage({ id }: { readonly id: string }) {
 function Loaded({ contact }: { readonly contact: ContactWithCompany }) {
   const { rpc, swr } = useApi();
   const afterWrite = useAfterWrite();
-  const searchCompanies = useCompanySearch();
+  const searchCompanies = useCompanySearch(20);
   const [editing, setEditing] = useState(false);
 
   const update = async (patch: ContactPatch) => {

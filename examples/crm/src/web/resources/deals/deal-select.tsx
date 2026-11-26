@@ -1,9 +1,15 @@
 import { type Search, SearchSelect } from '../../ui/search-select.js';
 import { dealCount } from './deal.format.js';
-import type { Deal } from './deal.js';
+import type { DealWithCompany } from './deal.js';
 
-/** What a pick of a deal needs: its id, title, and company, for parents. */
-export type DealOption = Pick<Deal, 'id' | 'title' | 'companyId'>;
+/**
+ * What a pick of a deal needs: its id, title and stage, and its company,
+ * read with it, for the parents and to tell it apart.
+ */
+export type DealOption = Pick<
+  DealWithCompany,
+  'id' | 'title' | 'stage' | 'companyId'
+>;
 
 /**
  * Picks one deal, searched by title as the user types. `search` reads

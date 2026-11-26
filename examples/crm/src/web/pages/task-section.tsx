@@ -81,6 +81,7 @@ function Tasks({
         team={team}
         on={parent.on}
         grouped={false}
+        loadMore
         empty={<EmptyState title="No open tasks" />}
         finalFocus={quickAdd}
       />

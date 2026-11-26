@@ -2,7 +2,7 @@ import { Button } from '@shadalaya/react/button';
 import { ButtonGroup } from '@shadalaya/react/button-group';
 import { asResult } from '@ts-pf/client';
 import { ListChecksIcon, PlusIcon } from 'lucide-react';
-import { type RefObject, useRef, useState } from 'react';
+import { type RefObject, useRef } from 'react';
 import useSWR from 'swr';
 import { useApi } from '../api.js';
 import { useCompanySearch } from '../resources/companies/company-search.js';
@@ -13,7 +13,7 @@ import type { TaskCreate, TaskWhere } from '../resources/tasks/task.js';
 import { TaskForm } from '../resources/tasks/task-form.js';
 import { useAfterWrite } from '../ui/after-write.js';
 import { FormSheet } from '../ui/form.js';
-import { useUrlOption } from '../ui/list-params.js';
+import { useNewSheet, useUrlOption } from '../ui/list-params.js';
 import { PageHeader } from '../ui/page-header.js';
 import { EmptyState } from '../ui/states.js';
 import { type Team, TeamGate } from '../workspace/team.js';
@@ -52,12 +52,12 @@ function Tasks({ team }: { readonly team: Team }) {
     swr.tasks.count.fetcher(),
   );
   const searches = {
-    companies: useCompanySearch(),
-    contacts: useContactSearch(undefined, []),
-    deals: useDealSearch(),
+    companies: useCompanySearch(20),
+    contacts: useContactSearch(undefined, [], 20),
+    deals: useDealSearch(20),
   };
 
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useNewSheet();
   const create = async (input: TaskCreate) => {
     const result = await asResult(rpc.tasks.create(input));
     if (!result.ok) return result.error;
@@ -118,6 +118,7 @@ function Tasks({ team }: { readonly team: Team }) {
         team={team}
         on={undefined}
         grouped
+        loadMore
         empty={
           mine ? (
             <EmptyState

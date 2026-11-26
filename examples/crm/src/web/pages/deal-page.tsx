@@ -98,7 +98,7 @@ function Loaded({
 }) {
   const { rpc, swr } = useApi();
   const afterWrite = useAfterWrite();
-  const searchCompanies = useCompanySearch();
+  const searchCompanies = useCompanySearch(20);
   const [editing, setEditing] = useState(false);
   const open = isOpen(deal);
 

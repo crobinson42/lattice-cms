@@ -116,6 +116,7 @@ function MyTasks({
           team={team}
           on={undefined}
           grouped
+          loadMore={false}
           empty={<EmptyState title="Nothing due today" />}
           finalFocus={top}
         />

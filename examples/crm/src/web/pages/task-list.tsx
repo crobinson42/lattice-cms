@@ -44,6 +44,7 @@ export function TaskList({
   team,
   on,
   grouped,
+  loadMore,
   empty,
   finalFocus,
 }: {
@@ -55,6 +56,11 @@ export function TaskList({
   readonly on: Parent['on'] | undefined;
   /** In groups by due date: Overdue, Today, This week, Later, none. */
   readonly grouped: boolean;
+  /**
+   * Load more under the list; off for a summary of the first page, such
+   * as Home's, which links to the full list instead.
+   */
+  readonly loadMore: boolean;
   readonly empty: ReactNode;
   /** Where focus goes when a row goes and no other is left to take it. */
   readonly finalFocus: RefObject<HTMLElement | null>;
@@ -232,7 +238,7 @@ export function TaskList({
       ) : (
         <ul className="divide-y">{pages.rows.map(item)}</ul>
       )}
-      <LoadMore pages={pages} what="tasks" />
+      {loadMore ? <LoadMore pages={pages} what="tasks" /> : null}
       <FormSheet
         open={editing !== undefined}
         onOpenChange={(open) => {

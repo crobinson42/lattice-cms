@@ -76,6 +76,7 @@ function Done({
       team={team}
       on={on}
       grouped={false}
+      loadMore
       empty={<EmptyState title="Nothing done yet" />}
       finalFocus={finalFocus}
     />

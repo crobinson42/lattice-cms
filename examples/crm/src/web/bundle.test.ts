@@ -15,17 +15,21 @@ import { builtPage } from '../test/web.js';
  *   Base UI's shared chunk, which the sidebar's sheet and the menus use.
  *   Without React it was raised to 120,000 for the dashboard and the team
  *   page: two routes, their sidebar icons and the dashboard's skeleton.
+ *   Both were raised again for search: the button, its shortcut and Kbd,
+ *   and the chunks shared with the lazy palette, such as the sections'
+ *   icons and the search hooks, now each a small chunk of their own.
  * - The largest page is a deal's: its contacts, and two sections a
  *   company's and a contact's pages also carry. Activity has its timeline,
  *   form and kinds; Tasks its list, item, Base UI's checkbox, quick add and
  *   edit form. The Tasks page and the deals page, with the board, follow.
+ *   The search hooks, shared with the palette, are chunks of their own.
  * - The admin loads the alert dialog and the table with it, now that no
  *   page at startup does.
  */
 const budget = {
-  startup: 187_900,
-  startupWithoutReact: 120_000,
-  page: 44_300,
+  startup: 191_500,
+  startupWithoutReact: 123_900,
+  page: 47_000,
   admin: 26_800,
 };
 

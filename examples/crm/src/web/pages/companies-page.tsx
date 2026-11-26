@@ -1,7 +1,7 @@
 import { Button } from '@shadalaya/react/button';
 import { asResult } from '@ts-pf/client';
 import { Building2Icon, PlusIcon } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import useSWR from 'swr';
 import { useApi } from '../api.js';
 import { companyCount } from '../resources/companies/company.format.js';
@@ -16,7 +16,7 @@ import { useAfterWrite } from '../ui/after-write.js';
 import { useCursorPages } from '../ui/cursor-pages.js';
 import { CursorTable } from '../ui/cursor-table.js';
 import { FormSheet } from '../ui/form.js';
-import { useListParams } from '../ui/list-params.js';
+import { useListParams, useNewSheet } from '../ui/list-params.js';
 import { PageHeader } from '../ui/page-header.js';
 import { SearchBox } from '../ui/search-box.js';
 import { SortSelect } from '../ui/sort-select.js';
@@ -46,7 +46,7 @@ export default function CompaniesPage() {
     (input) => swr.companies.find(input),
   );
 
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useNewSheet();
   const create = async (input: CompanyCreate) => {
     const result = await asResult(rpc.companies.create(input));
     if (!result.ok) return result.error;

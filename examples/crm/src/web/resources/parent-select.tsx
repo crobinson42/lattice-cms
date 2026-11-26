@@ -73,7 +73,11 @@ export function ParentSelect({
             onPick(
               contact === null
                 ? undefined
-                : { on: kind, id: contact.id, companyId: contact.companyId },
+                : {
+                    on: kind,
+                    id: contact.id,
+                    companyId: contact.companyId.id,
+                  },
             )
           }
         />
@@ -86,7 +90,11 @@ export function ParentSelect({
             onPick(
               deal === null
                 ? undefined
-                : { on: kind, id: deal.id, companyId: deal.companyId },
+                : {
+                    on: kind,
+                    id: deal.id,
+                    companyId: deal.companyId.id,
+                  },
             )
           }
         />

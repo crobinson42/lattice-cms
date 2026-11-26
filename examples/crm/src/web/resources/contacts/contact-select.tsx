@@ -1,12 +1,15 @@
 import { type Search, SearchSelect } from '../../ui/search-select.js';
 import { contactCount } from './contact.format.js';
-import type { Contact } from './contact.js';
+import type { ContactWithCompany } from './contact.js';
 
 /**
  * What a pick of a contact needs: their id, their name to show, and their
- * company, for an activity's or a task's parents.
+ * company, read with them, for the parents and to tell them apart.
  */
-export type ContactOption = Pick<Contact, 'id' | 'name' | 'companyId'>;
+export type ContactOption = Pick<
+  ContactWithCompany,
+  'id' | 'name' | 'companyId'
+>;
 
 /**
  * Picks one contact, searched by name as the user types. `search` reads

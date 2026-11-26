@@ -31,7 +31,7 @@ import { EmptyState } from '../ui/states.js';
 export default function ContactsPage() {
   const { rpc, swr } = useApi();
   const afterWrite = useAfterWrite();
-  const searchCompanies = useCompanySearch();
+  const searchCompanies = useCompanySearch(20);
   const [params, show] = useListParams(contactSorts, defaultContactSort);
   const { sort } = params;
   const search = useCallback((q: string) => show({ q, sort }), [show, sort]);

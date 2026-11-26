@@ -136,7 +136,7 @@ Before the SPA, whose typed client evaluates every procedure.
 
 - [x] Dashboard: open deals by stage (counts through `count`), my tasks due and overdue, recent activities.
 - [x] Team: the organization's members and their roles.
-- [ ] Search: a command palette over companies, contacts and deals by title field.
+- [x] Search: a command palette over companies, contacts and deals by title field.
 
 ### 8. Tests and docs
 
@@ -178,3 +178,4 @@ Before the SPA, whose typed client evaluates every procedure.
 - 6b: an optimistic change can't live in SWR's cache for a cursor list: a second change starts from committed data, a rollback undoes both, and a reread during the write is discarded. A row's pending state lives in the list component instead, and the cache changes only through the reread after the write.
 - 6b: tasks and activities share one parents rule (`resources/parents.ts`). The open tasks are one read sorted on an optional field (0037). The web type-check is at 499k; the largest page chunk is 42.2 KB (a deal's page).
 - 7a: Home at `/` reads each section on its own, so one failure shows its own retry. The web type-check passed 500k (503k); the deal page chunk is 44.0 KB, at its budget.
+- 7b: the search palette loads on first open (22.0 KB). Lazy chunks that share modules with startup make the bundler split small shared chunks, and a gzip-sum budget counts each one's overhead. Startup is 190.1 KB gzipped (122.6 KB without React); the web type-check is at 512k.

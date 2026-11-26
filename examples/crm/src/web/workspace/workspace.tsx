@@ -1,11 +1,3 @@
-import {
-  BriefcaseIcon,
-  Building2Icon,
-  HouseIcon,
-  ListChecksIcon,
-  UsersIcon,
-  UsersRoundIcon,
-} from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
 import useSWR from 'swr';
 import { Redirect } from 'wouter';
@@ -14,24 +6,10 @@ import type { Member } from '../resources/members/member.js';
 import { useSignedIn } from '../signed-in.js';
 import { OrganizationSwitcher } from '../ui/organization-switcher.js';
 import { Shell } from '../ui/shell.js';
-import { OverdueTasksBadge } from './overdue-tasks-badge.js';
+import { SearchButton } from './search-button.js';
+import { sections } from './sections.js';
 import { TeamContext } from './team.js';
 import { UserMenu } from './user-menu.js';
-
-/** The app's sections, in the sidebar's order. A page adds itself here. */
-const sections = [
-  { href: '/', label: 'Home', icon: <HouseIcon /> },
-  { href: '/companies', label: 'Companies', icon: <Building2Icon /> },
-  { href: '/contacts', label: 'Contacts', icon: <UsersIcon /> },
-  { href: '/deals', label: 'Deals', icon: <BriefcaseIcon /> },
-  {
-    href: '/tasks',
-    label: 'Tasks',
-    icon: <ListChecksIcon />,
-    badge: <OverdueTasksBadge />,
-  },
-  { href: '/team', label: 'Team', icon: <UsersRoundIcon /> },
-];
 
 /**
  * The app's pages for a member of an organization, in the shell. It reads
@@ -87,6 +65,7 @@ export function Workspace({ children }: { readonly children: ReactNode }) {
       sections={sections}
       actions={
         <>
+          <SearchButton />
           <OrganizationSwitcher />
           <UserMenu member={meDoc} userId={userId} onSignOut={signOut} />
         </>

@@ -159,7 +159,7 @@ function Loaded({ company }: { readonly company: Company }) {
 function CompanyContacts({ company }: { readonly company: Company }) {
   const { rpc, swr } = useApi();
   const afterWrite = useAfterWrite();
-  const searchCompanies = useCompanySearch();
+  const searchCompanies = useCompanySearch(20);
   const pages = useCursorPages(
     swr.contacts.find.key,
     { where: { companyId: { eq: company.id } }, sort: ['name'], limit: 20 },
@@ -225,7 +225,7 @@ function CompanyContacts({ company }: { readonly company: Company }) {
 function CompanyDeals({ company }: { readonly company: Company }) {
   const { rpc, swr } = useApi();
   const afterWrite = useAfterWrite();
-  const searchCompanies = useCompanySearch();
+  const searchCompanies = useCompanySearch(20);
   const pages = useCursorPages(
     swr.deals.find.key,
     {
