@@ -90,8 +90,9 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 
 Before the SPA, whose typed client evaluates every procedure.
 
-- [ ] Find why touching `'~pf'` on each read procedure (`get`, `find`) costs more as collections are added: 567, 653 and 830 instantiations per procedure at 6, 12 and 24 collections. ts-pf's leads are the types generic over the whole entries map: `Slice<E, E[S], D>`, `ReadOr`/`Read`/`Wide`/`Expanded<E, …>` and `Target<E, Slug>`, and `E` built as a growing intersection per `.collection()`. A naive `Flat<…>` made it worse. Measure with `docs/briefs/measure-collections.py`.
-- [ ] Make a read's type depend only on its own collection and its refs' targets, not the whole map. No public API change. Re-measure core, the crm server check and the admin, and add a guard: per-procedure cost at 6 and 24 collections within a bound.
+- [x] Find why touching `'~pf'` on each read procedure (`get`, `find`) costs more as collections are added: 567, 653 and 830 instantiations per procedure at 6, 12 and 24 collections. ts-pf's leads are the types generic over the whole entries map: `Slice<E, E[S], D>`, `ReadOr`/`Read`/`Wide`/`Expanded<E, …>` and `Target<E, Slug>`, and `E` built as a growing intersection per `.collection()`. A naive `Flat<…>` made it worse. Measure with `docs/briefs/measure-collections.py`.
+- [x] Make a read's type depend only on its own collection and its refs' targets, not the whole map. No public API change. Re-measure core, the crm server check and the admin, and add a guard: per-procedure cost at 6 and 24 collections within a bound.
+- Outcome: no flat shape that keeps the API. The slope is accepted and guarded by `npm run type-cost` in CI ([0038](../decisions/0038-a-ref-names-its-target-by-slug-and-populated-reads-keep-their-type-slope.md), proposed).
 
 ### 2. The dev loop
 
