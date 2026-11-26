@@ -73,7 +73,7 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 
 - [x] Found (FINDINGS 1d, measured with a fixture of 2 to 12 collections). Lattice's own types cost a flat ~4k per collection. Two upstream causes:
   - hexok's `family()` intersects its statics with `Spec`: about 38k per collection that has a hand-written use case. That's why activities, with `activities.log`, cost ~100k.
-  - ts-pf's `all(tk)` grows quadratically with the number of procedures.
+  - Corrected by ts-pf's investigation: Lattice's read procedure types cost O(N) each on first deep evaluation (step 1g). ts-pf also halved `all()`'s own share (ts-pf#74).
 - [x] Briefs for both, which the maintainer hands to the hexok and ts-pf teams: [`../briefs/hexok-family-statics.md`](../briefs/hexok-family-statics.md) and [`../briefs/ts-pf-mcp-all-tools.md`](../briefs/ts-pf-mcp-all-tools.md).
 - [ ] When the releases land: upgrade, re-measure core and the crm, and set the crm budget from the measurement.
 
@@ -85,6 +85,13 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 ### 1f. Optional fields sort, missing last
 
 - [x] Core and every store, as [0037](../decisions/0037-an-optional-field-sorts-with-missing-values-last.md) says: `SortKey` takes optional and nullable fields, missing values come last in both directions, and the cursor records a missing value. The store conformance suite covers paging across the boundary, ascending and descending, on MemoryStore and MongoStore. The admin's sort control offers those fields. A changeset.
+
+### 1g. Read procedure types cost the same at any size
+
+Before the SPA, whose typed client evaluates every procedure.
+
+- [ ] Find why touching `'~pf'` on each read procedure (`get`, `find`) costs more as collections are added: 567, 653 and 830 instantiations per procedure at 6, 12 and 24 collections. ts-pf's leads are the types generic over the whole entries map: `Slice<E, E[S], D>`, `ReadOr`/`Read`/`Wide`/`Expanded<E, …>` and `Target<E, Slug>`, and `E` built as a growing intersection per `.collection()`. A naive `Flat<…>` made it worse. Measure with `docs/briefs/measure-collections.py`.
+- [ ] Make a read's type depend only on its own collection and its refs' targets, not the whole map. No public API change. Re-measure core, the crm server check and the admin, and add a guard: per-procedure cost at 6 and 24 collections within a bound.
 
 ### 2. The dev loop
 
@@ -147,3 +154,4 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
 - 1b: ts-pf's codegen profile renames hoisted schema names when collections are added, so generated client type names are not stable as an app grows (architecture.md, Known limits: OpenAPI names).
 - 1e: outputs are built from the schema's fields plus the system fields, so an object-level refine checks input only. A generic schema-wrapping helper cost about 7k more than a shared `.refine(fn, options)`.
 - 1f: Mongo needs to know which sort keys are optional to keep its index-served sorts, hence `FindQuery.optional`. An ascending optional key that is not first sorts in memory (an aggregate). That's acceptable for a rare sort, but worth an index-design note if a hot list needs it.
+- 1d (corrected): `all(tk)` was not the quadratic part. Lattice's read procedure types are, on first deep evaluation (step 1g).
