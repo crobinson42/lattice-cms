@@ -3,7 +3,7 @@ import { Skeleton } from '@shadalaya/react/skeleton';
 import { toast } from '@shadalaya/react/toast';
 import { asResult } from '@ts-pf/client';
 import { isPFError } from '@ts-pf/protocol';
-import { Building2Icon, PencilIcon } from 'lucide-react';
+import { Building2Icon, PencilIcon, PlusIcon } from 'lucide-react';
 import { useState } from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { Link, useLocation } from 'wouter';
@@ -14,7 +14,13 @@ import {
   CompanyOverview,
   CompanyOverviewSkeleton,
 } from '../resources/companies/company-overview.js';
+import { useCompanySearch } from '../resources/companies/company-search.js';
+import type { ContactCreate } from '../resources/contacts/contact.js';
+import { companyContactColumns } from '../resources/contacts/contact-columns.js';
+import { ContactForm } from '../resources/contacts/contact-form.js';
 import { ConfirmDelete } from '../ui/confirm-delete.js';
+import { LoadMore, useCursorPages } from '../ui/cursor-pages.js';
+import { DataTable, DataTableSkeleton } from '../ui/data-table.js';
 import { FormSheet } from '../ui/form.js';
 import { PageHeader } from '../ui/page-header.js';
 import type { Crumb } from '../ui/shell.js';
@@ -114,6 +120,7 @@ function Loaded({ company }: { readonly company: Company }) {
         }
       />
       <CompanyOverview company={company} />
+      <CompanyContacts company={company} />
       <FormSheet
         open={editing}
         onOpenChange={setEditing}
@@ -123,5 +130,91 @@ function Loaded({ company }: { readonly company: Company }) {
         <CompanyForm company={company} onSubmit={update} />
       </FormSheet>
     </>
+  );
+}
+
+/**
+ * A section: the company's contacts, a page at a time. New contact opens
+ * the form with the company already picked.
+ */
+function CompanyContacts({ company }: { readonly company: Company }) {
+  const { rpc, swr } = useApi();
+  const { mutate } = useSWRConfig();
+  const searchCompanies = useCompanySearch();
+  const pages = useCursorPages(
+    swr.contacts.find.key,
+    { where: { companyId: { eq: company.id } }, sort: ['name'], limit: 20 },
+    (input) => swr.contacts.find(input),
+  );
+  const [creating, setCreating] = useState(false);
+  const create = async (input: ContactCreate) => {
+    const result = await asResult(rpc.contacts.create(input));
+    if (!result.ok) return result.error;
+    setCreating(false);
+    toast.add({ title: `Created ${result.data.name}`, type: 'success' });
+    void mutate(swr.contacts.matcher());
+    pages.refresh();
+    return undefined;
+  };
+  const newContact = (
+    <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
+      <PlusIcon />
+      New contact
+    </Button>
+  );
+  return (
+    <section id="contacts" aria-labelledby="contacts-heading" className="mt-8">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 id="contacts-heading" className="text-lg font-semibold">
+          Contacts
+        </h2>
+        {pages.rows === undefined || pages.rows.length === 0
+          ? null
+          : newContact}
+      </div>
+      {pages.rows === undefined ? (
+        pages.error === undefined ? (
+          <DataTableSkeleton
+            label={`Contacts at ${company.name}`}
+            columns={companyContactColumns}
+            rows={3}
+          />
+        ) : (
+          <ErrorState
+            message="The contacts could not be loaded."
+            onRetry={pages.refresh}
+          />
+        )
+      ) : pages.rows.length === 0 ? (
+        <EmptyState
+          title="No contacts yet"
+          description={`Add the people you work with at ${company.name}.`}
+          action={newContact}
+        />
+      ) : (
+        <>
+          <DataTable
+            label={`Contacts at ${company.name}`}
+            columns={companyContactColumns}
+            rows={pages.rows}
+            rowKey={({ id }) => id}
+            focusRow={pages.firstNew}
+          />
+          <LoadMore pages={pages} what="contacts" />
+        </>
+      )}
+      <FormSheet
+        open={creating}
+        onOpenChange={setCreating}
+        title={`New contact at ${company.name}`}
+        description="A name and an email address are required."
+      >
+        <ContactForm
+          company={company}
+          searchCompanies={searchCompanies}
+          onSubmit={create}
+        />
+      </FormSheet>
+    </section>
   );
 }

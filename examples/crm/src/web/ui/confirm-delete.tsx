@@ -15,17 +15,24 @@ import { Trash2Icon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { ApiError } from '../api.js';
 
+/** A slug in words, as a collection's default label reads it. */
+function words(slug: string): string {
+  return slug.replaceAll('_', ' ');
+}
+
 /**
- * Why a delete was refused, in words: "Acme still has contacts. Remove them
- * first." `by.collection` is the slug of what still points at it, read in
- * words, as a collection's default label is.
+ * Why a delete was refused, in words. A document that others point at:
+ * "Acme still has contacts. Remove them first." One that is linked through
+ * a relation, such as a contact on a deal: "Ana Diaz is still on deals.
+ * Remove Ana Diaz from them first."
  */
 export function deleteRefusal(name: string, error: ApiError): string {
-  if (error.code === 'REFERENCED') {
-    const what = error.data.by.collection.replaceAll('_', ' ');
-    return `${name} still has ${what}. Remove them first.`;
+  if (error.code !== 'REFERENCED') return error.message;
+  const { relation, collection } = error.data.by;
+  if (relation !== undefined) {
+    return `${name} is still on ${words(relation.collection)}. Remove ${name} from them first.`;
   }
-  return error.message;
+  return `${name} still has ${words(collection)}. Remove them first.`;
 }
 
 /**

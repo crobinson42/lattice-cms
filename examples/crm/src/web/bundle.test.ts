@@ -9,14 +9,16 @@ import { builtPage } from '../test/web.js';
 // when /admin first opens.
 
 /**
- * Gzipped bytes: the measurement of 2026-11-26, plus 5%. Companies added
- * 16 kB at startup: shadalaya's sheet, alert dialog, toast, table and input
- * group, swr/infinite, and the companies kit. The admin chunk lost 1 kB of
- * code it now shares with the app.
+ * Gzipped bytes: the measurement of 2026-11-26, plus 5%.
+ * - Companies added 16 kB at startup: shadalaya's sheet, alert dialog,
+ *   toast, table and input group, swr/infinite, and the companies kit.
+ * - Contacts added 17 kB: Base UI's combobox behind SearchSelect, the first
+ *   picker, which the deal and owner pickers reuse, and the contacts pages.
+ * The admin chunk lost 1 kB of code it now shares with the app.
  */
 const budget = {
-  startup: 187_500,
-  startupWithoutReact: 116_600,
+  startup: 207_300,
+  startupWithoutReact: 136_400,
   admin: 24_280,
 };
 

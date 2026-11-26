@@ -1,8 +1,7 @@
 import { Alert, AlertDescription } from '@shadalaya/react/alert';
 import { Button } from '@shadalaya/react/button';
 import { FieldGroup } from '@shadalaya/react/field';
-import type { ApiError } from '../../api.js';
-import { useFormSubmit } from '../../ui/form.js';
+import { type Submit, useFormSubmit } from '../../ui/form.js';
 import { TextField } from '../../ui/text-field.js';
 import type { Company, CompanyCreate, CompanyPatch } from './company.js';
 import {
@@ -11,9 +10,6 @@ import {
   patchOf,
   valuesOf,
 } from './company-form.values.js';
-
-/** Sends the form's input, and answers with the refusal, if any. */
-type Submit<I> = (input: I) => Promise<ApiError | undefined>;
 
 const names = companyFields.map(({ name }) => name);
 

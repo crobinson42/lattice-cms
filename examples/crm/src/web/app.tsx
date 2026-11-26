@@ -3,6 +3,8 @@ import { lazy, Suspense } from 'react';
 import { Redirect, Route, Switch } from 'wouter';
 import { CompaniesPage } from './pages/companies-page.js';
 import { CompanyPage } from './pages/company-page.js';
+import { ContactPage } from './pages/contact-page.js';
+import { ContactsPage } from './pages/contacts-page.js';
 import { SignInPage } from './pages/sign-in-page.js';
 import { SessionProvider } from './session.js';
 import { SignedIn } from './signed-in.js';
@@ -48,6 +50,10 @@ export function App() {
                       <Route path="/companies" component={CompaniesPage} />
                       <Route path="/companies/:id">
                         {({ id }) => <CompanyPage key={id} id={id} />}
+                      </Route>
+                      <Route path="/contacts" component={ContactsPage} />
+                      <Route path="/contacts/:id">
+                        {({ id }) => <ContactPage key={id} id={id} />}
                       </Route>
                       <Route>
                         <Redirect to="/" replace />

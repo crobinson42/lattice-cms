@@ -43,7 +43,7 @@ What the SPA follows, so a reader or agent can predict where a component lives.
 - Platform: web, React 19.
 - Resource home: `src/web/resources/<resource>/`, one per collection the SPA shows: `companies`, `contacts`, `deals`, `activities`, `tasks`, `members`.
 - Naming: `<Resource><Role>`, kebab-case files: `deal-stage-badge.tsx` exports `DealStageBadge`. Roles: Inline, Badge, Card, Table (with its column definitions), List, Select, Form, Board (deals only), Timeline (activities only), and Detail sections. Formatters in `<resource>.format.ts`. Build only the roles a page uses.
-- Primitives: `@shadalaya/react`, with the Atalaya palette. App-wide pieces that know no resource live in `src/web/ui/`, and every resource reuses them: `PageHeader` (the page's h1, its breadcrumb and focus), `DataTable` and `Column<T>`, `useCursorPages` and `LoadMore`, `SearchBox`, `SortSelect`, `useListParams`, `useFormSubmit` and `FormSheet`, `TextField`, `ConfirmDelete`, the states, and `format.ts`. A resource's `<resource>Fields` is its only list of form fields.
+- Primitives: `@shadalaya/react`, with the Atalaya palette. App-wide pieces that know no resource live in `src/web/ui/`, and every resource reuses them: `PageHeader` (the page's h1, its breadcrumb and focus), `DataTable` and `Column<T>`, `useCursorPages` and `LoadMore`, `SearchBox`, `SortSelect`, `useListParams`, `useFormSubmit` and `FormSheet`, `TextField`, `ConfirmDelete`, `SearchSelect` (a remote-search picker), `FormField` with `fillCreate` and `fillPatch`, `DetailList`, the states, and `format.ts`. A resource's `<resource>Fields` is its only list of form fields.
 - Data: `src/web/api.tsx` makes the typed client and its swr utils (`useApi()`), with a fresh cache per organization. Pages (`src/web/pages/`) and `src/web/workspace/` (the shell's composition: sections, the signed-in member, the user menu) call `useSWR` and mutations, and pass data down.
 - Session: `src/web/session.tsx` (storage, the session's fetch, `next` paths, `useSession`) and `src/web/signed-in.tsx` (the gate, organizations, `useSignedIn`). A resource component never fetches, except a Select that searches, which takes its search function as a prop.
 - Routes: `src/web/app.tsx` holds every route, so the route table reads in one place.
@@ -122,7 +122,7 @@ Before the SPA, whose typed client evaluates every procedure.
 
 ### 5. Contacts and deals
 
-- [ ] Contacts: list, detail, form, with the company as `CompanyInline` and `CompanySelect`.
+- [x] Contacts: list, detail, form, with the company as `CompanyInline` and `CompanySelect`, and a company's contacts on its page.
 - [ ] Deals: a board with a column per open stage, moving a deal between open stages, and Won and Lost through `deals.close` with a confirmation. A table view. Detail with the deal's contacts and roles through the relation's `set`, the owner as `MemberInline`, and the amount shown as withheld, not zero, to a member.
 - [ ] Members: `MemberInline`, `MemberAvatar` and `MemberSelect`, fed by the team read.
 
@@ -165,3 +165,5 @@ Before the SPA, whose typed client evaluates every procedure.
 - 4b: cursor lists set `revalidateAll` and `dedupingInterval: 0`. SWR's filter `mutate` skips infinite keys, and a list that remounts within the dedupe window reused stale pages. `ApiError` is written out until ts-pf's `InferContractErrors` keeps protocol errors ([brief](../briefs/ts-pf-infer-contract-errors.md)).
 - 4b: shadalaya's destructive button with Atalaya's red is 4.36:1, just under WCAG AA for 14 px text. A finding for shadalaya or Atalaya, not overridden here.
 - 4b: the app at startup is 180.5 KB gzipped (113.0 KB without React); the admin chunk is 23.4 KB; the web type-check is at 390k.
+- 5a: a populated read narrows only with the literal `populate` list in the call, so `useCursorPages(key, input, read)` takes a read that repeats it. Base UI's combobox hides everything outside its open popup from assistive tech, so a picker's live regions live inside the popup.
+- 5a: startup is 197.3 KB gzipped (129.8 KB without React); the web type-check is at 413k. Populated reads cost about 9k more per resource than plain ones.

@@ -1,4 +1,4 @@
-import { Building2Icon } from 'lucide-react';
+import { Building2Icon, UsersIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import useSWR from 'swr';
 import { Redirect } from 'wouter';
@@ -11,6 +11,7 @@ import { UserMenu } from './user-menu.js';
 /** The app's sections, in the sidebar's order. A page adds itself here. */
 const sections = [
   { href: '/companies', label: 'Companies', icon: <Building2Icon /> },
+  { href: '/contacts', label: 'Contacts', icon: <UsersIcon /> },
 ];
 
 /**

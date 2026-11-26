@@ -9,10 +9,25 @@ it('says why a delete was refused', () => {
       data: {
         collection: 'companies',
         id: 'c1',
-        by: { collection: 'deal_contacts', field: 'contactsId' },
+        by: { collection: 'contacts', field: 'companyId' },
       },
     }),
-  ).toBe('Acme still has deal contacts. Remove them first.');
+  ).toBe('Acme still has contacts. Remove them first.');
+  expect(
+    deleteRefusal('Ana Diaz', {
+      code: 'REFERENCED',
+      message: 'Other documents refer to this one',
+      data: {
+        collection: 'contacts',
+        id: 'k1',
+        by: {
+          collection: 'deal_contacts',
+          field: 'contactsId',
+          relation: { collection: 'deals', name: 'contacts' },
+        },
+      },
+    }),
+  ).toBe('Ana Diaz is still on deals. Remove Ana Diaz from them first.');
   expect(
     deleteRefusal('Acme', {
       code: 'FORBIDDEN',

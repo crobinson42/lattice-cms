@@ -1,11 +1,27 @@
 import type {
   InferContractInputs,
   InferContractOutputs,
+  InferExpandedOutput,
 } from '@ts-pf/contract';
 import type { contract } from '../../../servers/rpc/contract.js';
 
 /** A company, as the API returns it. */
 export type Company = InferContractOutputs<typeof contract>['companies']['get'];
+
+/**
+ * A company as a populated ref returns it, such as a contact's `companyId`
+ * read with `populate`: the company, or `{ id }` when the caller may not
+ * read it.
+ */
+export type CompanyRef = InferExpandedOutput<
+  (typeof contract)['contacts']['get'],
+  ['companyId']
+>['companyId'];
+
+/** Whether the caller may read the populated company: it has its fields. */
+export function isReadable(company: CompanyRef): company is Company {
+  return 'name' in company;
+}
 
 type Inputs = InferContractInputs<typeof contract>['companies'];
 

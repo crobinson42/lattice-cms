@@ -42,11 +42,11 @@ export function CompaniesPage() {
     swr.companies.count.key({ input: filter }),
     swr.companies.count.fetcher(),
   );
-  const pages = useCursorPages(swr.companies.find, {
-    ...filter,
-    sort: [sort],
-    limit: 20,
-  });
+  const pages = useCursorPages(
+    swr.companies.find.key,
+    { ...filter, sort: [sort], limit: 20 },
+    (input) => swr.companies.find(input),
+  );
 
   const [creating, setCreating] = useState(false);
   const create = async (input: CompanyCreate) => {

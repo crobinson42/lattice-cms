@@ -18,6 +18,55 @@ import type { ApiError } from '../api.js';
 /** A form's values, read by field name: empty when the field is unset. */
 export type FormValues<F extends string> = (field: F) => string;
 
+/** Sends a form's input, and answers with the refusal, if any. */
+export type Submit<I> = (input: I) => Promise<ApiError | undefined>;
+
+/**
+ * A field of a resource's form: its name, label and input type. An
+ * `optional` field may be left empty: a create leaves it out, and an edit
+ * clears it with `null`.
+ */
+export type FormField<N extends string = string> = {
+  readonly name: N;
+  readonly label: string;
+  readonly type: string;
+  readonly optional?: true;
+};
+
+/**
+ * Fills a create's input from the form, trimmed: every required field, and
+ * each optional one that is not empty. `input` starts with the required
+ * fields, which this overwrites.
+ */
+export function fillCreate<F extends string>(
+  input: { [K in F]?: string | undefined },
+  fields: readonly FormField<F>[],
+  values: FormValues<F>,
+): void {
+  for (const { name, optional } of fields) {
+    const value = values(name).trim();
+    if (optional !== true || value !== '') input[name] = value;
+  }
+}
+
+/**
+ * Fills an edit's patch with what the form changed, both sides trimmed. A
+ * cleared optional field is `null`, which removes it. An emptied required
+ * field is sent, for the server to refuse at its field.
+ */
+export function fillPatch<F extends string>(
+  patch: { [K in F]?: string | null | undefined },
+  fields: readonly FormField<F>[],
+  before: FormValues<F>,
+  values: FormValues<F>,
+): void {
+  for (const { name, optional } of fields) {
+    const value = values(name).trim();
+    if (value === before(name).trim()) continue;
+    patch[name] = optional === true && value === '' ? null : value;
+  }
+}
+
 /** What a form shows after a refusal: a message per field, and the rest. */
 export type FormErrors<F extends string> = {
   readonly fields: Partial<Record<F, string>>;

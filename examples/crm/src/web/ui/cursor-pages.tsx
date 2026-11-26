@@ -1,13 +1,13 @@
 import { Button } from '@shadalaya/react/button';
-import type { SwrFetcher, SwrKey } from '@ts-pf/swr';
+import type { SwrKey } from '@ts-pf/swr';
 import { useState } from 'react';
 import useSWRInfinite from 'swr/infinite';
 import { ErrorState } from './states.js';
 
-/** A `find` procedure's swr utils: what useCursorPages reads with. */
-type Find<I, P> = {
-  readonly key: (options: { input: I }) => SwrKey<I>;
-  readonly fetcher: () => SwrFetcher<I, P>;
+/** A page of a `find`: its documents, and the cursor to the next page. */
+type Page<Row> = {
+  readonly docs: readonly Row[];
+  readonly next: string | null;
 };
 
 /** A list read a page at a time: what useCursorPages returns. */
@@ -22,29 +22,34 @@ export type CursorPages<Row = unknown> = {
 };
 
 /**
- * A `find` read a page at a time, on its `next` cursor. `refresh()`
- * revalidates every loaded page now: a write while the list is mounted
- * calls it. `firstNew` is the index of the first row the last "load more"
- * added, for focus.
+ * A `find` read a page at a time, on its `next` cursor: `key` is its swr
+ * key, and `read` calls it. A read that populates passes its literal
+ * `populate` in `read`, which is what narrows the rows' type, and in
+ * `input` too, so the cache key says so. `refresh()` revalidates every
+ * loaded page now: a write while the list is mounted calls it. `firstNew`
+ * is the index of the first row the last "load more" added, for focus.
  */
 export function useCursorPages<
   I extends { readonly after?: string | undefined },
   Row,
 >(
-  find: Find<
-    I,
-    { readonly docs: readonly Row[]; readonly next: string | null }
-  >,
-  // The input comes from `find`: a literal here is checked against it.
+  key: (options: { input: I }) => SwrKey<I>,
+  // The input comes from `key`: a literal here is checked against it.
   input: NoInfer<I>,
+  read: (input: I) => Promise<Page<Row>>,
 ): CursorPages<Row> {
+  // Each page's key holds its input, so the fetcher reads it back typed.
+  const pageKey = (page: I): readonly [SwrKey<I>, I] => [
+    key({ input: page }),
+    page,
+  ];
   const pages = useSWRInfinite(
-    (_index, previous) => {
-      if (previous === null) return find.key({ input });
+    (_index, previous: Page<Row> | null) => {
+      if (previous === null) return pageKey(input);
       if (previous.next === null) return null;
-      return find.key({ input: { ...input, after: previous.next } });
+      return pageKey({ ...input, after: previous.next });
     },
-    find.fetcher(),
+    ([, page]) => read(page),
     // Every loaded page revalidates together, and a list that opens again
     // reads again at once, even right after it closed: a write on another
     // page cannot reach this cache, since SWR's filter mutate skips
