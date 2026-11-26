@@ -15,7 +15,7 @@ revisit: A populated read's type cost hurts a real app (a type-check budget it c
 
 ## Why
 
-The slope comes from the entries map that the `.collection()` chain builds by inference. Passing that map, or anything derived from it, into the read types (`Read`, `Wide`, `Expanded`) is the whole cost, even when they only look up a target. The same map written by hand, printed identically, is flat, through the same `Framework` class. Thirteen changes to core's read types each still grew. The only flat shape found keeps the map out of the read types entirely (crm-app plan, step 1g).
+The slope comes from the entries map that the `.collection()` chain builds by inference. Passing that map, or anything derived from it, into the read types (`Read`, `Wide`, `Expanded`) is the whole cost, even when they only look up a target. The same map written by hand, printed identically, is flat, through the same `Framework` class. Thirteen changes to core's read types each still grew. Each of these still grew: a per-collection targets map, one shared map, a union of `[slug, doc]` pairs, an inline mapped type, the map flattened once, entries rebuilt at the contract, an entry alias, and a constant target document. The only flat shape found keeps the map out of the read types entirely.
 
 Keeping the map out means a ref must carry its target's type itself, `ref(Companies)`. That changes a public API, makes every collection file import its targets, and brings back the declaration cycles that [0018](0018-methods-and-overrides-attach-in-the-framework.md) removed: a self-ref or a mutual ref fails with TS7022. At the crm's size, the slope costs about 18k of a 499k check.
 

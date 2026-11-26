@@ -6,7 +6,7 @@ For the ts-pf maintainers, from Lattice CMS. Measured on `@ts-pf/mcp` 1.0, TypeS
 
 The first reading of this brief was wrong, and ts-pf's investigation corrected it.
 
-- Lattice's procedure types cost O(N) each on their first deep evaluation. The reads (`get`, `find`) grow about quadratically in total, through types generic over the whole entries map. `all()` was the first consumer to evaluate every procedure deeply. Lattice fixes its side in step 1g of the crm-app plan.
+- Lattice's procedure types cost O(N) each on their first deep evaluation. The reads (`get`, `find`) grow about quadratically in total, through types generic over the whole entries map. `all()` was the first consumer to evaluate every procedure deeply. Lattice measured its side and accepted it, guarded by `npm run type-cost` ([0038](../decisions/0038-a-ref-names-its-target-by-slug-and-populated-reads-keep-their-type-slope.md)).
 - ts-pf also cut `all()`'s own overhead: its effect and docs filters now share one match against the tool builder. On Lattice's fixture, `all()`'s share fell from 35.0k to 17.6k at N = 6, and from 105.2k to 42.8k at N = 12 (crobinson42/ts-pf#74, a patch with no API change).
 - A plain ts-pf contract of N routers stays linear under `all(tk)`.
 

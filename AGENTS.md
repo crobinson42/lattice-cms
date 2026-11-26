@@ -8,7 +8,7 @@ Lattice CMS is a TypeScript framework for internal tools, CRMs, admin panels and
 | --- | --- | --- |
 | The current design | [`docs/architecture.md`](docs/architecture.md) | Edited in place, in the same PR as the code. It states what is true now: no history |
 | Why a choice was made | [`docs/decisions/README.md`](docs/decisions/README.md), then only the records that bear on your task | A new record supersedes an old one. Accepted records are never rewritten |
-| What to do now | The current plan in `docs/plans/`. Active: [`crm-app.md`](docs/plans/crm-app.md), which turns `examples/crm` into a working CRM. Phase 3 is done, and Phase 4 starts when the maintainer asks (the phase table in `docs/architecture.md`) | Ticked as you go. Deleted when the plan exits |
+| What to do now | The current phase plan in `docs/plans/`, when one is active. None is: Phase 3 and the crm-app plan are done, and Phase 4 starts when the maintainer asks (the phase table in `docs/architecture.md`) | Ticked as you go. Deleted when the phase exits |
 | What a package does | Its `README.md` | Edited in place |
 | History | `git log` | Never loaded by default |
 
@@ -61,7 +61,7 @@ npm workspaces with Turbo. Node 24 (`.nvmrc`), engines `>=22.11`. ESM only.
 - `packages/admin`: `@latticecms/admin`: the React admin that renders an app's served catalog.
 - `packages/cli`: `@latticecms/cli`: the `lattice` command.
 - `packages/docs`: `@latticecms/docs`, private: the Starlight site at crobinson42.github.io/lattice-cms. Its pages come from the READMEs; the generated ones are gitignored.
-- `examples/crm`: the example app. Private. Its admin page is `src/web`, served at `/admin`.
+- `examples/crm`: the example app, a working CRM. Private. Its web app is `src/web`, served at `/`, with the admin at `/admin`. Its README holds the app's layout and resource UI profile.
 - `docs/`: architecture, decisions, plans. `scripts/decisions.mjs`: the decisions index.
 
 ## Commands
