@@ -771,8 +771,8 @@ The root README's [Getting started](../../README.md#4-the-server) has the smalle
 Lattice never imports auth. The edge decides who the actor is, and passes it in the call context. In the crm, a `@hexok/auth` session proves the user, and a membership lookup checks the organization the request names, on every request:
 
 ```ts
-// examples/crm/src/servers/http/handler.ts
-async function signedIn(
+// examples/crm/src/servers/http/caller.ts
+export async function signedIn(
   deps: HttpDeps,
   request: Request,
   logger: Logger,
@@ -792,8 +792,8 @@ async function signedIn(
 ```
 
 ```ts
-// examples/crm/src/servers/http/handler.ts
-function actorContext(deps: HttpDeps) {
+// examples/crm/src/servers/http/caller.ts
+export function actorContext(deps: HttpDeps) {
   const memberships = deps.crm.repos.memberships;
   return async (
     userId: string,
@@ -1036,7 +1036,7 @@ tk.$coverage({ toolsets: [crmTools], exclude: alwaysDenied });
 The tools run in process through the implemented router, so access, tenancy, masking, errors and spans are the same as on `/rpc`. The edge checks the session before the MCP SDK reads the request, and the tool context reuses the auth edge's `actorContext`:
 
 ```ts
-// examples/crm/src/servers/http/handler.ts
+// examples/crm/src/servers/http/mcp-edge.ts
   const tools = bindTools(crmTools, {
     app: deps.crm.app,
     onError,

@@ -1,13 +1,16 @@
 import { defineConfig } from 'vite';
+import { apiPaths } from './src/servers/http/api-paths.js';
 
-// The admin page: built into dist/web and served at /admin by the HTTP
-// server. `npm run dev` serves it with reloads, and sends the API's
-// paths to the server on port 3000.
+// The web page: built into dist/web and served at / by the HTTP server, with
+// the admin at /admin as one of its client routes. `npm run dev` serves it
+// with reloads, and sends the API's paths to the server on port 3000: the
+// same list the server routes by. Each is anchored, so a client route such
+// as /authors is not mistaken for /auth.
 const api = 'http://localhost:3000';
 
 export default defineConfig({
   root: 'src/web',
-  base: '/admin/',
+  base: '/',
   build: {
     outDir: '../../dist/web',
     emptyOutDir: true,
@@ -32,10 +35,8 @@ export default defineConfig({
     },
   },
   server: {
-    proxy: {
-      '/rpc': api,
-      '/auth': api,
-      '/catalog.json': api,
-    },
+    proxy: Object.fromEntries(
+      apiPaths.map((path) => [`^${path.replaceAll('.', '\\.')}(/|$)`, api]),
+    ),
   },
 });

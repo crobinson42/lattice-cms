@@ -33,12 +33,18 @@ export function catalogDocument() {
 
 ```ts
 // examples/crm/src/servers/http/handler.ts
-    if (request.method === 'GET' && pathname === '/catalog.json') {
-      return forSignedIn(request, 'catalog', () => {
+    if (method === 'GET' && pathname === '/catalog.json') {
+      return documents.catalog(request);
+    }
+```
+
+```ts
+// examples/crm/src/servers/http/documents.ts
+    catalog: (request: Request) =>
+      serve(request, 'catalog', () => {
         catalog ??= catalogDocument();
         return catalog;
-      });
-    }
+      }),
 ```
 
 `prefix` is where the app serves its procedures. The admin calls each procedure there, by path. The catalog says which fields are masked, so serve it to signed-in users only. Any signed-in user may read it: it needs no organization.

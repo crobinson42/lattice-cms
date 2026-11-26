@@ -22,7 +22,7 @@ npm run seed            # two organizations, three users and a pipeline
 npm run dev             # the server, the worker and Vite, each reloading on change
 ```
 
-Open <http://localhost:5173/admin/> and sign in:
+Open <http://localhost:5173/> and sign in. The page serves the app at `/` and the admin at `/admin`; until the app is built, `/` opens the admin.
 
 | Name | Email | Password | Can |
 | --- | --- | --- | --- |
@@ -53,7 +53,7 @@ A missing or bad setting fails at startup and names each one. Startup is: start 
 
 ## The admin
 
-`npm run build` builds the admin page into `dist/web`, and the server serves it at `/admin`; `npm run dev` serves it with Vite instead. Sign in as a seeded user from [Run it](#run-it). The top bar's select switches organization, and Sign out ends the session. A support user signs in to the admin with no switcher: support acts in no organization.
+`npm run build` builds the web page into `dist/web`, and the server serves it at `/`, with the admin at `/admin` as one of its client routes; `npm run dev` serves it with Vite instead. Sign in as a seeded user from [Run it](#run-it). The top bar's select switches organization, and Sign out ends the session. A support user signs in to the admin with no switcher: support acts in no organization.
 
 The page is [`src/web`](src/web): `@latticecms/admin`'s `<Admin>`, mounted the way an app mounts it.
 
@@ -61,7 +61,7 @@ The page is [`src/web`](src/web): `@latticecms/admin`'s `<Admin>`, mounted the w
 - [`session.ts`](src/web/session.ts) keeps the token and the picked organization in `sessionStorage`, for the tab. Its fetch adds `Authorization` and `x-organization-id` to every call, and a 401 signs the user out.
 - [`auth.ts`](src/web/auth.ts) is a ts-pf client on `/auth`, typed by `typeof authContract` with a type-only import, so no server code reaches the browser.
 
-The server serves `index.html` for every path under `/admin`, so a reload on a deep link renders, and caches the hashed files under `/admin/assets/` for good.
+The server serves `index.html` for every GET that is not an API path, so a reload on a deep link such as `/admin/deals` renders, and caches the hashed files under `/assets/` for good.
 
 ## Events and the worker
 
@@ -135,7 +135,7 @@ When a deal closes, its organization's endpoints that list `deal.closed` get, si
 - `POST /rpc/<collection>/<operation>` is the Lattice API. Send `Authorization: Bearer <token>` and `x-organization-id: <organization>`.
 - `/mcp` serves the same API as MCP tools. See [MCP](#mcp).
 - `GET /openapi.json` is the API's OpenAPI 3.1 document, and `GET /catalog.json` its ts-pf catalog, for a signed-in user. See [OpenAPI and other clients](#openapi-and-other-clients).
-- `GET /admin` and every path under it serve the admin page. See [The admin](#the-admin).
+- Any other `GET` serves the web page, whose routes include the admin at `/admin`. See [The admin](#the-admin).
 - `GET /health` answers `{ ok: true }`.
 
 With the server from [Run it](#run-it):
@@ -161,7 +161,7 @@ To add a user by hand, `npm run dev:user -- <userId> <name> <email> <password> <
 
 ## MCP
 
-`/mcp` is an MCP server over Streamable HTTP, through `@ts-pf/mcp` and the MCP SDK ([`handler.ts`](src/servers/http/handler.ts)). It is stateless: each POST is answered on its own, and it serves clients of both the 2026-07-28 protocol and the 2025 one.
+`/mcp` is an MCP server over Streamable HTTP, through `@ts-pf/mcp` and the MCP SDK ([`mcp-edge.ts`](src/servers/http/mcp-edge.ts)). It is stateless: each POST is answered on its own, and it serves clients of both the 2026-07-28 protocol and the 2025 one.
 
 - Every procedure at `/rpc` that a caller may use is a tool named by its path: `deals.find` is `deals_find`. Memberships' and organizations' create, update and delete are left out, since no access rule allows them. The `/auth` router is not a tool, so a model cannot log in.
 - A tool call runs in process through the same router as `/rpc`: the same access rules, tenancy, masking, errors and spans. A member's `deals_find` has no `amount`, and a `where` on it is `VALIDATION`.
@@ -190,9 +190,23 @@ claude mcp add --transport http crm http://localhost:3000/mcp \
 
 A TypeScript client in another repo uses `@ts-pf/codegen` instead: `emit(catalog(contract))` prints a `contract.d.ts`, and `createClient<Contract>(new FetchLink(…))` is typed per call, `populate` included, with no casts. [`codegen.test.ts`](src/servers/rpc/codegen.test.ts) is that client, against a committed [`contract.d.ts`](src/test/client/contract.d.ts); when the contract changes, it fails until `vitest -u` rewrites the file.
 
+## The HTTP edge
+
+[`src/servers/http`](src/servers/http) is the server, one concern per file:
+
+| File | What it owns |
+| --- | --- |
+| [`handler.ts`](src/servers/http/handler.ts) | The routes, in order: `/health`, the API's documents, `/mcp`, `/rpc`, `/auth`, then the web page for any other GET |
+| [`api-paths.ts`](src/servers/http/api-paths.ts) | The paths the server answers itself. The routes and Vite's dev proxy both read it |
+| [`caller.ts`](src/servers/http/caller.ts) | Who is calling: the session, the actor, and the refusals every edge shares |
+| [`mcp-edge.ts`](src/servers/http/mcp-edge.ts) | `/mcp`: the API as MCP tools |
+| [`documents.ts`](src/servers/http/documents.ts) | `/openapi.json` and `/catalog.json`, for signed-in users |
+| [`page.ts`](src/servers/http/page.ts) | The built web page: `index.html` for client routes, and the hashed files under `/assets/` |
+| [`server.ts`](src/servers/http/server.ts), [`main.ts`](src/servers/http/main.ts) | Starting the store, migrations and indexes, then serving; and the process that reads `.env` |
+
 ## How a request is authenticated
 
-The edge builds the actor before Lattice sees it ([`handler.ts`](src/servers/http/handler.ts)), the same way for `/rpc` and `/mcp`:
+The edge builds the actor before Lattice sees it ([`caller.ts`](src/servers/http/caller.ts)), the same way for `/rpc` and `/mcp`:
 
 1. The bearer token must name a live session. The session holds only the user id.
 2. A user listed in `CRM_SUPPORT_USER_IDS` acts as support: every call reads across organizations and changes nothing, and each is logged.

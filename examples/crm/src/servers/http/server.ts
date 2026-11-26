@@ -28,7 +28,7 @@ export async function start(deps: {
   readonly logger: Logger;
   readonly port: number;
   readonly hostname?: string;
-  /** The built admin page's directory, served at /admin. */
+  /** The built web page's directory, served at `/`. */
   readonly web: URL;
 }): Promise<Running> {
   const { store, logger } = deps;

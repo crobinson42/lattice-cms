@@ -1,8 +1,5 @@
 import { readFile } from 'node:fs/promises';
 
-/** Where the admin page is served. */
-export const adminPath = '/admin';
-
 const html = 'text/html; charset=utf-8';
 
 const contentTypes: Readonly<Record<string, string>> = {
@@ -31,14 +28,15 @@ async function file(at: URL): Promise<Uint8Array<ArrayBuffer> | undefined> {
 }
 
 /**
- * Serves the built admin page from `root`, Vite's output. A file under
- * `assets/` is content-hashed, so it is cached for good; anything else
- * under /admin is a client route, and gets index.html, never cached, so a
- * reload on a deep link renders and a deploy shows at once.
+ * Serves the built web page from `root`, Vite's output, at `/`. A file
+ * under `/assets/` is content-hashed, so it is cached for good; any other
+ * path is a client route, such as `/admin/deals`, and gets index.html,
+ * never cached, so a reload on a deep link renders and a deploy shows at
+ * once. The edge sends it only the paths that are not the API's.
  */
-export function adminPage(root: URL): (request: Request) => Promise<Response> {
+export function webPage(root: URL): (request: Request) => Promise<Response> {
   return async (request) => {
-    const path = new URL(request.url).pathname.slice(adminPath.length + 1);
+    const path = new URL(request.url).pathname.slice(1);
     if (path.startsWith('assets/')) {
       const name = path.slice('assets/'.length);
       // A plain file name only: no directory, so no path leaves `assets/`.
@@ -55,7 +53,7 @@ export function adminPage(root: URL): (request: Request) => Promise<Response> {
     }
     const index = await file(new URL('index.html', root));
     if (index === undefined) {
-      return new Response('The admin page is not built: run npm run build.', {
+      return new Response('The web page is not built: run npm run build.', {
         status: 404,
       });
     }

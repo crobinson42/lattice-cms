@@ -103,8 +103,8 @@ Before the SPA, whose typed client evaluates every procedure.
 
 ### 3. The edge
 
-- [ ] Split `servers/http/handler.ts` by concern: the session and actor checks, the MCP edge, the static page, and the routing that ties them. Each file reads top to bottom. No behavior change; the existing tests pass unchanged.
-- [ ] The page serves at `/`: `GET` on any path that is not an API path gets `index.html`, and `/assets/` gets hashed files cached for good. The API paths stay as they are. Vite's `base` is `/`, and its proxy covers every API path.
+- [x] Split `servers/http/handler.ts` by concern: the session and actor checks, the MCP edge, the static page, and the routing that ties them. Each file reads top to bottom. No behavior change; the existing tests pass unchanged.
+- [x] The page serves at `/`: `GET` on any path that is not an API path gets `index.html`, and `/assets/` gets hashed files cached for good. The API paths stay as they are. Vite's `base` is `/`, and its proxy covers every API path.
 
 ### 4. The SPA foundation **Checkpoint**
 
@@ -156,3 +156,4 @@ Before the SPA, whose typed client evaluates every procedure.
 - 1f: Mongo needs to know which sort keys are optional to keep its index-served sorts, hence `FindQuery.optional`. An ascending optional key that is not first sorts in memory (an aggregate). That's acceptable for a rare sort, but worth an index-design note if a hot list needs it.
 - 1d (corrected): `all(tk)` was not the quadratic part. Lattice's read procedure types are, on first deep evaluation (step 1g).
 - 2: four commands, not three. `cp .env.example .env` runs once, so the scripts never fall back to the public dev secret. `npm run dev` needs no new dependency (`scripts/dev.mjs`), and rebuilds core and store-mongo through tsc's project references.
+- 3: until the app exists, `main.tsx` sends any path outside `/admin` to it. Step 4's router replaces that placeholder.

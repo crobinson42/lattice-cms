@@ -190,9 +190,11 @@ describe.each(backends)('the HTTP edge on $name', (backend) => {
     const health = await fetch(new Request('http://localhost/health'));
     expect(health.status).toBe(200);
     expect(await health.json()).toEqual({ ok: true });
-    expect((await fetch(new Request('http://localhost/nope'))).status).toBe(
-      404,
-    );
+    // A GET elsewhere is the web page's (page.test.ts); anything else is 404.
+    expect(
+      (await fetch(new Request('http://localhost/nope', { method: 'POST' })))
+        .status,
+    ).toBe(404);
   });
 });
 
