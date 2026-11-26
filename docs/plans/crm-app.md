@@ -25,6 +25,7 @@ The maintainer chose these on 2026-11-25.
 - **The crm server's type budget is 520k** (it was raised to 660k while the upstream fixes were pending, then lowered after hexok 2.2.8 and ts-pf 1.0.1). Activities, the seventh collection, cost about 100k where the sixth cost 40k. Step 1d finds the type that grows with the number of collections, and brings the budget back down.
 - **The store port's `FindQuery` gains `optional`**, the sort fields a document may lack, filled by core (maintainer, 2026-11-25), so Mongo keeps its index-served sorts.
 - **Core sorts optional fields, with missing values last** ([0037](../decisions/0037-an-optional-field-sorts-with-missing-values-last.md), proposed; the maintainer chose it on 2026-11-25), in step 1f, so Tasks sort by due date and deals by expected close date.
+- **Checkpoint 4 (2026-11-26):** the maintainer approved the Companies pattern for the other resources. The app uses shadalaya's Atalaya palette (`@shadalaya/theme/atalaya.css`), the admin included. The top bar shows a breadcrumb instead of repeating the page title.
 - **Approved dependencies for the crm:** `wouter`, `@shadalaya/react`, `@shadalaya/theme`, `swr`, `@ts-pf/swr`, `@ts-pf/client` and `@ts-pf/client-http` as dependencies of the page; `tailwindcss` and `@tailwindcss/vite` as devDependencies; `lucide-react` for icons (added 2026-11-25). Anything else is asked for first.
 
 ## In scope
