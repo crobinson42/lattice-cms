@@ -398,7 +398,8 @@ function outputOf(key: string): Record<string, unknown> {
 
 describe('a ref', () => {
   it('names its target collection as x-lattice-ref, wherever it appears', () => {
-    const ref = { type: 'string', 'x-lattice-ref': 'deals' };
+    // A ref refuses an empty id, so its schema says minLength 1.
+    const ref = { type: 'string', minLength: 1, 'x-lattice-ref': 'deals' };
     expect(at(inputOf('tasks/create'), ['properties', 'dealId'])).toEqual(ref);
     expect(
       at(inputOf('tasks/create'), ['properties', 'relatedIds', 'items']),
@@ -417,7 +418,7 @@ describe('a ref', () => {
         'properties',
         'postsId',
       ]),
-    ).toEqual({ type: 'string', 'x-lattice-ref': 'posts' });
+    ).toEqual({ type: 'string', minLength: 1, 'x-lattice-ref': 'posts' });
   });
 });
 

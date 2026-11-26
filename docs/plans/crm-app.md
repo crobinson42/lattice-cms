@@ -167,3 +167,4 @@ Before the SPA, whose typed client evaluates every procedure.
 - 4b: the app at startup is 180.5 KB gzipped (113.0 KB without React); the admin chunk is 23.4 KB; the web type-check is at 390k.
 - 5a: a populated read narrows only with the literal `populate` list in the call, so `useCursorPages(key, input, read)` takes a read that repeats it. Base UI's combobox hides everything outside its open popup from assistive tech, so a picker's live regions live inside the popup.
 - 5a: startup is 197.3 KB gzipped (129.8 KB without React); the web type-check is at 413k. Populated reads cost about 9k more per resource than plain ones.
+- 5b0: core's `ref()` refuses '' ("Choose the company"). Pages load lazily: startup went from 197.3 KB to 178.9 KB gzipped (111.3 KB without React). The largest page chunk is 26 KB (a company's page, with the contact form and combobox). Budgets are per startup, per largest page and per admin, read from Vite's manifest.

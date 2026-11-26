@@ -58,7 +58,11 @@ export const declaredErrors = {
 
 export type Issue = z.output<typeof issue>;
 
-/** A VALIDATION error for Zod issues, with one issue per path. */
+/**
+ * A VALIDATION error for Zod issues: each issue as Zod reports it, with
+ * every unknown key on its own path. A field that fails two checks has two
+ * issues, in the order its schema declares them.
+ */
 export function invalid(issues: readonly z.core.$ZodIssue[]) {
   return LatticeError.VALIDATION({
     issues: issues.flatMap((issue): Issue[] => {

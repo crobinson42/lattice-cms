@@ -10,7 +10,8 @@ export const Contacts = collection('contacts', {
     // The contact's job title.
     title: z.string().optional(),
     // A company with contacts cannot be deleted: restrict, the default.
-    companyId: ref('companies').min(1, 'Pick a company'),
+    // Like every ref, it refuses '': "Choose the company".
+    companyId: ref('companies'),
   }),
   tenant: 'organizationId',
 }).hooks({

@@ -16,7 +16,7 @@ export type Role = z.output<typeof role>;
 export const Memberships = collection('memberships', {
   schema: z.object({
     userId: z.string().min(1),
-    organizationId: ref('organizations').min(1),
+    organizationId: ref('organizations'),
     role: role.default('member'),
     // The member's display name in this organization.
     name: z.string().min(1),

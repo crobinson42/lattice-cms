@@ -16,10 +16,12 @@ export default defineConfig({
   build: {
     outDir: '../../dist/web',
     emptyOutDir: true,
+    // .vite/manifest.json: which files each page loads, for the bundle test.
+    manifest: true,
     rolldownOptions: {
       output: {
         // React in a chunk of its own, so the bundle test can hold the
-        // admin's share to a budget apart from React's.
+        // app's share to a budget apart from React's.
         codeSplitting: {
           groups: [
             {

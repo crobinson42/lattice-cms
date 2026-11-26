@@ -27,7 +27,7 @@ import { EmptyState, ErrorState } from '../ui/states.js';
 const parents: readonly Crumb[] = [{ label: 'Contacts', href: '/contacts' }];
 
 /** One contact, with their company: the overview, and edit and delete. */
-export function ContactPage({ id }: { readonly id: string }) {
+export default function ContactPage({ id }: { readonly id: string }) {
   const { swr } = useApi();
   // The literal populate in the call is what types the company in.
   const { data, error, mutate } = useSWR(

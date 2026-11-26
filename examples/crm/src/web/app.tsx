@@ -1,19 +1,23 @@
 import { Toaster } from '@shadalaya/react/toast';
-import { lazy, Suspense } from 'react';
+import { lazy } from 'react';
 import { Redirect, Route, Switch } from 'wouter';
-import { CompaniesPage } from './pages/companies-page.js';
-import { CompanyPage } from './pages/company-page.js';
-import { ContactPage } from './pages/contact-page.js';
-import { ContactsPage } from './pages/contacts-page.js';
 import { SignInPage } from './pages/sign-in-page.js';
 import { SessionProvider } from './session.js';
 import { SignedIn } from './signed-in.js';
-import { ErrorBoundary, ErrorState, Loading } from './ui/states.js';
+import { LazyPage } from './ui/lazy-page.js';
+import { DetailPageSkeleton, ListPageSkeleton } from './ui/page-skeleton.js';
+import { Loading } from './ui/states.js';
 import { Workspace } from './workspace/workspace.js';
 
-// The admin is its own chunk, with its own stylesheet, loaded when /admin
-// first opens.
+// Each page is a chunk of its own, loaded when it first opens, so startup
+// does not grow with each resource. Sign-in stays in the startup bundle: it
+// is the first page a signed-out user sees. The admin brings its own
+// stylesheet with its chunk.
 const AdminPage = lazy(() => import('./pages/admin-page.js'));
+const CompaniesPage = lazy(() => import('./pages/companies-page.js'));
+const CompanyPage = lazy(() => import('./pages/company-page.js'));
+const ContactsPage = lazy(() => import('./pages/contacts-page.js'));
+const ContactPage = lazy(() => import('./pages/contact-page.js'));
 
 /** Every route of the app, in one table. */
 export function App() {
@@ -26,20 +30,9 @@ export function App() {
             <SignedIn>
               <Switch>
                 <Route path="/admin" nest>
-                  {/* A chunk that fails to load, such as an old hash after a
-                    deploy, offers a reload. */}
-                  <ErrorBoundary
-                    fallback={
-                      <ErrorState
-                        message="The admin could not be loaded."
-                        onRetry={() => window.location.reload()}
-                      />
-                    }
-                  >
-                    <Suspense fallback={<Loading />}>
-                      <AdminPage />
-                    </Suspense>
-                  </ErrorBoundary>
+                  <LazyPage fallback={<Loading />}>
+                    <AdminPage />
+                  </LazyPage>
                 </Route>
                 <Route>
                   <Workspace>
@@ -47,13 +40,29 @@ export function App() {
                       <Route path="/">
                         <Redirect to="/companies" replace />
                       </Route>
-                      <Route path="/companies" component={CompaniesPage} />
-                      <Route path="/companies/:id">
-                        {({ id }) => <CompanyPage key={id} id={id} />}
+                      <Route path="/companies">
+                        <LazyPage fallback={<ListPageSkeleton />}>
+                          <CompaniesPage />
+                        </LazyPage>
                       </Route>
-                      <Route path="/contacts" component={ContactsPage} />
+                      <Route path="/companies/:id">
+                        {({ id }) => (
+                          <LazyPage fallback={<DetailPageSkeleton />}>
+                            <CompanyPage key={id} id={id} />
+                          </LazyPage>
+                        )}
+                      </Route>
+                      <Route path="/contacts">
+                        <LazyPage fallback={<ListPageSkeleton />}>
+                          <ContactsPage />
+                        </LazyPage>
+                      </Route>
                       <Route path="/contacts/:id">
-                        {({ id }) => <ContactPage key={id} id={id} />}
+                        {({ id }) => (
+                          <LazyPage fallback={<DetailPageSkeleton />}>
+                            <ContactPage key={id} id={id} />
+                          </LazyPage>
+                        )}
                       </Route>
                       <Route>
                         <Redirect to="/" replace />

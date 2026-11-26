@@ -29,7 +29,7 @@ import { EmptyState, ErrorState } from '../ui/states.js';
 const parents: readonly Crumb[] = [{ label: 'Companies', href: '/companies' }];
 
 /** One company: its overview, and edit and delete. */
-export function CompanyPage({ id }: { readonly id: string }) {
+export default function CompanyPage({ id }: { readonly id: string }) {
   const { swr } = useApi();
   const { data, error, mutate } = useSWR(
     swr.companies.get.key({ input: { id } }),

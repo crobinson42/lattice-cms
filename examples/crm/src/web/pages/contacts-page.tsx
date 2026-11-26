@@ -29,7 +29,7 @@ import { EmptyState, ErrorState } from '../ui/states.js';
  * and sorted, both kept in the URL, a page at a time. New opens the form in
  * a sheet, and a created contact opens their page.
  */
-export function ContactsPage() {
+export default function ContactsPage() {
   const { rpc, swr } = useApi();
   const { mutate } = useSWRConfig();
   const [, navigate] = useLocation();

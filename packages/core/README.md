@@ -100,7 +100,8 @@ export const Contacts = collection('contacts', {
     // The contact's job title.
     title: z.string().optional(),
     // A company with contacts cannot be deleted: restrict, the default.
-    companyId: ref('companies').min(1, 'Pick a company'),
+    // Like every ref, it refuses '': "Choose the company".
+    companyId: ref('companies'),
   }),
   tenant: 'organizationId',
 }).hooks({
@@ -550,7 +551,8 @@ const Projects = collection('projects', {
 });
 ```
 
-- A ref is a string: Zod's methods work on it, and `ref('users').min(1).optional()` is still a ref.
+- A ref is a string: Zod's methods work on it, and `ref('users').max(64).optional()` is still a ref.
+- A ref refuses an empty id with `VALIDATION` at its path: no document has one. The message is "Choose the company", from the slug's label, or "Choose one" when the label has no singular core can find, such as `people`. An optional ref may still be left out.
 - A slug that is not a collection of the framework is a compile error and a throw at `build()`, and on `.contract`. Collections may be added in any order.
 - A write does not check that the referenced document exists. Deleting it is where refs are kept whole.
 - Each ref gets an index in `ensure()`, led by the tenant field, unless the collection declares one with the same keys.

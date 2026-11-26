@@ -212,7 +212,7 @@ describe('the app in a browser', () => {
     await page.route('**/assets/admin-page-*', (route) => route.abort());
     await page.goto(new URL('/admin', base).href);
     await signIn(page, 'max@crm.test');
-    await page.getByText('The admin could not be loaded.').waitFor();
+    await page.getByText('This page could not be loaded.').waitFor();
     await page.unroute('**/assets/admin-page-*');
     await page.getByRole('button', { name: 'Try again' }).click();
     await page.getByRole('heading', { name: 'Collections' }).waitFor();
