@@ -40,6 +40,7 @@ import { EmptyState, ErrorState } from '../ui/states.js';
 import { type Team, TeamGate } from '../workspace/team.js';
 import { ActivitySection } from './activity-section.js';
 import { DealContacts } from './deal-contacts.js';
+import { TaskSection } from './task-section.js';
 
 const parents: readonly Crumb[] = [{ label: 'Deals', href: '/deals' }];
 
@@ -200,8 +201,12 @@ function Loaded({
       )}
       <DealOverview deal={deal} members={team.members} />
       <DealContacts deal={deal} companyId={deal.companyId.id} editable={open} />
+      <TaskSection
+        parent={{ on: 'deal', id: deal.id, companyId: deal.companyId.id }}
+        name={deal.title}
+      />
       <ActivitySection
-        logged={{ on: 'deal', id: deal.id, companyId: deal.companyId.id }}
+        parent={{ on: 'deal', id: deal.id, companyId: deal.companyId.id }}
         name={deal.title}
       />
       <FormSheet

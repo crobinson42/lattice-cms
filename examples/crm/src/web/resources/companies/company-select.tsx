@@ -1,4 +1,4 @@
-import { SearchSelect } from '../../ui/search-select.js';
+import { type Search, SearchSelect } from '../../ui/search-select.js';
 import { companyCount } from './company.format.js';
 import { type Company, type CompanyRef, isReadableCompany } from './company.js';
 
@@ -24,18 +24,18 @@ export function CompanySelect({
   defaultValue,
   search,
   error,
+  onPick,
 }: {
-  readonly name: string;
+  /** The form field it submits the id as, or none: then read `onPick`. */
+  readonly name?: string;
   readonly defaultValue: CompanyOption | null;
-  readonly search: (
-    query: string,
-    signal: AbortSignal,
-  ) => Promise<readonly CompanyOption[]>;
+  readonly search: Search<CompanyOption>;
   readonly error: string | undefined;
+  readonly onPick?: (company: CompanyOption | null) => void;
 }) {
   return (
     <SearchSelect
-      name={name}
+      {...(name === undefined ? {} : { name })}
       label="Company"
       placeholder="Search companies"
       defaultValue={defaultValue}
@@ -45,6 +45,7 @@ export function CompanySelect({
       countLabel={companyCount}
       nothingFound="No companies found."
       error={error}
+      {...(onPick === undefined ? {} : { onPick })}
     />
   );
 }

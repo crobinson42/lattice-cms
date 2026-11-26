@@ -7,12 +7,8 @@ import {
   text,
 } from '../../ui/form.js';
 import { toLocalInput } from '../../ui/format.js';
-import type {
-  Activity,
-  ActivityLog,
-  ActivityParents,
-  ActivityPatch,
-} from './activity.js';
+import type { Parents } from '../parents.js';
+import type { Activity, ActivityLog, ActivityPatch } from './activity.js';
 import { parseKind } from './activity-kinds.js';
 
 /** The form's fields, in its order, each typed by what logging takes. */
@@ -49,7 +45,7 @@ export function valuesOf(
 /** A new activity from the form, with its parents by the rule. */
 export function logInput(
   values: FormValues<ActivityField>,
-  parents: ActivityParents,
+  parents: Parents,
 ): ActivityLog {
   const input: ActivityLog = {
     kind: 'note',

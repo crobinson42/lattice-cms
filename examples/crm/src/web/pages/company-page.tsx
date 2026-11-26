@@ -31,6 +31,7 @@ import type { Crumb } from '../ui/shell.js';
 import { EmptyState, ErrorState } from '../ui/states.js';
 import { TeamGate } from '../workspace/team.js';
 import { ActivitySection } from './activity-section.js';
+import { TaskSection } from './task-section.js';
 
 const parents: readonly Crumb[] = [{ label: 'Companies', href: '/companies' }];
 
@@ -131,8 +132,12 @@ function Loaded({ company }: { readonly company: Company }) {
       <CompanyOverview company={company} />
       <CompanyContacts company={company} />
       <CompanyDeals company={company} />
+      <TaskSection
+        parent={{ on: 'company', id: company.id }}
+        name={company.name}
+      />
       <ActivitySection
-        logged={{ on: 'company', id: company.id }}
+        parent={{ on: 'company', id: company.id }}
         name={company.name}
       />
       <FormSheet

@@ -13,4 +13,4 @@
 @import "@shadalaya/theme/tailwind.css";
 
 @source "./**/*.tsx";
-@source "../../../../node_modules/@shadalaya/react/dist/components/{alert,alert-dialog,avatar,badge,breadcrumb,button,button-group,card,combobox,dropdown-menu,empty,field,input,input-group,label,native-select,separator,sheet,sidebar,skeleton,spinner,table,textarea,toast,tooltip}.js";
+@source "../../../../node_modules/@shadalaya/react/dist/components/{alert,alert-dialog,avatar,badge,breadcrumb,button,button-group,card,checkbox,combobox,dropdown-menu,empty,field,input,input-group,label,native-select,separator,sheet,sidebar,skeleton,spinner,table,textarea,toast,tooltip}.js";

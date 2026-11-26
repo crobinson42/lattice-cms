@@ -1,13 +1,9 @@
-import type {
-  InferContractInputs,
-  InferContractOutputs,
-  InferExpandedOutput,
-} from '@ts-pf/contract';
+import type { InferContractInputs, InferExpandedOutput } from '@ts-pf/contract';
 import type { contract } from '../../../servers/rpc/contract.js';
 import type { Member } from '../members/member.js';
 
 /** A deal, as the API returns it. A member receives no amount. */
-export type Deal = InferContractOutputs<typeof contract>['deals']['get'];
+export type Deal = InferExpandedOutput<(typeof contract)['deals']['get'], []>;
 
 /**
  * A deal read with `populate: ['companyId']`: `companyId` is the company,

@@ -18,9 +18,3 @@ export type ActivityLog = Inputs['log'];
 
 /** The fields an edit changes. */
 export type ActivityPatch = Omit<Inputs['update'], 'id'>;
-
-/** What an activity is about, by the parents rule (activity-parents.ts). */
-export type ActivityParents = Pick<
-  ActivityLog,
-  'companyId' | 'contactId' | 'dealId'
->;

@@ -1,12 +1,11 @@
-import type {
-  InferContractInputs,
-  InferContractOutputs,
-  InferExpandedOutput,
-} from '@ts-pf/contract';
+import type { InferContractInputs, InferExpandedOutput } from '@ts-pf/contract';
 import type { contract } from '../../../servers/rpc/contract.js';
 
 /** A contact, as the API returns it: `companyId` is the company's id. */
-export type Contact = InferContractOutputs<typeof contract>['contacts']['get'];
+export type Contact = InferExpandedOutput<
+  (typeof contract)['contacts']['get'],
+  []
+>;
 
 /**
  * A contact read with `populate: ['companyId']`: `companyId` is the company,

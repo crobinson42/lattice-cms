@@ -15,12 +15,16 @@ export function SelectField({
   options,
   defaultValue,
   error,
+  onChange,
 }: {
-  readonly name: string;
+  /** The form field it submits, or none: then read `onChange`. */
+  readonly name?: string;
   readonly label: string;
   readonly options: readonly SelectOption[];
   readonly defaultValue: string;
   readonly error: string | undefined;
+  /** Called with the chosen value, for a form that changes with it. */
+  readonly onChange?: (value: string) => void;
 }) {
   const id = useId();
   return (
@@ -28,8 +32,11 @@ export function SelectField({
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <NativeSelect
         id={id}
-        name={name}
+        {...(name === undefined ? {} : { name })}
         defaultValue={defaultValue}
+        {...(onChange === undefined
+          ? {}
+          : { onChange: (event) => onChange(event.target.value) })}
         className="w-full"
         aria-invalid={error !== undefined}
         aria-describedby={error === undefined ? undefined : `${id}-error`}

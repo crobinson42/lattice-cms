@@ -24,6 +24,7 @@ import { PageHeader } from '../ui/page-header.js';
 import type { Crumb } from '../ui/shell.js';
 import { EmptyState, ErrorState } from '../ui/states.js';
 import { ActivitySection } from './activity-section.js';
+import { TaskSection } from './task-section.js';
 
 const parents: readonly Crumb[] = [{ label: 'Contacts', href: '/contacts' }];
 
@@ -125,8 +126,16 @@ function Loaded({ contact }: { readonly contact: ContactWithCompany }) {
         }
       />
       <ContactOverview contact={contact} />
+      <TaskSection
+        parent={{
+          on: 'contact',
+          id: contact.id,
+          companyId: contact.companyId.id,
+        }}
+        name={contact.name}
+      />
       <ActivitySection
-        logged={{
+        parent={{
           on: 'contact',
           id: contact.id,
           companyId: contact.companyId.id,

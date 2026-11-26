@@ -6,9 +6,9 @@ import { isReadableDeal } from '../deals/deal.js';
 import { DealInline } from '../deals/deal-inline.js';
 import type { Member } from '../members/member.js';
 import { MemberInline } from '../members/member-inline.js';
+import type { Parent } from '../parents.js';
 import type { Activity } from './activity.js';
 import { activityKinds } from './activity-kinds.js';
-import type { LoggedOn } from './activity-parents.js';
 
 /**
  * One activity: its kind, its author, when, and what happened, with its
@@ -26,7 +26,7 @@ export function ActivityItem({
   /** The author, from the team, or undefined for a former member. */
   readonly author: Member | undefined;
   /** The timeline it shows on: its own parent goes without saying. */
-  readonly on: LoggedOn['on'];
+  readonly on: Parent['on'];
   readonly actions?: ReactNode;
 }) {
   const { label, icon: Icon } = activityKinds[activity.kind];

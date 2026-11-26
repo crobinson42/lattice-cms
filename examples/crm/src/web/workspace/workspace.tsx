@@ -1,4 +1,9 @@
-import { BriefcaseIcon, Building2Icon, UsersIcon } from 'lucide-react';
+import {
+  BriefcaseIcon,
+  Building2Icon,
+  ListChecksIcon,
+  UsersIcon,
+} from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
 import useSWR from 'swr';
 import { Redirect } from 'wouter';
@@ -7,6 +12,7 @@ import type { Member } from '../resources/members/member.js';
 import { useSignedIn } from '../signed-in.js';
 import { OrganizationSwitcher } from '../ui/organization-switcher.js';
 import { Shell } from '../ui/shell.js';
+import { OverdueTasksBadge } from './overdue-tasks-badge.js';
 import { TeamContext } from './team.js';
 import { UserMenu } from './user-menu.js';
 
@@ -15,6 +21,12 @@ const sections = [
   { href: '/companies', label: 'Companies', icon: <Building2Icon /> },
   { href: '/contacts', label: 'Contacts', icon: <UsersIcon /> },
   { href: '/deals', label: 'Deals', icon: <BriefcaseIcon /> },
+  {
+    href: '/tasks',
+    label: 'Tasks',
+    icon: <ListChecksIcon />,
+    badge: <OverdueTasksBadge />,
+  },
 ];
 
 /**

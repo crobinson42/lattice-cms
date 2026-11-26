@@ -10,6 +10,15 @@ import { Field, FieldError, FieldLabel } from '@shadalaya/react/field';
 import { useEffect, useId, useState } from 'react';
 
 /**
+ * What a SearchSelect reads: the items that answer a query, from the
+ * server, stopping when the signal aborts.
+ */
+export type Search<T> = (
+  query: string,
+  signal: AbortSignal,
+) => Promise<readonly T[]>;
+
+/**
  * Picks one item of a long list, found by what the user types: `search`
  * answers a query with the items to offer, from the server, and stops when
  * its signal aborts. It is a form field: `name` submits the picked item's
@@ -27,15 +36,14 @@ export function SearchSelect<T>({
   countLabel,
   nothingFound,
   error,
+  onPick,
 }: {
-  readonly name: string;
+  /** The form field it submits the key as, or none: then read `onPick`. */
+  readonly name?: string;
   readonly label: string;
   readonly placeholder: string;
   readonly defaultValue: T | null;
-  readonly search: (
-    query: string,
-    signal: AbortSignal,
-  ) => Promise<readonly T[]>;
+  readonly search: Search<T>;
   readonly itemKey: (item: T) => string;
   readonly itemLabel: (item: T) => string;
   /** How many items a search found, in words: "3 companies". */
@@ -43,6 +51,8 @@ export function SearchSelect<T>({
   /** What the list says when a search finds nothing. */
   readonly nothingFound: string;
   readonly error: string | undefined;
+  /** Called with the picked item, for a form that needs more than its key. */
+  readonly onPick?: (item: T | null) => void;
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
@@ -92,12 +102,15 @@ export function SearchSelect<T>({
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <Combobox
         id={id}
-        name={name}
+        {...(name === undefined ? {} : { name })}
         items={items}
         // The server already filtered: show what it found.
         filter={null}
         value={picked}
-        onValueChange={setPicked}
+        onValueChange={(item) => {
+          setPicked(item);
+          onPick?.(item);
+        }}
         onInputValueChange={setQuery}
         open={open}
         onOpenChange={setOpen}

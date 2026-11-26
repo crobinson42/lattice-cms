@@ -1,9 +1,8 @@
 import { Button } from '@shadalaya/react/button';
-import { toast } from '@shadalaya/react/toast';
 import { asResult } from '@ts-pf/client';
 import { PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { type ApiError, useApi } from '../api.js';
+import { useApi } from '../api.js';
 import type {
   Activity,
   ActivityLog,
@@ -12,17 +11,14 @@ import type {
 import { ActivityForm } from '../resources/activities/activity-form.js';
 import { ActivityItem } from '../resources/activities/activity-item.js';
 import { activityKinds } from '../resources/activities/activity-kinds.js';
-import {
-  type LoggedOn,
-  parentsOf,
-  timelineOf,
-} from '../resources/activities/activity-parents.js';
 import { ActivityTimeline } from '../resources/activities/activity-timeline.js';
 import { memberOf } from '../resources/members/member.js';
+import { type Parent, parentsOf, whereOn } from '../resources/parents.js';
 import { useAfterWrite } from '../ui/after-write.js';
 import { ConfirmAction } from '../ui/confirm-action.js';
 import { useCursorPages } from '../ui/cursor-pages.js';
 import { FormSheet } from '../ui/form.js';
+import { useRowActions } from '../ui/row-actions.js';
 import { Section } from '../ui/section.js';
 import { EmptyState } from '../ui/states.js';
 import { type Team, TeamGate } from '../workspace/team.js';
@@ -34,29 +30,29 @@ import { type Team, TeamGate } from '../workspace/team.js';
  * author may edit or delete it; the access filter refuses anyone else.
  */
 export function ActivitySection({
-  logged,
+  parent,
   name,
 }: {
   /** What the page shows, and so what an activity is logged on. */
-  readonly logged: LoggedOn;
+  readonly parent: Parent;
   /** Its name, for the timeline's label: "Activity on Acme". */
   readonly name: string;
 }) {
   return (
     <Section id="activity" title="Activity">
       <TeamGate>
-        {(team) => <Timeline logged={logged} name={name} team={team} />}
+        {(team) => <Timeline parent={parent} name={name} team={team} />}
       </TeamGate>
     </Section>
   );
 }
 
 function Timeline({
-  logged,
+  parent,
   name,
   team,
 }: {
-  readonly logged: LoggedOn;
+  readonly parent: Parent;
   readonly name: string;
   readonly team: Team;
 }) {
@@ -66,7 +62,7 @@ function Timeline({
   const pages = useCursorPages(
     swr.activities.find.key,
     {
-      where: timelineOf(logged),
+      where: whereOn(parent),
       sort: ['-occurredAt'],
       limit: 20,
       populate: ['dealId', 'contactId'],
@@ -93,20 +89,11 @@ function Timeline({
     setRefocus(false);
   }, [refocus]);
 
-  /**
-   * An activity that is not yours, or no longer there, is NOT_FOUND to a
-   * write: say so in words, and read the timeline again, through the list
-   * registry, as a matcher never reaches a cursor list.
-   */
-  const gone = (error: ApiError): boolean => {
-    if (error.code !== 'NOT_FOUND') return false;
-    toast.add({
-      title: 'That activity is no longer there to change.',
-      type: 'error',
-    });
-    void afterWrite({ changed: swr.activities.matcher() });
-    return true;
-  };
+  // An activity that is not yours, or no longer there, is NOT_FOUND.
+  const rows = useRowActions({
+    changed: swr.activities.matcher(),
+    noun: 'activity',
+  });
 
   const log = async (input: ActivityLog) => {
     const result = await asResult(rpc.activities.log(input));
@@ -121,34 +108,25 @@ function Timeline({
   };
 
   const update = (activity: Activity) => async (patch: ActivityPatch) => {
-    if (Object.keys(patch).length > 0) {
-      const result = await asResult(
-        rpc.activities.update({ id: activity.id, ...patch }),
-      );
-      if (!result.ok) {
-        if (!gone(result.error)) return result.error;
-        setEditing(undefined);
-        return undefined;
-      }
+    if (Object.keys(patch).length === 0) {
       setEditing(undefined);
-      // A new time can move it to another day, where it is a new row: once
-      // the timeline has read again, focus that row's Edit button.
-      await afterWrite({ changed: swr.activities.matcher(), says: 'Saved' });
-      setRefocusEdit(activity.id);
       return undefined;
     }
-    setEditing(undefined);
-    return undefined;
+    const refused = await rows.save(
+      asResult(rpc.activities.update({ id: activity.id, ...patch })),
+      () => setEditing(undefined),
+    );
+    // A new time can move it to another day, where it is a new row: now
+    // that the timeline has read again, focus that row's Edit button.
+    if (refused === undefined) setRefocusEdit(activity.id);
+    return refused;
   };
 
-  const remove = async (activity: Activity) => {
-    const result = await asResult(rpc.activities.delete({ id: activity.id }));
-    if (result.ok) {
-      void afterWrite({ changed: swr.activities.matcher(), says: 'Deleted' });
-      return undefined;
-    }
-    return gone(result.error) ? undefined : result.error.message;
-  };
+  const remove = (activity: Activity) =>
+    rows.remove(
+      asResult(rpc.activities.delete({ id: activity.id })),
+      'Deleted',
+    );
 
   const what = (activity: Activity) =>
     `this ${activityKinds[activity.kind].label.toLowerCase()}`;
@@ -158,7 +136,7 @@ function Timeline({
         <div className="rounded-lg border p-4">
           <ActivityForm
             focusFirst
-            parents={parentsOf(logged)}
+            parents={parentsOf(parent)}
             onSubmit={log}
             onCancel={() => {
               setComposing(false);
@@ -190,7 +168,7 @@ function Timeline({
           <ActivityItem
             activity={activity}
             author={memberOf(team.members, activity.authorId)}
-            on={logged.on}
+            on={parent.on}
             {...(activity.authorId === team.me.userId
               ? {
                   actions: (

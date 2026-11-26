@@ -511,6 +511,7 @@ async function pipeline(seed: {
   const { ann, ben, at, date } = seed;
   const client = (owner: 'ann' | 'ben') => (owner === 'ann' ? ann : ben);
   const companies: { id: string; contacts: string[] }[] = [];
+  const openDeals: { id: string; companyId: string }[] = [];
   for (const [index, company] of seed.companies.entries()) {
     const { contacts, ...fields } = company;
     const created = await client(
@@ -566,6 +567,7 @@ async function pipeline(seed: {
       dealId: created.id,
       companyId: company.id,
     });
+    if (!closes) openDeals.push({ id: created.id, companyId: company.id });
     if (closes) {
       await owner.deals.close({
         id: created.id,
@@ -623,14 +625,25 @@ async function pipeline(seed: {
     },
     { title: 'Log the kickoff notes', due: -2, done: true, who: 'ben' },
   ] as const;
+  // By the app's rule for parents, as activities: a task on a deal records
+  // the deal and its company; on a contact, the contact and its company; on
+  // a company, the company. They take turns.
   for (const [index, task] of tasks.entries()) {
     const company = companies[index % companies.length];
     if (company === undefined) continue;
+    const [contact] = company.contacts;
+    const deal = openDeals[index % Math.max(openDeals.length, 1)];
+    const parents =
+      index % 3 === 1 && contact !== undefined
+        ? { contactId: contact, companyId: company.id }
+        : index % 3 === 2 && deal !== undefined
+          ? { dealId: deal.id, companyId: deal.companyId }
+          : { companyId: company.id };
     await client(task.who).tasks.create({
       title: task.title,
       done: task.done,
       assigneeId: task.who,
-      companyId: company.id,
+      ...parents,
       ...(task.due === undefined ? {} : { dueDate: date(task.due) }),
     });
   }

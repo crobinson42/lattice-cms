@@ -6,12 +6,8 @@ import { type Submit, useFormSubmit } from '../../ui/form.js';
 import { SelectField } from '../../ui/select-field.js';
 import { TextField } from '../../ui/text-field.js';
 import { TextAreaField } from '../../ui/textarea-field.js';
-import type {
-  Activity,
-  ActivityLog,
-  ActivityParents,
-  ActivityPatch,
-} from './activity.js';
+import type { Parents } from '../parents.js';
+import type { Activity, ActivityLog, ActivityPatch } from './activity.js';
 import {
   activityFields,
   logInput,
@@ -35,7 +31,7 @@ export function ActivityForm(
   } & (
     | {
         readonly activity?: undefined;
-        readonly parents: ActivityParents;
+        readonly parents: Parents;
         readonly onSubmit: Submit<ActivityLog>;
       }
     | { readonly activity: Activity; readonly onSubmit: Submit<ActivityPatch> }

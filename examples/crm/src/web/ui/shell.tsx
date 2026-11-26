@@ -35,6 +35,11 @@ export type Section = {
   readonly href: string;
   readonly label: string;
   readonly icon: ReactNode;
+  /**
+   * A count beside it, such as overdue tasks, or nothing. It is inside the
+   * link, so it is part of the link's name: "Tasks, 1 overdue".
+   */
+  readonly badge?: ReactNode;
 };
 
 /** A page above the current one, in the breadcrumb. */
@@ -88,7 +93,7 @@ export function Shell({
           <SidebarGroup>
             <SidebarGroupContent>
               <SidebarMenu>
-                {sections.map(({ href, label, icon }) => (
+                {sections.map(({ href, label, icon, badge }) => (
                   <SidebarMenuItem key={href}>
                     <SidebarMenuButton
                       isActive={href === current?.href}
@@ -96,6 +101,7 @@ export function Shell({
                     >
                       {icon}
                       {label}
+                      {badge}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
