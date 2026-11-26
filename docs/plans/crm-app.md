@@ -75,7 +75,7 @@ Sent as 1a (fields, rules, members) and 1b (activities and tasks).
   - hexok's `family()` intersects its statics with `Spec`: about 38k per collection that has a hand-written use case. That's why activities, with `activities.log`, cost ~100k.
   - Corrected by ts-pf's investigation: Lattice's read procedure types cost O(N) each on first deep evaluation (step 1g). ts-pf also halved `all()`'s own share (ts-pf#74).
 - [x] Briefs for both, which the maintainer hands to the hexok and ts-pf teams: [`../briefs/hexok-family-statics.md`](../briefs/hexok-family-statics.md) and [`../briefs/ts-pf-mcp-all-tools.md`](../briefs/ts-pf-mcp-all-tools.md).
-- [ ] When the releases land: upgrade, re-measure core and the crm, and set the crm budget from the measurement.
+- [ ] Upgrade to hexok 2.2.8 (released with the fix, hexok#35) and to ts-pf's #74 release when it lands. Re-measure core and the crm, and set the crm budget from the measurement. hexok expects the collection→AnyCollection check (Zod's cost) to remain, so the saving lands near the brief's "proposed" row.
 
 ### 1e. A refined schema with refs builds
 
