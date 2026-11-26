@@ -3,10 +3,11 @@ import { asResult } from '@ts-pf/client';
 import { PencilIcon, PlusIcon, Trash2Icon } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useApi } from '../api.js';
-import type {
-  Activity,
-  ActivityLog,
-  ActivityPatch,
+import {
+  type Activity,
+  type ActivityLog,
+  type ActivityPatch,
+  activityPopulate,
 } from '../resources/activities/activity.js';
 import { ActivityForm } from '../resources/activities/activity-form.js';
 import { ActivityItem } from '../resources/activities/activity-item.js';
@@ -58,17 +59,17 @@ function Timeline({
 }) {
   const { rpc, swr } = useApi();
   const afterWrite = useAfterWrite();
-  // Each activity with its deal and contact, for its "on …" links.
+  // Each activity with its company, deal and contact, for its links.
   const pages = useCursorPages(
     swr.activities.find.key,
     {
       where: whereOn(parent),
       sort: ['-occurredAt'],
       limit: 20,
-      populate: ['dealId', 'contactId'],
+      populate: [...activityPopulate],
     },
     (input) =>
-      swr.activities.find({ ...input, populate: ['dealId', 'contactId'] }),
+      swr.activities.find({ ...input, populate: [...activityPopulate] }),
   );
 
   const [composing, setComposing] = useState(false);

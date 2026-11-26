@@ -14,3 +14,9 @@ export function initials(member: Pick<Member, 'name'>): string {
     .map((word) => word.charAt(0).toUpperCase())
     .join('');
 }
+
+/** How a role reads: "Manager", "Member". */
+export const roleLabels = {
+  manager: 'Manager',
+  member: 'Member',
+} as const satisfies Record<Member['role'], string>;

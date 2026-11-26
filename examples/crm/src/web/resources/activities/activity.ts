@@ -5,13 +5,17 @@ type Procedures = (typeof contract)['activities'];
 type Inputs = InferContractInputs<typeof contract>['activities'];
 
 /**
- * An activity as a timeline reads it: its deal and its contact populated,
- * each the document, or `{ id }` when the caller may not read it.
+ * An activity as a timeline reads it: its company, deal and contact
+ * populated, each the document, or `{ id }` when the caller may not read
+ * it. `activityPopulate` is that list, for every read of one.
  */
 export type Activity = InferExpandedOutput<
   Procedures['find'],
-  ['dealId', 'contactId']
+  ['companyId', 'dealId', 'contactId']
 >['docs'][number];
+
+/** What every read of activities populates: spread, it stays a tuple. */
+export const activityPopulate = ['companyId', 'dealId', 'contactId'] as const;
 
 /** What logging an activity takes: activities.log stamps the author. */
 export type ActivityLog = Inputs['log'];

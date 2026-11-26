@@ -158,13 +158,13 @@ describe('the app in a browser', () => {
         .textContent(),
     ).toBe('Org B');
 
-    // Back to the app, then sign out from the user menu.
+    // Back to the app, its Home, then sign out from the user menu.
     await page.getByRole('link', { name: 'Back to CRM' }).click();
-    await page.getByRole('heading', { name: 'Companies' }).waitFor();
+    await page.getByRole('heading', { name: 'Home', level: 1 }).waitFor();
     await page.getByRole('button', { name: 'User menu' }).click();
     await page.getByRole('menuitem', { name: 'Sign out' }).click();
     await page.getByRole('heading', { name: 'Sign in' }).waitFor();
-    expect(path(page)).toBe('/sign-in?next=%2Fcompanies');
+    expect(path(page)).toBe('/sign-in?next=%2F');
   });
 
   it('returns to the page that sent it to sign in, and signs out on a 401', async () => {
@@ -176,10 +176,10 @@ describe('the app in a browser', () => {
     await page.getByRole('heading', { name: 'Companies' }).waitFor();
     expect(path(page)).toBe('/admin/companies?limit=5');
 
-    // Signed in, the sign-in page sends the user on.
+    // Signed in, the sign-in page sends the user on, to Home.
     await page.goto(new URL('/sign-in', base).href);
-    await page.getByRole('heading', { name: 'Companies' }).waitFor();
-    expect(path(page)).toBe('/companies');
+    await page.getByRole('heading', { name: 'Home', level: 1 }).waitFor();
+    expect(path(page)).toBe('/');
 
     // The session ends on the server: the next call's 401 signs out.
     const token = await page.evaluate(() =>
@@ -188,7 +188,7 @@ describe('the app in a browser', () => {
     await sessions.close(token ?? undefined);
     await page.reload();
     await page.getByRole('heading', { name: 'Sign in' }).waitFor();
-    expect(path(page)).toBe('/sign-in?next=%2Fcompanies');
+    expect(path(page)).toBe('/sign-in?next=%2F');
     expect(
       await page.evaluate(() => sessionStorage.getItem('crm.token')),
     ).toBeNull();

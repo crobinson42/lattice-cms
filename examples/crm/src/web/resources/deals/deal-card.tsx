@@ -1,13 +1,11 @@
-import { CalendarIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { formatDay } from '../../ui/format.js';
 import { isReadableCompany } from '../companies/company.js';
 import { displayName } from '../members/member.format.js';
 import type { Member } from '../members/member.js';
 import { MemberAvatar } from '../members/member-avatar.js';
-import { isOverdue } from './deal.format.js';
 import type { DealWithCompany } from './deal.js';
 import { DealAmount } from './deal-amount.js';
+import { DealCloseDate } from './deal-close-date.js';
 import { DealInline } from './deal-inline.js';
 
 /**
@@ -30,7 +28,6 @@ export function DealCard({
   readonly moving: boolean;
   readonly actions: ReactNode;
 }) {
-  const overdue = isOverdue(deal, today);
   return (
     <article
       aria-busy={moving}
@@ -53,17 +50,7 @@ export function DealCard({
           </span>
         )}
       </div>
-      {deal.expectedCloseDate === undefined ? null : (
-        <div
-          className={`flex items-center gap-1 ${overdue ? 'text-destructive' : 'text-muted-foreground'}`}
-        >
-          <CalendarIcon aria-hidden className="size-3.5" />
-          <time dateTime={deal.expectedCloseDate}>
-            {formatDay(deal.expectedCloseDate)}
-          </time>
-          {overdue ? <span>· overdue</span> : null}
-        </div>
-      )}
+      <DealCloseDate deal={deal} today={today} />
       {moving ? <div className="text-muted-foreground">Moving…</div> : null}
     </article>
   );

@@ -15,7 +15,7 @@ const call = {
   // Seconds and milliseconds, which a datetime-local input does not show.
   occurredAt: '2026-11-25T14:30:45.123Z',
   dealId: { id: 'd1' },
-  companyId: 'c1',
+  companyId: { id: 'c1' },
   createdAt: '2026-11-25T14:31:00.000Z',
   updatedAt: '2026-11-25T14:31:00.000Z',
 };

@@ -30,6 +30,14 @@ export function isoDay(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/**
+ * The start of `now`'s month in the browser's time zone, as an ISO
+ * date-time: what a `closedAt: { gte }` takes for "this month".
+ */
+export function monthStart(now: Date): string {
+  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+}
+
 /** A date-time with its time: "Nov 25, 2026, 9:30 AM". */
 export function formatDateTime(iso: string): string {
   return new Intl.DateTimeFormat(undefined, {

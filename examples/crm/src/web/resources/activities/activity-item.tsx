@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { RelativeTime } from '../../ui/relative-time.js';
+import { CompanyInline } from '../companies/company-inline.js';
 import { isReadableContact } from '../contacts/contact.js';
 import { ContactInline } from '../contacts/contact-inline.js';
 import { isReadableDeal } from '../deals/deal.js';
@@ -13,7 +14,8 @@ import { activityKinds } from './activity-kinds.js';
 /**
  * One activity: its kind, its author, when, and what happened, with its
  * line breaks. Away from the deal or contact it was logged on, it links
- * there: on a company's timeline, a call on a deal says "on <deal>".
+ * there: on a company's timeline, a call on a deal says "on <deal>"; away
+ * from any record it says "for <company>" too.
  * `actions` is its Edit and Delete, for its author.
  */
 export function ActivityItem({
@@ -25,8 +27,11 @@ export function ActivityItem({
   readonly activity: Activity;
   /** The author, from the team, or undefined for a former member. */
   readonly author: Member | undefined;
-  /** The timeline it shows on: its own parent goes without saying. */
-  readonly on: Parent['on'];
+  /**
+   * The record whose timeline it is on, whose own parent goes without
+   * saying, or undefined away from any record, such as the dashboard.
+   */
+  readonly on: Parent['on'] | undefined;
   readonly actions?: ReactNode;
 }) {
   const { label, icon: Icon } = activityKinds[activity.kind];
@@ -34,6 +39,8 @@ export function ActivityItem({
   // on a deal's or a contact's timeline, as it is theirs.
   const deal = on === 'deal' ? undefined : activity.dealId;
   const contact = on === 'contact' ? undefined : activity.contactId;
+  // On a record, the company goes without saying: it is the record's own.
+  const company = on === undefined ? activity.companyId : undefined;
   return (
     <article className="flex gap-3">
       <div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
@@ -63,6 +70,11 @@ export function ActivityItem({
               ) : (
                 'a hidden contact'
               )}
+            </span>
+          )}
+          {company === undefined ? null : (
+            <span className="text-muted-foreground">
+              for <CompanyInline company={company} />
             </span>
           )}
           <RelativeTime

@@ -13,6 +13,8 @@ import { builtPage } from '../test/web.js';
  * Gzipped bytes: the measurement of 2026-11-26, plus 5%.
  * - Startup holds React, the shell, sign-in, the session and the API, and
  *   Base UI's shared chunk, which the sidebar's sheet and the menus use.
+ *   Without React it was raised to 120,000 for the dashboard and the team
+ *   page: two routes, their sidebar icons and the dashboard's skeleton.
  * - The largest page is a deal's: its contacts, and two sections a
  *   company's and a contact's pages also carry. Activity has its timeline,
  *   form and kinds; Tasks its list, item, Base UI's checkbox, quick add and
@@ -22,7 +24,7 @@ import { builtPage } from '../test/web.js';
  */
 const budget = {
   startup: 187_900,
-  startupWithoutReact: 117_000,
+  startupWithoutReact: 120_000,
   page: 44_300,
   admin: 26_800,
 };

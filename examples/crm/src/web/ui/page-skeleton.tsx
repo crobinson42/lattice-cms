@@ -43,3 +43,22 @@ export function DetailPageSkeleton() {
     </div>
   );
 }
+
+/** The dashboard while it loads: its header, and two columns of sections. */
+export function DashboardPageSkeleton() {
+  return (
+    <div aria-busy>
+      <HeaderSkeleton />
+      <div className="grid gap-8 lg:grid-cols-2">
+        {['a', 'b'].map((column) => (
+          <div key={column} className="grid gap-3">
+            <Skeleton className="h-6 w-32" />
+            {['a', 'b', 'c'].map((row) => (
+              <Skeleton key={row} className="h-6 w-full" />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

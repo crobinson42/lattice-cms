@@ -5,7 +5,11 @@ import { SignInPage } from './pages/sign-in-page.js';
 import { SessionProvider } from './session.js';
 import { SignedIn } from './signed-in.js';
 import { LazyPage } from './ui/lazy-page.js';
-import { DetailPageSkeleton, ListPageSkeleton } from './ui/page-skeleton.js';
+import {
+  DashboardPageSkeleton,
+  DetailPageSkeleton,
+  ListPageSkeleton,
+} from './ui/page-skeleton.js';
 import { Loading } from './ui/states.js';
 import { Workspace } from './workspace/workspace.js';
 
@@ -21,6 +25,8 @@ const ContactPage = lazy(() => import('./pages/contact-page.js'));
 const DealsPage = lazy(() => import('./pages/deals-page.js'));
 const DealPage = lazy(() => import('./pages/deal-page.js'));
 const TasksPage = lazy(() => import('./pages/tasks-page.js'));
+const TeamPage = lazy(() => import('./pages/team-page.js'));
+const HomePage = lazy(() => import('./pages/home-page.js'));
 
 /** Every route of the app, in one table. */
 export function App() {
@@ -41,7 +47,9 @@ export function App() {
                   <Workspace>
                     <Switch>
                       <Route path="/">
-                        <Redirect to="/companies" replace />
+                        <LazyPage fallback={<DashboardPageSkeleton />}>
+                          <HomePage />
+                        </LazyPage>
                       </Route>
                       <Route path="/companies">
                         <LazyPage fallback={<ListPageSkeleton />}>
@@ -78,6 +86,11 @@ export function App() {
                             <DealPage key={id} id={id} />
                           </LazyPage>
                         )}
+                      </Route>
+                      <Route path="/team">
+                        <LazyPage fallback={<ListPageSkeleton />}>
+                          <TeamPage />
+                        </LazyPage>
                       </Route>
                       <Route path="/tasks">
                         <LazyPage fallback={<ListPageSkeleton />}>

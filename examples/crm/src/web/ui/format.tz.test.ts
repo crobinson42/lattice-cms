@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { isoDateTime } from './form.js';
-import { dayGroups, formatDay, toLocalInput } from './format.js';
+import { dayGroups, formatDay, monthStart, toLocalInput } from './format.js';
 
 // Behind UTC, where reading "2026-12-01" as UTC midnight would show Nov 30.
 // Node reads TZ again when it changes; nothing here has made a date yet.
@@ -37,4 +37,14 @@ it('groups by the local day, not the UTC one', () => {
     ['Yesterday', 1],
     ['Nov 24, 2026', 1],
   ]);
+});
+
+it('starts this month at local midnight on the first, behind UTC too', () => {
+  // 20:00 on Nov 30 in Honolulu is already Dec 1 in UTC: still November.
+  expect(monthStart(new Date(2026, 10, 30, 20, 0))).toBe(
+    '2026-11-01T10:00:00.000Z',
+  );
+  expect(monthStart(new Date(2027, 0, 1, 0, 0))).toBe(
+    '2027-01-01T10:00:00.000Z',
+  );
 });
