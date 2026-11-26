@@ -4,41 +4,37 @@ A CRM on Lattice: companies, contacts, deals, activities and tasks, each organiz
 
 ## Run it
 
-It runs as two processes: the HTTP server and the worker. Both need MongoDB, as a replica set for transactions, and Redis, for sessions and the event queues. You need Node 24 and Docker, or MongoDB 8 and Redis 7 installed another way.
+It runs as two processes, the HTTP server and the worker, on MongoDB (a replica set, for transactions) and Redis (sessions and the event queues). You need Node 24 and Docker.
 
-Start MongoDB as a one-node replica set, and Redis:
-
-```bash
-docker run -d --name crm-mongo -p 27017:27017 mongo:8 --replSet rs0
-docker exec crm-mongo mongosh --quiet --eval "rs.initiate()"   # once mongod is up; repeat if it is not yet
-docker run -d --name crm-redis -p 6379:6379 redis:7
-```
-
-Install and build from the repository root. The crm runs on the built `@latticecms/core` and `@latticecms/store-mongo`, so build them all:
+Once, from the repository root, install and build. The crm runs on the built `@latticecms/core` and `@latticecms/store-mongo`:
 
 ```bash
 npm install
 npm run build
 ```
 
-Set the configuration, in each terminal you run a process from. `directConnection=true` talks to the container directly, since the replica set names its member by the container's host name:
+Then, in `examples/crm`:
 
 ```bash
-export MONGODB_URL='mongodb://localhost:27017/?directConnection=true'
-export REDIS_URL=redis://localhost:6379
-export AUTH_TOKEN_SECRETS=<one secret, the same in every terminal>   # make one: node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
-export AUTH_TOKEN_ISSUER=crm AUTH_TOKEN_AUDIENCE=crm
+cp .env.example .env    # once: local settings, gitignored
+docker compose up -d    # MongoDB 8 as a one-node replica set, and Redis 7
+npm run seed            # two organizations, three users and a pipeline
+npm run dev             # the server, the worker and Vite, each reloading on change
 ```
 
-Create a user with a name, a password and a membership, then start the server and, in a second terminal, the worker:
+Open <http://localhost:5173/admin/> and sign in:
 
-```bash
-npm run dev:user -w @latticecms/example-crm -- ann 'Ann Lee' ann@example.com 'a long password' Acme manager
-npm start -w @latticecms/example-crm
-npm run worker -w @latticecms/example-crm
-```
+| Name | Email | Password | Can |
+| --- | --- | --- | --- |
+| Ann Lee | `ann@example.com` | `a long password` | Manage Acme Corp and Globex, and see deal amounts |
+| Ben Ortiz | `ben@example.com` | `a long password` | Work in Acme Corp as a member, without amounts |
+| Sam Patel | `sam@example.com` | `a long password` | Read every organization as support, and change nothing |
 
-`dev:user` prints a session token. The server logs `http listening`, and the worker `worker subscribed` with its two handlers. Then open the [admin](#the-admin) at <http://localhost:3000/admin>, or [call the API](#calling-it).
+- `docker compose up -d` starts [`docker-compose.yml`](docker-compose.yml). Its healthcheck initiates the replica set, with the member `localhost:27017`, so the host connects with `replicaSet=rs0`. `docker compose down -v` deletes the data.
+- `npm run seed` writes users, organizations, memberships and passwords as trusted code, and everything else through the API as Ann or Ben, so the data passes the same access, hooks, overrides and methods as the app ([`demo.ts`](src/infra/seed/demo.ts)). Its dates are relative to today. It needs only MongoDB. Run twice, it refuses and says how to reset.
+- `npm run dev` ([`scripts/dev.mjs`](scripts/dev.mjs)) runs `tsc -b --watch`, the server and the worker under `node --watch`, and Vite, with each line prefixed by its process. Vite serves the admin and sends `/rpc`, `/auth` and `/catalog.json` to the server on port 3000. Ctrl-C stops them all.
+
+Every script loads `.env` when it exists (`node --env-file-if-exists=.env`). [`.env.example`](.env.example) has every variable with a working local value:
 
 | Variable | Meaning |
 | --- | --- |
@@ -57,7 +53,7 @@ A missing or bad setting fails at startup and names each one. Startup is: start 
 
 ## The admin
 
-`npm run build` builds the admin page into `dist/web`, and the server serves it at `/admin`. Sign in with the `dev:user` user, `ann@example.com` and `a long password` above. The top bar's select switches organization, and Sign out ends the session. A support user signs in to the admin with no switcher: support acts in no organization.
+`npm run build` builds the admin page into `dist/web`, and the server serves it at `/admin`; `npm run dev` serves it with Vite instead. Sign in as a seeded user from [Run it](#run-it). The top bar's select switches organization, and Sign out ends the session. A support user signs in to the admin with no switcher: support acts in no organization.
 
 The page is [`src/web`](src/web): `@latticecms/admin`'s `<Admin>`, mounted the way an app mounts it.
 
@@ -66,14 +62,6 @@ The page is [`src/web`](src/web): `@latticecms/admin`'s `<Admin>`, mounted the w
 - [`auth.ts`](src/web/auth.ts) is a ts-pf client on `/auth`, typed by `typeof authContract` with a type-only import, so no server code reaches the browser.
 
 The server serves `index.html` for every path under `/admin`, so a reload on a deep link renders, and caches the hashed files under `/admin/assets/` for good.
-
-To work on the page, run the server as above and, in another terminal:
-
-```bash
-npm run dev:admin -w @latticecms/example-crm
-```
-
-Vite serves the page at <http://localhost:5173/admin/>, reloads it on each change, and sends `/rpc`, `/auth` and `/catalog.json` to the server on port 3000.
 
 ## Events and the worker
 
@@ -167,9 +155,9 @@ curl -s localhost:3000/rpc/deals/find "${H[@]}" -d '{"input":{"populate":["compa
 curl -s localhost:3000/openapi.json -H "authorization: Bearer $TOKEN"
 ```
 
-Each answer is `{ "ok": true, "output": … }` or `{ "ok": false, "error": { "code", "message" } }`. A closed deal no longer changes: `deals/update` answers it `NOT_FOUND`, as it does an archived deal, and a second `deals/close` is `AlreadyClosed`. Closing the deal publishes `deal.closed`: the worker publishes it on `integration:crm.deals`, which `docker exec crm-redis redis-cli XRANGE integration:crm.deals - +` shows, and sends a webhook to any endpoint `CRM_WEBHOOK_ENDPOINTS` lists for that organization's id.
+Each answer is `{ "ok": true, "output": … }` or `{ "ok": false, "error": { "code", "message" } }`. A closed deal no longer changes: `deals/update` answers it `NOT_FOUND`, as it does an archived deal, and a second `deals/close` is `AlreadyClosed`. Closing the deal publishes `deal.closed`: the worker publishes it on `integration:crm.deals`, which `docker compose exec redis redis-cli XRANGE integration:crm.deals - +` shows, and sends a webhook to any endpoint `CRM_WEBHOOK_ENDPOINTS` lists for that organization's id.
 
-`npm run dev:user -- <userId> <name> <email> <password> <organization> [member|manager]` sets a user's password (12 characters or more), creates the organization with that name if there is none, adds the membership under that name with that role (default `member`), and prints a token. An existing membership keeps its name and role. `npm run dev:session -- <userId> <name> <organization> [member|manager]` prints a token without a password. An organization's id is a UUID; `POST /auth/organizations` gives it. Both are for local development. There is no signup and no password reset.
+To add a user by hand, `npm run dev:user -- <userId> <name> <email> <password> <organization> [member|manager]` sets a user's password (12 characters or more), creates the organization with that name if there is none, adds the membership under that name with that role (default `member`), and prints a token. An existing membership keeps its name and role. `npm run dev:session -- <userId> <name> <organization> [member|manager]` prints a token without a password. An organization's id is a UUID; `POST /auth/organizations` gives it. Both are for local development. There is no signup and no password reset.
 
 ## MCP
 

@@ -6,7 +6,7 @@ This plan is a working document. It is deleted when the exit holds, after anythi
 
 ## Exit
 
-- [ ] A reader runs `docker compose up -d`, `npm run seed` and `npm run dev` in `examples/crm`, signs in as a seeded user, and works a pipeline: companies, contacts, deals on a board, activities, tasks, a dashboard and the team.
+- [ ] A reader runs `cp .env.example .env`, `docker compose up -d`, `npm run seed` and `npm run dev` in `examples/crm`, signs in as a seeded user, and works a pipeline: companies, contacts, deals on a board, activities, tasks, a dashboard and the team.
 - [ ] The SPA lives in `src/web`, on wouter, `@shadalaya/react` and `@shadalaya/theme`, with data through `@ts-pf/swr` and a client typed by `typeof contract` from a type-only import. No server code is in the bundle, and no call site needs a cast or a type annotation.
 - [ ] Every resource has one home under `src/web/resources/<resource>/`, with the roles the app uses (see the profile below). Pages own fetching; resource components take data and emit events. Every data-bound role has loading, empty and error states.
 - [ ] `<Admin>` is mounted at `/admin`, lazily loaded, behind the same session and organization. Its browser test still passes.
@@ -95,11 +95,11 @@ Before the SPA, whose typed client evaluates every procedure.
 
 ### 2. The dev loop
 
-- [ ] `docker-compose.yml`: MongoDB 8 as a one-node replica set that initiates itself, and Redis 7. `docker compose up -d` is the whole setup.
-- [ ] `.env.example` with every variable and working local values; `.env` is gitignored. Every script loads `.env` when it exists (`node --env-file-if-exists`), so no `export` is needed.
-- [ ] `npm run seed`: two organizations; Ann, a manager in both, and Ben, a member of one, with known passwords; companies, contacts, deals in every stage with owners, activities and tasks, some due and some overdue. It writes business data through `createLocalClient` as those users, so the seed passes the same access and hooks as the app, and writes users, organizations and memberships as trusted code, as `dev:user` does. It needs only MongoDB. Run twice, it refuses and says how to reset.
-- [ ] `npm run dev`: the server, the worker and Vite together, each reloading on change. At most two new devDependencies; name them in `DONE`.
-- [ ] The README's Run it section is those three commands, plus the sign-in details.
+- [x] `docker-compose.yml`: MongoDB 8 as a one-node replica set that initiates itself, and Redis 7. `docker compose up -d` is the whole setup.
+- [x] `.env.example` with every variable and working local values; `.env` is gitignored. Every script loads `.env` when it exists (`node --env-file-if-exists`), so no `export` is needed.
+- [x] `npm run seed`: two organizations; Ann, a manager in both, and Ben, a member of one, with known passwords; companies, contacts, deals in every stage with owners, activities and tasks, some due and some overdue. It writes business data through `createLocalClient` as those users, so the seed passes the same access and hooks as the app, and writes users, organizations and memberships as trusted code, as `dev:user` does. It needs only MongoDB. Run twice, it refuses and says how to reset.
+- [x] `npm run dev`: the server, the worker and Vite together, each reloading on change. At most two new devDependencies; name them in `DONE`.
+- [x] The README's Run it section is those three commands, plus the sign-in details.
 
 ### 3. The edge
 
@@ -155,3 +155,4 @@ Before the SPA, whose typed client evaluates every procedure.
 - 1e: outputs are built from the schema's fields plus the system fields, so an object-level refine checks input only. A generic schema-wrapping helper cost about 7k more than a shared `.refine(fn, options)`.
 - 1f: Mongo needs to know which sort keys are optional to keep its index-served sorts, hence `FindQuery.optional`. An ascending optional key that is not first sorts in memory (an aggregate). That's acceptable for a rare sort, but worth an index-design note if a hot list needs it.
 - 1d (corrected): `all(tk)` was not the quadratic part. Lattice's read procedure types are, on first deep evaluation (step 1g).
+- 2: four commands, not three. `cp .env.example .env` runs once, so the scripts never fall back to the public dev secret. `npm run dev` needs no new dependency (`scripts/dev.mjs`), and rebuilds core and store-mongo through tsc's project references.

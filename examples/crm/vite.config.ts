@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 
 // The admin page: built into dist/web and served at /admin by the HTTP
-// server. `npm run dev:admin` serves it with reloads, and sends the API's
+// server. `npm run dev` serves it with reloads, and sends the API's
 // paths to the server on port 3000.
 const api = 'http://localhost:3000';
 
