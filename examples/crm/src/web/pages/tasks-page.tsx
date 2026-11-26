@@ -9,7 +9,7 @@ import { useCompanySearch } from '../resources/companies/company-search.js';
 import { useContactSearch } from '../resources/contacts/contact-search.js';
 import { useDealSearch } from '../resources/deals/deal-search.js';
 import { taskCount } from '../resources/tasks/task.format.js';
-import type { TaskCreate, TaskWhere } from '../resources/tasks/task.js';
+import type { TaskCreate } from '../resources/tasks/task.js';
 import { TaskForm } from '../resources/tasks/task-form.js';
 import { useAfterWrite } from '../ui/after-write.js';
 import { FormSheet } from '../ui/form.js';
@@ -38,7 +38,7 @@ function Tasks({ team }: { readonly team: Team }) {
   const afterWrite = useAfterWrite();
   const [who, setWho] = useUrlOption('who', whose);
   const mine = who === undefined;
-  const where: TaskWhere = mine ? { assigneeId: { eq: team.me.userId } } : {};
+  const where = mine ? { assigneeId: { eq: team.me.userId } } : {};
   const open = { ...where, done: { eq: false } };
   // Missing due dates sort last, ascending too: undated work is neither
   // the most urgent nor the least.

@@ -17,6 +17,7 @@ const servers = [
   'src/web/tasks.browser.test.ts',
   'src/web/home.browser.test.ts',
   'src/web/search.browser.test.ts',
+  'src/web/journey.browser.test.ts',
 ];
 
 export default defineConfig({

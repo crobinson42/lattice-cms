@@ -134,7 +134,7 @@ function MyDeals({
   readonly today: string;
 }) {
   const { swr } = useApi();
-  const where: DealWhere = {
+  const where = {
     ownerId: { eq: team.me.userId },
     stage: { in: [...openStages] },
   };

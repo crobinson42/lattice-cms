@@ -1,19 +1,10 @@
 # examples/crm
 
-A CRM on Lattice: companies, contacts, deals, activities and tasks, each organization's own, on MongoDB. It is the example the `@latticecms/core` README quotes, and the app every Lattice change is checked against. It is private and never published.
+A CRM on Lattice, for the people who sell: companies, contacts, deals on a pipeline board, activities and tasks, a dashboard, the team and search, each organization's own, on MongoDB. The app is a React page at `/`, on the same API as the generic admin at `/admin`. It is the example the `@latticecms/core` README quotes, and the app every Lattice change is checked against. It is private and never published.
 
 ## Run it
 
-It runs as two processes, the HTTP server and the worker, on MongoDB (a replica set, for transactions) and Redis (sessions and the event queues). You need Node 24 and Docker.
-
-Once, from the repository root, install and build. The crm runs on the built `@latticecms/core` and `@latticecms/store-mongo`:
-
-```bash
-npm install
-npm run build
-```
-
-Then, in `examples/crm`:
+It runs as two processes, the HTTP server and the worker, on MongoDB (a replica set, for transactions) and Redis (sessions and the event queues). You need Node 24 and Docker. Once, from the repository root, `npm install` and `npm run build`: the crm runs on the built packages. Then, in `examples/crm`:
 
 ```bash
 cp .env.example .env    # once: local settings, gitignored
@@ -22,19 +13,22 @@ npm run seed            # two organizations, three users and a pipeline
 npm run dev             # the server, the worker and Vite, each reloading on change
 ```
 
-Open <http://localhost:5173/> and sign in. The page serves the app at `/` and the admin at `/admin`; until the app is built, `/` opens the admin.
+Open <http://localhost:5173/> and sign in. The app is at `/`, the admin at `/admin`, and the API on port 3000.
 
 | Name | Email | Password | Can |
 | --- | --- | --- | --- |
 | Ann Lee | `ann@example.com` | `a long password` | Manage Acme Corp and Globex, and see deal amounts |
 | Ben Ortiz | `ben@example.com` | `a long password` | Work in Acme Corp as a member, without amounts |
-| Sam Patel | `sam@example.com` | `a long password` | Read every organization as support, and change nothing |
+| Sam Patel | `sam@example.com` | `a long password` | Read every organization as support, in the admin, and change nothing |
 
-- `docker compose up -d` starts [`docker-compose.yml`](docker-compose.yml). MongoDB listens on 27018 and Redis on 6380, one above the defaults, so the stack runs beside another project's. Its healthcheck initiates the replica set, with the member `localhost:27018`, so the host connects with `replicaSet=rs0`. `docker compose down -v` deletes the data.
-- `npm run seed` writes users, organizations, memberships and passwords as trusted code, and everything else through the API as Ann or Ben, so the data passes the same access, hooks, overrides and methods as the app ([`demo.ts`](src/infra/seed/demo.ts)). Its dates are relative to today. It needs only MongoDB. Run twice, it refuses and says how to reset.
-- `npm run dev` ([`scripts/dev.mjs`](scripts/dev.mjs)) runs `tsc -b --watch`, the server and the worker under `node --watch`, and Vite, with each line prefixed by its process. Vite serves the admin and sends `/rpc`, `/auth` and `/catalog.json` to the server on port 3000. Ctrl-C stops them all.
+| Command | What it does |
+| --- | --- |
+| `docker compose up -d` | Starts [`docker-compose.yml`](docker-compose.yml): MongoDB on 27018 and Redis on 6380, one above the defaults, so the stack runs beside another project's. Its healthcheck initiates the replica set as `localhost:27018`. `docker compose down -v` deletes the data |
+| `npm run seed` | Writes users, organizations, memberships and passwords as trusted code, and everything else through the API as Ann or Ben, so the data passes the same access, hooks and methods as the app ([`demo.ts`](src/infra/seed/demo.ts)). Dates are relative to today. Run twice, it refuses and says how to reset |
+| `npm run dev` | [`scripts/dev.mjs`](scripts/dev.mjs): `tsc -b --watch`, the server and the worker under `node --watch`, and Vite, which serves the page and sends the API's paths to port 3000. Ctrl-C stops them all |
+| `npm run build` | Builds the servers into `dist/` and the page into `dist/web`, which the server serves at `/` |
 
-Every script loads `.env` when it exists (`node --env-file-if-exists=.env`). [`.env.example`](.env.example) has every variable with a working local value:
+Every script loads `.env` when it exists. [`.env.example`](.env.example) has every variable with a working local value:
 
 | Variable | Meaning |
 | --- | --- |
@@ -47,110 +41,118 @@ Every script loads `.env` when it exists (`node --env-file-if-exists=.env`). [`.
 | `CRM_WEBHOOK_ENDPOINTS` | The worker's webhook endpoints, a JSON list of `{ organizationId, id, url, secrets, events }`. `secrets` are `whsec_` secrets, newest first; `generateSecret()` from `@hexok/webhooks` makes one. Unset: none. |
 | `WEBHOOKS_ALLOW_PRIVATE` | `1` lets the worker send to plain http and private addresses, for a receiver on this machine. |
 
-The crm is the layout `@latticecms/cli` defaults to. Its `package.json` sets `"lattice": { "tenant": "organizationId" }`, so `npx lattice collection <slug>` adds a tenanted collection with no flags.
+A missing or bad setting fails at startup and names each one. Startup is: start the store, migrate, create indexes, then serve. To migrate as a deploy step instead, run `npx lattice migrate` after `npm run build`. `SIGINT` and `SIGTERM` stop taking requests, let those in flight finish, and close the stores.
 
-A missing or bad setting fails at startup and names each one. Startup is: start the store, migrate, create indexes, then serve. To migrate as a deploy step instead, run `npx lattice migrate` after `npm run build`; it runs the same list from `dist/servers/scripts/migrate.js`. `SIGINT` and `SIGTERM` stop taking requests, let those in flight finish, and close the stores.
+The crm is the layout `@latticecms/cli` defaults to: its `package.json` sets `"lattice": { "tenant": "organizationId" }`, so `npx lattice collection <slug>` adds a tenanted collection with no flags.
+
+## The layout
+
+| Folder | What it holds |
+| --- | --- |
+| [`src/domain`](src/domain) | The collections ([`collections/`](src/domain/collections)), the parent refs activities and tasks share ([`parents.ts`](src/domain/parents.ts)), the domain's errors and events |
+| [`src/app`](src/app) | Use cases beyond the generated ones ([`use-cases/`](src/app/use-cases): closing a deal, logging an activity, login), their ports, and the worker's event handlers |
+| [`src/infra`](src/infra) | Adapters: the Mongo store, sessions and password hashes, the event publishers, webhook endpoints, migrations, and the demo seed |
+| [`src/servers`](src/servers) | The contract ([`rpc/contract.ts`](src/servers/rpc/contract.ts)), the app's wiring ([`app.ts`](src/servers/app.ts)), the HTTP edge, MCP, the `/auth` router, the worker, and the scripts behind `npm run` |
+| [`src/web`](src/web) | The React page: the app, and the admin at `/admin`. See [The web app](#the-web-app) |
+| [`src/integration`](src/integration) | The integration contract other products subscribe to |
+| [`src/test`](src/test) | Test helpers: stores, sessions, an in-memory queue, the HTTP and MCP clients, and the built page |
+| [`src/quickstart`](src/quickstart) | Core's quick start, run as a test |
 
 ## The web app
 
-`npm run build` builds the web app into `dist/web`, and the server serves it at `/`; `npm run dev` serves it with Vite instead. It is a React app on [wouter](https://github.com/molefrog/wouter) routes, [`@shadalaya/react`](https://www.npmjs.com/package/@shadalaya/react) components and Tailwind v4, with data through `@ts-pf/swr`. The admin is one of its routes, at `/admin`. Sign in as a seeded user from [Run it](#run-it).
+A React app on [wouter](https://github.com/molefrog/wouter) routes, [`@shadalaya/react`](https://www.npmjs.com/package/@shadalaya/react) components with the Atalaya palette, Tailwind v4, and `@ts-pf/swr` for data. `npm run build` builds it into `dist/web`; `npm run dev` serves it with Vite.
 
 ```
 src/web/
-  main.tsx          mounts the app, and imports app.css
-  app.css           Tailwind, the shadalaya theme, and the components the app scans
-  app.tsx           every route, in one table, each page loaded lazily
-  session.tsx       the session: sessionStorage, the fetch that sends it, its provider, and where sign-in returns
-  signed-in.tsx     the sign-in redirect, the user's organizations, and useSignedIn()
-  auth.ts           the /auth client, and the types of its answers
-  api.tsx           useApi(): the typed /rpc client and its swr utils
-  workspace/        the member's pages in the shell: the sections, the signed-in member and the team (useTeam, TeamGate), the user menu, and search
-  pages/            route components, each its default export (sign-in, the dashboard at `/`, companies, contacts, deals as a board and a table, one of each, tasks, the team, and the admin), and the sections several routes share, which fetch: activity, tasks
-  resources/        one home per resource, companies, contacts, deals, activities, tasks and members: its type, formatters and components; and the parents rule, which activities and tasks share
-  ui/               what knows no resource: the shell, page header, lists, tables, forms, states, dates
+  main.tsx, app.css   mounts the app; Tailwind, the theme, and the components the app scans
+  app.tsx             every route, in one table, each page loaded lazily
+  session.tsx         the session: sessionStorage, the fetch that sends it, and where sign-in returns
+  signed-in.tsx       the sign-in redirect, the user's organizations, and useSignedIn()
+  api.tsx             useApi(): the typed /rpc client and its swr utils, a fresh cache per organization
+  workspace/          the shell's composition: the sections, the team (useTeam, TeamGate), the user menu, search
+  pages/              route components, and the sections several routes share, which fetch
+  resources/          one home per resource: its types, formatters and components
+  ui/                 what knows no resource: the shell, page header, lists, tables, forms, states, dates
 ```
 
-- Each page is a chunk of its own, loaded when it first opens, so startup does not grow with each resource: `React.lazy` in [`app.tsx`](src/web/app.tsx), inside `LazyPage`. Until a page's code is there, a skeleton of its shape shows, a list's or a detail's. A chunk that fails to load, such as an old hash after a deploy, offers a reload. Sign-in loads at startup: it is the first page a signed-out user sees.
-- Any route but `/sign-in` needs a session. Without one, it sends the user to `/sign-in` and back after, to a page of this site only. A signed-in user who opens `/sign-in` goes straight on. `/` is Home, the dashboard.
-- [`api.tsx`](src/web/api.tsx) builds the clients once per session and organization: `createClient<typeof contract>` on a `FetchLink`, typed by a type-only import of the contract, and `createSwr` over it. Data comes from `useSWR(swr.companies.get.key({ input: { id } }), swr.companies.get.fetcher())`, typed by the contract. Each organization gets a fresh swr cache, and a switch remounts every page, so none shows another organization's data. A refusal such as `NOT_FOUND` is not retried.
-- [`session.tsx`](src/web/session.tsx) keeps the token, the user's id and the picked organization in `sessionStorage`, for the tab. Its fetch adds `Authorization` and `x-organization-id` to every call. A 401 signs the user out, if its session is still the tab's. Sign-out ends the session here at once, and tells the server without waiting for it.
-- [`ui/shell.tsx`](src/web/ui/shell.tsx) is the frame of a page: the sidebar of sections, and a top bar with the page's breadcrumb, then what its owner puts there. Each page has its own `PageHeader`: its h1 takes focus when the page opens, and its title, after the pages above it, is the top bar's breadcrumb. The workspace puts the organization switcher and the user menu, which shows the member and links to the admin and sign-out. A page adds its section to the workspace's list.
-- Pages fetch, and `resources/` and `ui/` take data as props. `resources/members/` holds `Member`, `displayName` and `initials`, and `MemberAvatar`.
-- `app.css` scans the app's sources and only the shadalaya components it imports. A page that imports a new component adds its file name to the list in `app.css`; `app-css.test.ts` fails until it does. The app uses shadalaya's Atalaya palette: `app.css` imports `atalaya.css` after the theme's tokens. The admin's stylesheet brings the neutral tokens again when `/admin` opens, so [`pages/admin-page.tsx`](src/web/pages/admin-page.tsx) imports `atalaya.css` after it, in the same chunk.
-- The page imports the contracts by type only, and `servers/http/headers.ts`, which holds only a header's name. `bundle.test.ts` checks that no server code reaches the browser.
-- Support acts in no organization, so it lands on `/admin`.
+### The resource UI profile
+
+Where a piece lives, so a reader or an agent can predict it, and find it before building it again.
+
+| Concern | Where and how |
+| --- | --- |
+| A resource's home | `resources/<resource>/`: `companies`, `contacts`, `deals`, `activities`, `tasks`, `members`. Cross-resource pieces sit beside them: [`parents.ts`](src/web/resources/parents.ts), [`parent-select.tsx`](src/web/resources/parent-select.tsx), [`search.ts`](src/web/resources/search.ts) |
+| Names | `<Resource><Role>`, kebab-case files: `deal-stage-badge.tsx` exports `DealStageBadge`. Types in `<resource>.ts`, from the contract; formatters in `<resource>.format.ts` |
+| Roles | Inline, Badge, Avatar, Card, Item, columns for a table, Select, Form, Overview (a detail section), Board (deals), Timeline (activities), quick add (tasks). Only the roles a page uses |
+| Fetching | Pages, the shared sections in `pages/`, and `workspace/` fetch, and pass data down. A resource component never fetches, except a Select's search hook, which a page builds and passes as a prop |
+| Writing | `asResult(rpc.<resource>.<op>(input))`, then [`useAfterWrite`](src/web/ui/after-write.ts), the one path after a write: a toast, the reads made fresh, lists on screen refreshed and lists off screen reset. A cursor list is reached only through it, never a matcher. [`useRowActions`](src/web/ui/row-actions.ts) adds a row's edit, delete and `NOT_FOUND` |
+| Forms | One field list per form, `<resource>Fields`, typed by the create input (`FormField<I>` with the parsers `text`, `number`, `isoDate`, `isoDateTime` and `oneOf`), and `fillCreate` and `fillPatch` from it. The server validates; a `VALIDATION` issue shows at its field |
+| People | [`useTeam()`](src/web/workspace/team.tsx): the workspace reads the team once. Only what needs it waits, inside `TeamGate` |
+| Parents | An activity or a task on a deal records the deal and its company; on a contact, the contact and its company; on a company, the company ([`parentsOf`](src/web/resources/parents.ts)). So a company's timeline and tasks are one filter, with no join |
+| States | Every data-bound role has its loading skeleton, its empty state, and an error with a retry |
+| Primitives | `@shadalaya/react` only; `ui/` wraps what every resource reuses |
 
 ### A resource, end to end
 
-Companies are the pattern the other resources copy. A resource has its own home and its pages; everything else it reuses from `ui/`.
+Companies are the pattern the other resources copy.
 
 ```
 src/web/
   resources/companies/
-    company.ts                   Company, and its create and update inputs, from the contract's types
+    company.ts                   Company, CompanyRef and the inputs, from the contract's types
     company.format.ts            the count ("12 companies"), and the website from the domain
     company-sorts.ts             the sorts a list offers, and the one it starts with
     company-inline.tsx           CompanyInline: the name, linking to the company
-    company-website.tsx          CompanyWebsite: the domain, opening the site
     company-columns.tsx          companyColumns: what any table of companies shows
     company-overview.tsx         CompanyOverview, a detail section, and its skeleton
     company-form.tsx             CompanyForm: create, or edit when given a company
-    company-form.values.ts       the form's fields, which are optional, and its create input and patch
+    company-form.values.ts       the form's fields, and its create input and patch
+    company-search.ts            useCompanySearch: what CompanySelect and search read
+    company-select.tsx           CompanySelect: pick a company, searched on the server
   pages/
     companies-page.tsx           /companies: count, search, sort, pages, New in a sheet
-    company-page.tsx             /companies/:id: overview, Edit in a sheet, Delete behind a confirmation
+    company-page.tsx             /companies/:id: overview, contacts, deals, tasks, activity
 ```
 
-What a resource reuses, from `ui/`:
+A new resource copies these under its own name, adds its section to [`workspace/sections.tsx`](src/web/workspace/sections.tsx), and its routes to [`app.tsx`](src/web/app.tsx), each page lazy inside `LazyPage` with its skeleton. What it reuses from `ui/`:
 
 | Piece | What it does |
 | --- | --- |
 | `PageHeader` | The page's h1, which takes focus when the page opens, its actions, and its place in the top bar's breadcrumb |
-| `useListParams`, `SearchBox`, `SortSelect` | The list's search and sort in the URL, with a search that waits for a pause |
-| `useCursorPages`, `CursorTable` | A `find` a page at a time, and its table: the skeleton, a retry, the empty state, the rows, Load more with focus on the first new row |
-| `useAfterWrite` | What follows a write: a toast, the collection's reads made fresh, and every list off screen reset, so none shows a removed row; with `goTo`, the next page reads fresh before it shows |
-| `useRowActions` | After a row's own write, for activities and tasks: a `NOT_FOUND` in words with the lists read again, a saved edit that settles once they have, and a delete's refusal in words |
-| `Section` | A titled part of a page, such as a company's contacts, with its action |
-| `DataTable`, `DataTableSkeleton` | Rows by the resource's columns, named for assistive tech |
-| `useFormSubmit`, `TextField`, `FormSheet` | A form's submit, with each `VALIDATION` issue at its field, in a sheet that stays open while it sends |
-| `FormField`, `text`, `number`, `isoDate`, `oneOf`, `fillCreate`, `fillPatch` | A resource's field list, typed by the create input: each field's parser has the field's own type, and only a field the input lets be absent may be `optional`. The create and the patch come from it: trimmed, an empty optional field left out of a create and `null` in a patch, and only what changed |
-| `DetailList`, `PhoneLink` | A detail section's labels and values, with a dash for a missing one, and its skeleton |
-| `ConfirmAction` | A button and a dialog that asks before it acts, such as closing a deal, open until the action settles, with a refusal in words |
-| `ConfirmDelete` | Delete behind a confirmation, open until the delete settles, and a refusal in words, for a document others point at and for one on a relation |
-| `SearchSelect` | A form field that picks one of a long list, searched on the server as the user types: arrows, Enter and Esc. It shows only the current query's results, cancels a search the user typed past, and says what it found. A resource's Select, such as `CompanySelect`, names its labels and keys, and takes the search, a `Search<T>`, as a prop. `onPick` hands over the whole picked item, for a form that needs more than its key; without a `name` it submits nothing |
-| `TextAreaField` | A labelled multi-line field, for an activity's body |
-| `dayGroups`, `formatDateTime`, `isoDateTime`, `toLocalInput`, `monthStart` | A timeline's runs by local day (Today, Yesterday, the date); a date-time with its time; a `datetime-local` value as ISO and back; the start of this month, local, as ISO |
-| `SelectField`, `useUrlOption`, `useNewSheet` | A short list's select in a form, with `onChange` for a form that changes with it; one option of a list kept in the URL, such as a stage filter; a page's create sheet, open while the URL says `?new=1` |
-| `EmptyState`, `ErrorState`, `formatDate`, `formatDay`, `formatRelative`, `formatMoney` | The empty and failed states; date-times, plain dates and money, in whole dollars |
-| `RelativeTime`, `useNow` | "3 days ago", with the exact time in its title, kept current by one shared clock a minute |
+| `useListParams`, `SearchBox`, `SortSelect`, `useUrlOption`, `useNewSheet` | A list's search, sort and filters in the URL; a create sheet open while the URL says `?new=1` |
+| `useCursorPages`, `CursorTable`, `LoadMore` | A `find` a page at a time, and its table: skeleton, retry, empty state, rows, and Load more with focus on the first new row |
+| `useAfterWrite`, `useRowActions` | What follows a write; a row's edit, delete and `NOT_FOUND` |
+| `Section`, `DataTable`, `DetailList` | A titled part of a page; rows by columns; a detail section's labels and values |
+| `useFormSubmit`, `FormSheet`, `TextField`, `TextAreaField`, `SelectField` | A form's submit, with each `VALIDATION` issue at its field, in a sheet that stays open while it sends |
+| `FormField`, the parsers, `fillCreate`, `fillPatch` | A typed field list, and the create and the patch from it: trimmed, an empty optional field left out of a create and `null` in a patch, only what changed |
+| `ConfirmAction`, `ConfirmDelete` | Ask before acting, open until the action settles, with a refusal in words |
+| `SearchSelect`, `Search<T>` | Pick one of a long list, searched on the server as the user types; only the current query's results show |
+| `EmptyState`, `ErrorState`, `LazyPage`, the page skeletons | The states, and a lazy page's |
+| `format.ts`, `RelativeTime`, `useNow` | Money, days, date-times, day groups, `datetime-local` and back, the month's start; "3 days ago", kept current by one shared clock |
 
-The members home is the one every resource that names a person uses: `MemberInline` (an avatar and a name, or "Former member" for an id the team no longer holds) and `MemberSelect` (a member, or "Unassigned"). The workspace reads the signed-in member on their own, for the user menu and their role, and the whole team once, every page of it. Pages take both from `useTeam()`, so no page reads members again, and only what needs the team waits for it, inside `TeamGate`, with its own retry.
+### How the app behaves
 
-- **Pages fetch, the resource home draws.** A page reads with `useSWR` or `useCursorPages` over `swr.companies.*` and hands the data to the home's components. A component in a resource home never fetches. A Select is the one exception, and even it takes its search as a prop: `useCompanySearch()` builds it for the pages.
-- **A masked field says so.** A member does not read a deal's amount: the contract's field rule withholds it. Every deal has an amount, so one without it was withheld: `DealAmount` shows "Withheld", with why. What a page offers comes from the member's role, `readsAmounts(me)`: the amount sort is not offered to a member, and a read refused as `VALIDATION`, such as a demoted manager's amount sort, reads the role again. A member's edit form leaves the amount out, since a patch naming it is refused. On create they set it blind, and the form tells them they will not see it after saving.
-- **A related document comes with the read.** Contacts read their company with `populate: ['companyId']`, one request for a whole page. The literal list in the call types the company in: `useSWR(key, () => swr.contacts.get({ id, populate: ['companyId'] }))`, and `useCursorPages(key, input, (input) => swr.contacts.find({ ...input, populate: ['companyId'] }))`. A company the caller may not read arrives as `{ id }`: `CompanyRef` types both, `isReadableCompany` tells them apart, `CompanyInline` shows it as hidden, and `CompanySelect` keeps its id, so an edit that does not change it sends nothing.
-- **Writes go through `rpc` and `asResult`.** `asResult(rpc.companies.create(input))` answers with the created company, or the refusal as an `ApiError` (api.tsx): `error.code` narrows it, and `VALIDATION` carries its issues. After a write, the page calls `useAfterWrite()` with `swr.companies.matcher()`: a toast, the collection's reads revalidated, every list on screen refreshed, and every list off screen reset, so a deleted row never shows when it opens again. A write that leaves the page passes `goTo`, and the next page reads fresh before it shows.
-- **One form, two modes.** `CompanyForm` creates without a company and edits with one. It sends what changed only, and `null` for a cleared field. The server validates: the form shows a `VALIDATION` issue at its field, so the rules and their messages live in the collection's schema.
-- **The URL holds the list's state.** The search and the sort are in the query, so back, reload and a shared link return to the same list.
-- **Every state has a place.** Loading shows the table's or the overview's skeleton. An empty list offers New company, a search with no match offers Clear search, and a failed read offers Try again. A company that is not there says so, with a link back.
-- **Refusals in words.** A delete refused with `REFERENCED` says what still points at the company: "Acme still has contacts. Remove them first."
-- **Success says so.** A toast confirms a create, an edit or a delete.
-- **A relation is a list you replace.** A deal's contacts are its `contacts` relation, a `many()`. The page reads every link (`deals.contacts.list`, oldest first), then those contacts with their companies in one populated `contacts.find` with `id: { in }`. Adding someone, changing a role or removing someone sends the whole new list to `deals.contacts.set`, which replaces the links by diffing: `withContact` and `withoutContact` build it from the current list. One change runs at a time: it is shown at once and undone if refused, and a remove waits for the server, then focus goes to Add contact. The picker does not offer contacts already on the deal. Any `many()` relation in the UI follows this: read all, change the list, set it.
-- **Activity, by a rule for its parents.** The company, contact and deal pages each have an Activity section (`pages/activity-section.tsx`): a composer, folded to one line until asked for, over the timeline, newest first, in groups by day. The app logs by a rule (`parentsOf` in `resources/parents.ts`, which tasks share): an activity on a deal records the deal and its company; one on a contact, the contact and its company; one on a company, the company. So a company's timeline is one filter, `companyId: { eq }`, and shows everything that happened around it, with no join and no `or`. The company is the one at logging time: a contact or deal that moves to another company leaves its activities on the old one's timeline, as they happened with that company. On a company's timeline an activity on a deal says "on" the deal and one on a contact "with" them; on a deal's, an activity with a contact says "with" them too. The domain allows any combination, and the seed follows the rule. Only an activity's author is offered Edit and Delete; the access filter refuses anyone else as `NOT_FOUND`, which the page says in words before it reads the timeline again through `useAfterWrite`, the one path that reaches a cursor list. `occurredAt` is a `datetime-local` in the browser's time zone, sent as ISO (`isoDateTime`, `toLocalInput`).
-- **Search, from anywhere.** ⌘K or Ctrl+K, or "Search…" in the top bar, opens the search palette ([`workspace/search-palette.tsx`](src/web/workspace/search-palette.tsx)), shadalaya's Command in its Dialog. Typing searches companies, contacts and deals at once, five of each, by name or title: `useSearch` ([`resources/search.ts`](src/web/resources/search.ts)) builds the three reads from each resource's own search hook, waits for a pause, cancels a search typed past, and shows only the current query's answer (`searchState`). The server filters, so cmdk's own filter is off. Results group by resource, a contact with their company and a deal with its company and stage; Enter or a click goes there. With nothing typed it offers the sidebar's sections and the create sheets, which open from the URL (`?new=1`, `useNewSheet`). A status region inside the dialog says "Searching…", how many it found, "No results for …", or the failure, which has its retry. The palette's code loads on first open, or when the pointer or focus reaches the button: only the button and the shortcut are at startup.
-- **Home, a section at a time.** `/` is the signed-in member's dashboard ([`pages/home-page.tsx`](src/web/pages/home-page.tsx)), in two columns on a wide screen. My tasks lists my open tasks due today or before, through `useTaskPages` and `TaskList`, checkable as on the Tasks page. My deals lists the open deals I own, by expected close date with the undated last ([0037](../../docs/decisions/0037-an-optional-field-sorts-with-missing-values-last.md)), as `DealItem`s: an amount a member does not read says Withheld. Pipeline counts the open deals in each stage, and those won and lost since the start of this month in the browser's time zone (`monthStart`, a `closedAt: { gte }`), each count a link: counts only, no sums. Recent activity is the organization's last ten, each saying what it is "on", "with" and "for". Each section reads on its own, with its own skeleton, empty state and retry, so a failed read leaves the rest of the page. Every read is one the app's writes already refresh: a task checked there, or a deal moved on the board, shows in the counts.
-- **The team, as read.** `/team` lists the organization's members from `useTeam()`, which the workspace has already read: each member, their role, and "You" beside the signed-in one ([`member-columns.tsx`](src/web/resources/members/member-columns.tsx)). Memberships are written only by trusted code, so the page has nothing to edit, and says that roles are managed by an administrator.
-- **Tasks, sorted on an optional field.** `/tasks` shows the signed-in member's open tasks, or everyone's with `?who=everyone`, in one read sorted `['dueDate', 'createdAt']`. A task may have no due date, and core sorts an optional field with missing values last, ascending too ([0037](../../docs/decisions/0037-an-optional-field-sorts-with-missing-values-last.md)), so the undated come after the rest without a second list, and Load more pages across them. The page splits the rows into Overdue, Today, This week, Later and No due date (`dueGroups` in `resources/tasks/task.format.ts`, from today in the browser's time zone). The done ones are under them, behind a button, recent first. New task picks what it is on with `ParentSelect`: a company, a contact or a deal, the last two with their company, by the same rule as activities. The company, contact and deal pages each have a Tasks section (`pages/task-section.tsx`): a quick add, for the signed-in member, the open tasks by due date, and the done ones behind "Show done (n)".
-- **Done in one click.** A task's checkbox shows the change at once from its list's own state, a map of the tasks on their way, and sends `tasks.update({ id, done })`. The SWR cache is untouched until the server answers, so a read, a Load more, a quick add or an edit made meanwhile is never lost, and two quick checks are two writes that both stick. Then the lists read again through `useAfterWrite`: the task leaves for Done (or back), focus goes to the next row's box, or the one before, a status region says "Marked … done", and a toast offers Undo, which sends the change back the same way. A refusal clears the box and says why. The sidebar's Tasks link carries my overdue count in its name.
-- **The board has two equal paths.** `/deals` opens on the pipeline board, a column per open stage, each a labelled list with its own count and its own pages; `?view=table` is the table. A deal moves by drag and drop, or by its card's menu ("Move to", then a stage), which the keyboard reaches like any button. Both call `deals.update` with the stage, show the card as moving, and announce the move in a polite live region; a refusal is a toast, and the card stays. A card that is moving cannot move again, and it shows as moving until it is in its new column; after a move by the keyboard, focus is on the card's menu in its new column. Closing from a card opens the same dialog as the deal's page (`closeDialog` and `useDealActions`, in `resources/deals/deal-actions.ts`, beside the resource's other API helpers), and Cancel returns focus to the card's menu. Won and lost deals are not columns: the line under the board counts them, and links to the table filtered by stage.
+| Topic | What it does |
+| --- | --- |
+| Pages | Each page is a chunk of its own, loaded when it first opens, with a skeleton of its shape meanwhile; a chunk that fails to load offers a reload. Any route but `/sign-in` needs a session, and returns there after sign-in. Support lands on `/admin` |
+| Data | [`api.tsx`](src/web/api.tsx) builds `createClient<typeof contract>` on a `FetchLink`, typed by a type-only import, and `createSwr` over it. Each organization gets a fresh cache, and a switch remounts every page. A refusal such as `NOT_FOUND` is not retried |
+| Populated refs | A read names its `populate` list in the call, which types the related document in: `swr.contacts.find({ ...input, populate: ['companyId'] })`. One the caller may not read arrives as `{ id }`: `isReadableCompany` and its kin tell them apart |
+| Masked fields | A member does not read a deal's amount: `DealAmount` says Withheld. What a page offers follows `readsAmounts(me)`; a member's edit leaves the amount out |
+| Relations | A deal's contacts are a `many()`: the page reads every link, changes the list, and sends it whole to `deals.contacts.set` |
+| Board | `/deals` is the pipeline board, `?view=table` the table. A deal moves by drag and drop, or by its card's menu, an equal path for the keyboard; a move is announced in a live region. Won and lost are counts under the board |
+| Activity | A timeline per company, contact and deal, grouped by day, with a composer folded to one line. Only an activity's author is offered Edit and Delete; the access filter refuses anyone else |
+| Tasks | `/tasks` reads the open tasks in one sort, `['dueDate', 'createdAt']`, undated last ([0037](../../docs/decisions/0037-an-optional-field-sorts-with-missing-values-last.md)), and groups them by due date. A checkbox shows done at once from its list's own state, sends it, then the lists read again, focus moves on, and a toast offers Undo. Records have a Tasks section with a quick add |
+| Home | `/`: my tasks due, my open deals, the pipeline in counts with this month's wins and losses, and recent activity. Each section reads on its own, so a failed read leaves the rest |
+| Team | `/team` lists the members and their roles from `useTeam()`. Roles are written only by trusted code |
+| Search | ⌘K or Ctrl+K, or Search… in the top bar, opens a palette over companies, contacts and deals, five of each, by name or title. With nothing typed it offers the sections and the create sheets. Its code loads on first open |
+| Styles | `app.css` scans the app's sources and only the shadalaya components it imports; `app-css.test.ts` fails until a new one is listed |
+| Server code | The page imports the contract by type only, and [`servers/http/headers.ts`](src/servers/http/headers.ts), which holds a header's name. `bundle.test.ts` checks that no server code reaches it |
 
-A new resource copies these files under its own name, adds its section to [`workspace/workspace.tsx`](src/web/workspace/workspace.tsx), and adds its routes to [`app.tsx`](src/web/app.tsx), each page lazy inside `LazyPage` with `ListPageSkeleton` or `DetailPageSkeleton`.
-
-The server serves `index.html` for every GET that is not an API path, so a reload on a deep link such as `/admin/deals` renders, and caches the hashed files under `/assets/` for good.
+The server serves `index.html` for every GET that is not an API path, so a reload on a deep link renders, and caches the hashed files under `/assets/` for good.
 
 ### The admin
 
-[`pages/admin-page.tsx`](src/web/pages/admin-page.tsx) mounts `@latticecms/admin`'s `<Admin>` at `/admin`, the way an app mounts it: lazily, like every page, so the admin and its stylesheet load only when `/admin` first opens. It uses the session's fetch, and a switch remounts it with an empty cache, as it does every page. A chunk that fails to load, such as an old hash after a deploy, shows an error with a reload. Its header has a link back to the app, the organization switcher and Sign out. A support user gets the admin with no switcher and no link back.
+[`pages/admin-page.tsx`](src/web/pages/admin-page.tsx) mounts `@latticecms/admin`'s `<Admin>` at `/admin`, lazily, with the session's fetch, so the admin and its stylesheet load only when it first opens. Its header links back to the app, and has the organization switcher and Sign out. A support user gets the admin alone.
 
 ## Events and the worker
 
@@ -214,7 +216,6 @@ When a deal closes, its organization's endpoints that list `deal.closed` get, si
 - The payload is its own schema, mapped field by field from the deal ([`webhook-events.ts`](src/domain/events/webhook-events.ts)), never the deal itself. A field added to Deals reaches no customer until it is added there, and a test asserts the exact keys.
 - No `amount`: inside the crm only managers see it, and an endpoint is not an actor whose role can be checked.
 - A failed send is retried on @hexok/webhooks' schedule, with the same `webhook-id`, which a receiver dedupes on.
-
 
 ## Calling it
 
@@ -325,7 +326,7 @@ An activity records what happened: a note, call, email or meeting on a company, 
 - Only the author updates or deletes an activity. That is an access filter on `authorId`, so another member's activity is `NOT_FOUND`. Any member writes tasks.
 - Each names a company, a contact or a deal: one rule, `.refine(hasParent, parentRequired)`, shared with the three refs in [`parents.ts`](src/domain/parents.ts). A create without one, or an update that clears the last one, is `VALIDATION` at `companyId`.
 - Deleting a company or a contact deletes its activities and tasks (`onDelete: 'cascade'`). A deal's ref restricts: `deals.delete` archives, so an archived deal keeps its history.
-- A task's `dueDate` is optional, so `find` filters on it (`dueDate: { lte: … }`) but cannot sort by it.
+- A task's `dueDate` is optional: `find` filters on it (`dueDate: { lte: … }`) and sorts by it, with undated tasks last ([0037](../../docs/decisions/0037-an-optional-field-sorts-with-missing-values-last.md)).
 
 ## Passwords and their limits
 
@@ -337,8 +338,23 @@ An activity records what happened: a note, call, email or meeting on a company, 
 
 ## Tests
 
-`npm test -w @latticecms/example-crm` runs every test on `MemoryStore` and on MongoDB, through mongodb-memory-server. Sessions run in memory with real signed tokens, and the queues on `MemoryQueue` ([`src/test/memory-queue.ts`](src/test/memory-queue.ts)), an adapter of the `@hexok/queue` port with the same delivery rules as RedisQueue. Redis is not needed. Webhooks are sent to a real HTTP server on this machine. MCP tests connect the MCP SDK's own client to `/mcp`.
+`npm test -w @latticecms/example-crm` runs every test on `MemoryStore` and on MongoDB, through mongodb-memory-server. Sessions run in memory with real signed tokens, and the queues on `MemoryQueue` ([`src/test/memory-queue.ts`](src/test/memory-queue.ts)), an adapter of the `@hexok/queue` port with the delivery rules of RedisQueue, so Redis is not needed. Webhooks go to a real HTTP server on this machine. MCP tests connect the MCP SDK's own client to `/mcp`.
 
-[`admin.browser.test.ts`](src/web/admin.browser.test.ts) runs the built admin page in headless Chromium, through Playwright, against the HTTP server on a port and MongoDB. It signs in, switches organization and sees only that organization's deals, creates, edits and deletes a company and a deal, checks that a member sees no amount in the list or the form, deletes a company that still has deals and follows the link to them, sets a deal's contacts on its relation tab, reloads a deep link, and signs out. Install Chromium once with `npx playwright install chromium`. [`app.browser.test.ts`](src/web/app.browser.test.ts) runs the app the same way: the sign-in redirect and its return, the organization switch, the admin through the user menu and back, sign-out, a 401, support, and an admin chunk that fails to load. [`companies.browser.test.ts`](src/web/companies.browser.test.ts) drives Companies: the list, search, sort and pages, create with a refused field, edit, delete, a refused delete, and the empty and not-found states. [`contacts.browser.test.ts`](src/web/contacts.browser.test.ts) drives Contacts: the list with each contact's company, a company picked by keyboard, a refused email, edit, delete, a contact on a deal, and a company's own contacts. [`deals.browser.test.ts`](src/web/deals.browser.test.ts) drives Deals as a manager and as a member: amounts and withheld amounts, the stage filter and the sorts each may use, a blind amount on create with an owner, an edit without the amount, closing once from two tabs, archiving, a company's own deals, and a deal's contacts added, re-roled and removed, each change sending the full list to `set`. [`search.browser.test.ts`](src/web/search.browser.test.ts) opens the palette by its shortcut and its button, finds results grouped by resource and "No results", goes to a contact by the keyboard, gives focus back on Esc, never shows a search typed past while it is slow, and opens the deal sheet from "New deal". [`home.browser.test.ts`](src/web/home.browser.test.ts) checks the dashboard as a manager and as a member: tasks due, deals with their amounts or Withheld, the pipeline's counts with this month's win and not last month's, the latest activity, a task checked there, the counts after a move on the board, and one section's failed read beside the rest; and the team page's rows, roles and "You". [`tasks.browser.test.ts`](src/web/tasks.browser.test.ts) checks the Tasks page's groups, with the undated last, and Mine and Everyone; creates a task on a deal from the page, and from a company's quick add; marks one done at once while the server is slow, then sees it move to Done with focus on the next box, the sidebar's overdue count with it, and Undo bring it back; keeps two quick checks; loses no Load more, quick add or edit made while a check is on its way; and edits one into another group, then deletes it. [`activities.browser.test.ts`](src/web/activities.browser.test.ts) logs a call on a deal and finds it on the deal's timeline and its company's, grouped by day, refuses an empty body at its field, edits and deletes one's own, offers neither on another member's, and drops an activity deleted behind the page when it is acted on. [`board.browser.test.ts`](src/web/board.browser.test.ts) drives the board: its columns and counts, a move through a card's menu by keyboard, a move by drag and drop (Chromium's native drag events work headless), closing from a card, and a member's withheld amounts and overdue dates. [`bundle.test.ts`](src/web/bundle.test.ts) reads Vite's manifest and holds the built page to gzipped budgets: what loads at startup, in all and without React, what opening each page adds, and what opening the admin adds, which must hold the admin and its stylesheet. It also checks that no server code reaches the page. They read `dist/web`, so `npx turbo run test` builds the crm first. The tests that start a real server on MongoDB, the browser tests among them, run after the rest and one file at a time ([`vitest.config.ts`](vitest.config.ts)): each start builds every index, and mongod builds only a few at once, so overlapping starts stall each other.
+The browser tests run the built page in headless Chromium, through Playwright, against the HTTP server on a port and MongoDB. Install Chromium once with `npx playwright install chromium`. They read `dist/web`, so `npx turbo run test` builds the crm first. Tests that start a server run after the rest and one file at a time ([`vitest.config.ts`](vitest.config.ts)): each start builds every index, and mongod builds only a few at once.
+
+| Test | What it drives |
+| --- | --- |
+| [`journey.browser.test.ts`](src/web/journey.browser.test.ts) | The README's promise, from the real seed, as Ann, a step per test: Home, a company and its deal, a call on its timeline, a move on the board by keyboard, a close that Home counts, a task added on a contact and completed on Tasks, Globex's companies only, ⌘K to a contact, the admin and back |
+| [`app.browser.test.ts`](src/web/app.browser.test.ts) | The sign-in redirect and its return, the organization switch, the admin and back, sign-out, a 401, support, an admin chunk that fails to load |
+| [`companies.browser.test.ts`](src/web/companies.browser.test.ts) | The list, search, sort and pages, create with a refused field, edit, delete, a refused delete, the empty and not-found states |
+| [`contacts.browser.test.ts`](src/web/contacts.browser.test.ts) | Each contact's company, a company picked by keyboard, a refused email, edit, delete, a contact on a deal |
+| [`deals.browser.test.ts`](src/web/deals.browser.test.ts) | Amounts for a manager and Withheld for a member, filters and sorts, a blind amount, closing once from two tabs, archiving, a deal's contacts |
+| [`board.browser.test.ts`](src/web/board.browser.test.ts) | Columns and counts, a move by keyboard and by drag and drop, closing from a card, a member's view |
+| [`activities.browser.test.ts`](src/web/activities.browser.test.ts) | A call on a deal on its timeline and its company's, a refused body, one's own edit and delete, another's activity, one deleted behind the page |
+| [`tasks.browser.test.ts`](src/web/tasks.browser.test.ts) | Groups, Mine and Everyone, creating on a deal and by quick add, done at once while the server is slow, Undo, two quick checks, nothing lost meanwhile, edit and delete |
+| [`home.browser.test.ts`](src/web/home.browser.test.ts) | Home as a manager and a member, a task checked there, the counts after a board move, one section's failed read; the team page |
+| [`search.browser.test.ts`](src/web/search.browser.test.ts) | The palette by shortcut and button, grouped results, the keyboard to a contact, focus back on Esc, a stale search never shown, New deal |
+| [`admin.browser.test.ts`](src/web/admin.browser.test.ts) | The admin: organizations, create, edit and delete, a member's view, a refused delete, a relation tab, a deep link, sign-out |
+| [`bundle.test.ts`](src/web/bundle.test.ts) | Gzipped budgets from Vite's manifest: startup, with and without React, each page, the admin; and no server code in the page |
 
 Two tests keep the docs honest. [`readme-quotes.test.ts`](src/readme-quotes.test.ts) checks that every code block whose first line names a file, such as `// examples/crm/src/servers/app.ts`, is that file's text, line for line, allowing only a uniform indent to be removed. It reads the READMEs of core, store-mongo, cli and admin, this one, and every file of core's agent skill. [`quickstart.test.ts`](src/quickstart/quickstart.test.ts) runs core's quick start, which lives in [`src/quickstart`](src/quickstart).
