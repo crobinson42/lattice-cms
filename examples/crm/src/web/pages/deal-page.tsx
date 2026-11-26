@@ -1,6 +1,5 @@
 import { Button, buttonVariants } from '@shadalaya/react/button';
 import { Skeleton } from '@shadalaya/react/skeleton';
-import { toast } from '@shadalaya/react/toast';
 import { asResult } from '@ts-pf/client';
 import { isPFError } from '@ts-pf/protocol';
 import {
@@ -10,10 +9,9 @@ import {
   ThumbsDownIcon,
   TrophyIcon,
 } from 'lucide-react';
-import { useCallback, useState } from 'react';
-import useSWR, { useSWRConfig } from 'swr';
+import { useState } from 'react';
+import useSWR from 'swr';
 import { Link } from 'wouter';
-import type { ApiError } from '../api.js';
 import { useApi } from '../api.js';
 import { useCompanySearch } from '../resources/companies/company-search.js';
 import {
@@ -21,6 +19,10 @@ import {
   type DealWithCompany,
   readsAmounts,
 } from '../resources/deals/deal.js';
+import {
+  closeDialog,
+  useDealActions,
+} from '../resources/deals/deal-actions.js';
 import { DealForm } from '../resources/deals/deal-form.js';
 import {
   DealOverview,
@@ -36,6 +38,7 @@ import { PageHeader } from '../ui/page-header.js';
 import type { Crumb } from '../ui/shell.js';
 import { EmptyState, ErrorState } from '../ui/states.js';
 import { type Team, TeamGate } from '../workspace/team.js';
+import { DealContacts } from './deal-contacts.js';
 
 const parents: readonly Crumb[] = [{ label: 'Deals', href: '/deals' }];
 
@@ -92,35 +95,12 @@ function Loaded({
   readonly team: Team;
 }) {
   const { rpc, swr } = useApi();
-  const { mutate } = useSWRConfig();
   const afterWrite = useAfterWrite();
   const searchCompanies = useCompanySearch();
   const [editing, setEditing] = useState(false);
   const open = isOpen(deal);
 
-  /**
-   * Whether `error` says another tab changed the deal first: closed it
-   * (AlreadyClosed), or closed or archived it, which a write's filter
-   * answers as NOT_FOUND. The page reads the deal again, and shows it
-   * closed, or not found; a toast says why.
-   */
-  const changedElsewhere = useCallback(
-    (error: ApiError): boolean => {
-      if (error.code !== 'AlreadyClosed' && error.code !== 'NOT_FOUND') {
-        return false;
-      }
-      toast.add({
-        title:
-          error.code === 'AlreadyClosed'
-            ? `${deal.title} was already closed, perhaps in another tab.`
-            : `${deal.title} was closed or archived, perhaps in another tab.`,
-        type: 'error',
-      });
-      void mutate(swr.deals.matcher());
-      return true;
-    },
-    [deal.title, mutate, swr],
-  );
+  const { changedElsewhere, close } = useDealActions();
 
   const update = async (patch: DealPatch) => {
     // Nothing changed: nothing to send.
@@ -129,11 +109,11 @@ function Loaded({
         rpc.deals.update({ id: deal.id, ...patch }),
       );
       if (!result.ok) {
-        if (!changedElsewhere(result.error)) return result.error;
+        if (!changedElsewhere(deal, result.error)) return result.error;
         setEditing(false);
         return undefined;
       }
-      afterWrite({
+      void afterWrite({
         changed: swr.deals.matcher(),
         says: `Saved ${result.data.title}`,
       });
@@ -142,31 +122,17 @@ function Loaded({
     return undefined;
   };
 
-  // A refusal that the page shows by reading the deal again closes the
-  // dialog: the dialog itself may be gone with the open deal's buttons.
-  const close = async (outcome: 'won' | 'lost') => {
-    const result = await asResult(rpc.deals.close({ id: deal.id, outcome }));
-    if (result.ok) {
-      afterWrite({
-        changed: swr.deals.matcher(),
-        says: `Closed ${deal.title} as ${outcome}`,
-      });
-      return undefined;
-    }
-    return changedElsewhere(result.error) ? undefined : result.error.message;
-  };
-
   const archive = async () => {
     const result = await asResult(rpc.deals.delete({ id: deal.id }));
     if (result.ok) {
-      afterWrite({
+      void afterWrite({
         changed: swr.deals.matcher(),
         says: `Archived ${deal.title}`,
         goTo: '/deals',
       });
       return undefined;
     }
-    return changedElsewhere(result.error)
+    return changedElsewhere(deal, result.error)
       ? undefined
       : deleteRefusal(deal.title, result.error);
   };
@@ -189,11 +155,8 @@ function Loaded({
                       Won
                     </>
                   }
-                  title={`Close ${deal.title} as won?`}
-                  description="A deal closes once, and then cannot be edited."
-                  confirm="Close as won"
-                  pending="Closing…"
-                  onConfirm={() => close('won')}
+                  {...closeDialog(deal, 'won')}
+                  onConfirm={() => close(deal, 'won')}
                 />
                 <ConfirmAction
                   trigger={
@@ -203,11 +166,8 @@ function Loaded({
                     </>
                   }
                   variant="outline"
-                  title={`Close ${deal.title} as lost?`}
-                  description="A deal closes once, and then cannot be edited."
-                  confirm="Close as lost"
-                  pending="Closing…"
-                  onConfirm={() => close('lost')}
+                  {...closeDialog(deal, 'lost')}
+                  onConfirm={() => close(deal, 'lost')}
                 />
                 <Button variant="outline" onClick={() => setEditing(true)}>
                   <PencilIcon />
@@ -238,6 +198,7 @@ function Loaded({
         </p>
       )}
       <DealOverview deal={deal} members={team.members} />
+      <DealContacts deal={deal} companyId={deal.companyId.id} editable={open} />
       <FormSheet
         open={editing}
         onOpenChange={setEditing}

@@ -105,7 +105,7 @@ export function ApiProvider({
  */
 export type Lists = {
   readonly known: Set<string>;
-  readonly mounted: Map<string, () => void>;
+  readonly mounted: Map<string, () => Promise<unknown>>;
 };
 
 const ListsContext = createContext<Lists | null>(null);

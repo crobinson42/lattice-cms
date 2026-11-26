@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { formatDate, formatMoney, formatRelative } from './format.js';
+import { formatDate, formatMoney, formatRelative, isoDay } from './format.js';
 
 // The tests run in an English locale.
 
@@ -18,4 +18,8 @@ it('writes money in whole dollars', () => {
   expect(formatMoney(12500)).toBe('$12,500');
   expect(formatMoney(0)).toBe('$0');
   expect(formatMoney(99.6)).toBe('$100');
+});
+
+it('writes a day as an ISO date, in local time', () => {
+  expect(isoDay(new Date(2026, 0, 5, 23, 30))).toBe('2026-01-05');
 });

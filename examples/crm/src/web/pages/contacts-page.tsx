@@ -54,7 +54,7 @@ export default function ContactsPage() {
     const result = await asResult(rpc.contacts.create(input));
     if (!result.ok) return result.error;
     setCreating(false);
-    afterWrite({
+    void afterWrite({
       changed: swr.contacts.matcher(),
       says: `Created ${result.data.name}`,
       goTo: `/contacts/${result.data.id}`,

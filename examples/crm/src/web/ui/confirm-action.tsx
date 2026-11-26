@@ -11,33 +11,49 @@ import {
   AlertDialogTrigger,
 } from '@shadalaya/react/alert-dialog';
 import { Button } from '@shadalaya/react/button';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 /**
- * A button, and a dialog that asks before it acts. It stays open until the
- * action settles, and a refusal is shown in it, in words: `onConfirm`
- * answers with the refusal, or undefined.
+ * A dialog that asks before it acts, and the button that opens it. It
+ * stays open until the action settles, and a refusal is shown in it, in
+ * words: `onConfirm` answers with the refusal, or undefined. Given `open`,
+ * the caller opens it, such as from a menu item, and there is no button.
  */
 export function ConfirmAction({
-  trigger,
-  variant = 'default',
   title,
   description,
   confirm,
   pending: pendingLabel,
   onConfirm,
+  variant = 'default',
+  finalFocus,
+  ...opener
 }: {
-  /** The button's content: an icon and a word. */
-  readonly trigger: ReactNode;
-  readonly variant?: 'default' | 'outline' | 'destructive';
   readonly title: string;
   readonly description: string;
   /** The confirming button's word, and its word while it acts. */
   readonly confirm: string;
   readonly pending: string;
   readonly onConfirm: () => Promise<string | undefined>;
-}) {
-  const [open, setOpen] = useState(false);
+  readonly variant?: 'default' | 'outline' | 'destructive';
+  /** Where focus goes when it closes, such as the menu button it came from. */
+  readonly finalFocus?: RefObject<HTMLElement | null>;
+} & (
+  | {
+      /** The button's content: an icon and a word. */
+      readonly trigger: ReactNode;
+    }
+  | { readonly open: boolean; readonly onOpenChange: (open: boolean) => void }
+)) {
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = 'open' in opener ? opener.open : ownOpen;
+  const setOpen = 'open' in opener ? opener.onOpenChange : setOwnOpen;
   const [pending, setPending] = useState(false);
   const [refusal, setRefusal] = useState<string>();
   const close = useRef<HTMLButtonElement>(null);
@@ -60,10 +76,12 @@ export function ConfirmAction({
         setOpen(next);
       }}
     >
-      <AlertDialogTrigger render={<Button variant={variant} />}>
-        {trigger}
-      </AlertDialogTrigger>
-      <AlertDialogContent>
+      {'trigger' in opener ? (
+        <AlertDialogTrigger render={<Button variant={variant} />}>
+          {opener.trigger}
+        </AlertDialogTrigger>
+      ) : null}
+      <AlertDialogContent {...(finalFocus === undefined ? {} : { finalFocus })}>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
           <AlertDialogDescription>{description}</AlertDialogDescription>

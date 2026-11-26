@@ -14,6 +14,8 @@ import { useLists } from '../api.js';
  * - Staying on the page, its reads and its lists revalidate in place.
  * - With `goTo`, the page is left: its changed reads are dropped first, so
  *   the next page, its count too, reads them fresh, and then it navigates.
+ * It settles once the page's reads have read again, for a caller that
+ * shows the change only then, such as a move on the board.
  */
 export function useAfterWrite() {
   const { mutate } = useSWRConfig();
@@ -26,10 +28,11 @@ export function useAfterWrite() {
       goTo,
     }: {
       readonly changed: SwrMatcher;
-      readonly says: string;
+      /** The toast, or nothing when the page shows the change itself. */
+      readonly says?: string;
       readonly goTo?: string;
-    }) => {
-      toast.add({ title: says, type: 'success' });
+    }): Promise<unknown> => {
+      if (says !== undefined) toast.add({ title: says, type: 'success' });
       // A list keyed by unstable_serialize is reset through mutate, which
       // also clears SWR's dedupe of its last request: one that is not on
       // screen starts empty, so it never shows a row the write removed.
@@ -39,15 +42,17 @@ export function useAfterWrite() {
         }
       }
       if (goTo === undefined) {
-        void mutate(changed);
-        for (const refresh of lists.mounted.values()) refresh();
-        return;
+        return Promise.all([
+          mutate(changed),
+          ...[...lists.mounted.values()].map((refresh) => refresh()),
+        ]);
       }
       // Clearing the data, with a revalidation, also clears SWR's dedupe of
       // the last request: the next page's reads fetch fresh, and none shows
       // what the write changed.
-      void mutate(changed, undefined);
+      const cleared = mutate(changed, undefined);
       navigate(goTo);
+      return cleared;
     },
     [mutate, lists, navigate],
   );

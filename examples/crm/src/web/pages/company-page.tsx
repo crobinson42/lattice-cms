@@ -87,7 +87,7 @@ function Loaded({ company }: { readonly company: Company }) {
         rpc.companies.update({ id: company.id, ...patch }),
       );
       if (!result.ok) return result.error;
-      afterWrite({
+      void afterWrite({
         changed: swr.companies.matcher(),
         says: `Saved ${result.data.name}`,
       });
@@ -99,7 +99,7 @@ function Loaded({ company }: { readonly company: Company }) {
   const remove = async () => {
     const result = await asResult(rpc.companies.delete({ id: company.id }));
     if (!result.ok) return result.error;
-    afterWrite({
+    void afterWrite({
       changed: swr.companies.matcher(),
       says: `Deleted ${company.name}`,
       goTo: '/companies',
@@ -160,7 +160,7 @@ function CompanyContacts({ company }: { readonly company: Company }) {
     const result = await asResult(rpc.contacts.create(input));
     if (!result.ok) return result.error;
     setCreating(false);
-    afterWrite({
+    void afterWrite({
       changed: swr.contacts.matcher(),
       says: `Created ${result.data.name}`,
     });
@@ -230,7 +230,7 @@ function CompanyDeals({ company }: { readonly company: Company }) {
     const result = await asResult(rpc.deals.create(input));
     if (!result.ok) return result.error;
     setCreating(false);
-    afterWrite({
+    void afterWrite({
       changed: swr.deals.matcher(),
       says: `Created ${result.data.title}`,
     });

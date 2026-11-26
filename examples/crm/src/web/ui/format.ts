@@ -24,6 +24,12 @@ export function formatDay(isoDate: string): string {
   );
 }
 
+/** A day as an ISO date, in the browser's time zone: "2026-12-01". */
+export function isoDay(date: Date): string {
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 /** A date-time as a date: "Nov 25, 2026". */
 export function formatDate(iso: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(

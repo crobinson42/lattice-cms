@@ -123,8 +123,8 @@ Before the SPA, whose typed client evaluates every procedure.
 ### 5. Contacts and deals
 
 - [x] Contacts: list, detail, form, with the company as `CompanyInline` and `CompanySelect`, and a company's contacts on its page.
-- [ ] Deals: a board with a column per open stage, moving a deal between open stages, and Won and Lost through `deals.close` with a confirmation. A table view. Detail with the deal's contacts and roles through the relation's `set`, the owner as `MemberInline`, and the amount shown as withheld, not zero, to a member.
-- [ ] Members: `MemberInline`, `MemberAvatar` and `MemberSelect`, fed by the team read.
+- [x] Deals: a board with a column per open stage, moving a deal between open stages, and Won and Lost through `deals.close` with a confirmation. A table view. Detail with the deal's contacts and roles through the relation's `set`, the owner as `MemberInline`, and the amount shown as withheld, not zero, to a member.
+- [x] Members: `MemberInline`, `MemberAvatar` and `MemberSelect`, fed by the team read.
 
 ### 6. Activities and tasks
 
@@ -171,3 +171,5 @@ Before the SPA, whose typed client evaluates every procedure.
 - 5b1: SWR 2.5.1 — to make a read fresh when nothing renders it, call a revalidating `mutate(key, undefined)`. `cache.delete` or `revalidate: false` leave a dedupe marker, so a hook remounted within the dedupe window stays on an older request whose result SWR drops.
 - 5b1: a masked field reads as absent, and a required one that is absent means withheld. The caller's role decides only what is offered (the amount sort, the amount in a member's edit), from the team read; a refused read re-reads the role.
 - 5b1: startup 179.7 KB gzipped (112.2 KB without React). The largest page chunk is 30.1 KB (a company's page). The web type-check is at 441k.
+- 5b2: a many() relation in the UI is a list the page replaces with `set`: one change at a time, shown at once (SWR's `optimisticData`, rolled back on refusal), a remove waiting for the server. Base UI's dialog restores focus while it unmounts with its row, so focus moves after a frame.
+- 5b2: the board moves a card through `deals.update`, pending until both columns have re-read, then announced. Native HTML5 drag works in headless Chromium. The web type-check is at 461k; the deals page chunk is 32.3 KB.

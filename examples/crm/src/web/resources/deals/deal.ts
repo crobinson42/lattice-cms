@@ -26,6 +26,17 @@ export type DealCreate = Inputs['create'];
 /** The fields an edit changes: `null` clears an optional one. */
 export type DealPatch = Omit<Inputs['update'], 'id'>;
 
+/** What a read of deals filters on. */
+export type DealWhere = NonNullable<Inputs['find']['where']>;
+
+/** How a deal closes. */
+export type DealOutcome = Inputs['close']['outcome'];
+
+/** Deals whose title holds the search: all of them for an empty one. */
+export function dealTitleSearch(q: string): DealWhere {
+  return q === '' ? {} : { title: { contains: q } };
+}
+
 /**
  * Whether the signed-in member reads amounts: managers do, as the
  * contract's field rule for `amount` says. A missing amount on a deal is

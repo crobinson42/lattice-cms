@@ -82,7 +82,7 @@ function Loaded({ contact }: { readonly contact: ContactWithCompany }) {
         rpc.contacts.update({ id: contact.id, ...patch }),
       );
       if (!result.ok) return result.error;
-      afterWrite({
+      void afterWrite({
         changed: swr.contacts.matcher(),
         says: `Saved ${result.data.name}`,
       });
@@ -94,7 +94,7 @@ function Loaded({ contact }: { readonly contact: ContactWithCompany }) {
   const remove = async () => {
     const result = await asResult(rpc.contacts.delete({ id: contact.id }));
     if (!result.ok) return result.error;
-    afterWrite({
+    void afterWrite({
       changed: swr.contacts.matcher(),
       says: `Deleted ${contact.name}`,
       goTo: '/contacts',

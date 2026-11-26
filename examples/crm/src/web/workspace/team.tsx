@@ -1,4 +1,5 @@
-import { createContext, type ReactNode, useContext } from 'react';
+import { isPFError } from '@ts-pf/protocol';
+import { createContext, type ReactNode, useContext, useEffect } from 'react';
 import type { Member } from '../resources/members/member.js';
 import { ErrorState, Loading } from '../ui/states.js';
 
@@ -46,4 +47,17 @@ export function TeamGate({
     );
   }
   return <Loading />;
+}
+
+/**
+ * Reads the signed-in member's role again when a read is refused as
+ * VALIDATION: a sort they may no longer use, such as amount after a
+ * demotion. What pages offer follows the role on the next render.
+ */
+export function useRoleRecheck(error: unknown) {
+  const { refresh } = useTeam();
+  const refused = isPFError(error) && error.code === 'VALIDATION';
+  useEffect(() => {
+    if (refused) refresh();
+  }, [refused, refresh]);
 }

@@ -51,7 +51,7 @@ export default function CompaniesPage() {
     const result = await asResult(rpc.companies.create(input));
     if (!result.ok) return result.error;
     setCreating(false);
-    afterWrite({
+    void afterWrite({
       changed: swr.companies.matcher(),
       says: `Created ${result.data.name}`,
       goTo: `/companies/${result.data.id}`,

@@ -1,22 +1,35 @@
 import { Button } from '@shadalaya/react/button';
+import { ButtonGroup } from '@shadalaya/react/button-group';
 import {
   NativeSelect,
   NativeSelectOption,
 } from '@shadalaya/react/native-select';
 import { asResult } from '@ts-pf/client';
-import { isPFError } from '@ts-pf/protocol';
-import { BriefcaseIcon, PlusIcon } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { BriefcaseIcon, KanbanIcon, PlusIcon, TableIcon } from 'lucide-react';
+import { type ReactNode, useCallback, useState } from 'react';
 import useSWR from 'swr';
 import { useLocation } from 'wouter';
 import { useApi } from '../api.js';
 import { useCompanySearch } from '../resources/companies/company-search.js';
-import { dealCount } from '../resources/deals/deal.format.js';
-import { type DealCreate, readsAmounts } from '../resources/deals/deal.js';
+import { dealCount, openDealCount } from '../resources/deals/deal.format.js';
+import {
+  type DealCreate,
+  type DealWhere,
+  dealTitleSearch,
+  readsAmounts,
+} from '../resources/deals/deal.js';
 import { dealColumns } from '../resources/deals/deal-columns.js';
 import { DealForm } from '../resources/deals/deal-form.js';
-import { dealSorts, defaultDealSort } from '../resources/deals/deal-sorts.js';
-import { allStages, dealStages } from '../resources/deals/deal-stages.js';
+import {
+  type DealSort,
+  dealSorts,
+  defaultDealSort,
+} from '../resources/deals/deal-sorts.js';
+import {
+  allStages,
+  dealStages,
+  openStages,
+} from '../resources/deals/deal-stages.js';
 import { useAfterWrite } from '../ui/after-write.js';
 import { useCursorPages } from '../ui/cursor-pages.js';
 import { CursorTable } from '../ui/cursor-table.js';
@@ -30,7 +43,10 @@ import { PageHeader } from '../ui/page-header.js';
 import { SearchBox } from '../ui/search-box.js';
 import { SortSelect } from '../ui/sort-select.js';
 import { EmptyState } from '../ui/states.js';
-import { type Team, TeamGate, useTeam } from '../workspace/team.js';
+import { type Team, TeamGate, useRoleRecheck } from '../workspace/team.js';
+import { DealsBoard } from './deals-board.js';
+
+const views = ['table'] as const;
 
 /**
  * The organization's deals, each with its company: searched by title,
@@ -46,43 +62,36 @@ function Deals({ team }: { readonly team: Team }) {
   const { rpc, swr } = useApi();
   const afterWrite = useAfterWrite();
   const [, navigate] = useLocation();
-  const { refresh: refreshTeam } = useTeam();
   const searchCompanies = useCompanySearch();
   const amounts = readsAmounts(team.me);
   const sorts = dealSorts(amounts);
   const [params, show] = useListParams(sorts, defaultDealSort);
-  const [stage, setStage] = useUrlOption('stage', allStages);
+  // The board is the default view; the table is `?view=table`.
+  const [view, setView] = useUrlOption('view', views);
+  const board = view === undefined;
+  const [tableStage, setStage] = useUrlOption('stage', allStages);
+  // The board shows the open stages as columns: a stage filter is the table's.
+  const stage = board ? undefined : tableStage;
   const { sort } = params;
-  const search = useCallback((q: string) => show({ q, sort }), [show, sort]);
+  const onSearch = useCallback((q: string) => show({ q, sort }), [show, sort]);
 
-  const where = {
-    ...(params.q === '' ? {} : { title: { contains: params.q } }),
-    ...(stage === undefined ? {} : { stage: { eq: stage } }),
-  };
+  const search = dealTitleSearch(params.q);
+  // The header counts what the view shows: the open deals on the board,
+  // the deals the filters pick in the table.
+  const counted = board
+    ? { ...search, stage: { in: [...openStages] } }
+    : { ...search, ...(stage === undefined ? {} : { stage: { eq: stage } }) };
   const count = useSWR(
-    swr.deals.count.key({ input: { where } }),
+    swr.deals.count.key({ input: { where: counted } }),
     swr.deals.count.fetcher(),
   );
-  // Each deal with its company, in one request per page.
-  const pages = useCursorPages(
-    swr.deals.find.key,
-    { where, sort: [sort], limit: 20, populate: ['companyId'] },
-    (input) => swr.deals.find({ ...input, populate: ['companyId'] }),
-  );
-  // A read refused as VALIDATION is a sort the member may no longer use,
-  // such as amount after a demotion: read their role again, and the sorts
-  // offered follow.
-  const refused = isPFError(pages.error) && pages.error.code === 'VALIDATION';
-  useEffect(() => {
-    if (refused) refreshTeam();
-  }, [refused, refreshTeam]);
 
   const [creating, setCreating] = useState(false);
   const create = async (input: DealCreate) => {
     const result = await asResult(rpc.deals.create(input));
     if (!result.ok) return result.error;
     setCreating(false);
-    afterWrite({
+    void afterWrite({
       changed: swr.deals.matcher(),
       says: `Created ${result.data.title}`,
       goTo: `/deals/${result.data.id}`,
@@ -103,71 +112,102 @@ function Deals({ team }: { readonly team: Team }) {
         title="Deals"
         icon={<BriefcaseIcon />}
         description={
-          count.data === undefined ? undefined : dealCount(count.data.count)
+          count.data === undefined
+            ? undefined
+            : board
+              ? openDealCount(count.data.count)
+              : dealCount(count.data.count)
         }
-        actions={newDeal}
+        actions={
+          <>
+            <ButtonGroup aria-label="View">
+              <Button
+                variant={board ? 'default' : 'outline'}
+                aria-pressed={board}
+                onClick={() => setView(undefined)}
+              >
+                <KanbanIcon />
+                Board
+              </Button>
+              <Button
+                variant={board ? 'outline' : 'default'}
+                aria-pressed={!board}
+                onClick={() => setView('table')}
+              >
+                <TableIcon />
+                Table
+              </Button>
+            </ButtonGroup>
+            {newDeal}
+          </>
+        }
       />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <SearchBox
           q={params.q}
-          onSearch={search}
+          onSearch={onSearch}
           label="Search deals"
           placeholder="Search by title"
         />
-        <NativeSelect
-          aria-label="Stage"
-          value={stage ?? ''}
-          onChange={(event) =>
-            setStage(allStages.find((value) => value === event.target.value))
-          }
-        >
-          <NativeSelectOption value="">Any stage</NativeSelectOption>
-          {allStages.map((value) => (
-            <NativeSelectOption key={value} value={value}>
-              {dealStages[value].label}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+        {board ? null : (
+          <NativeSelect
+            aria-label="Stage"
+            value={stage ?? ''}
+            onChange={(event) =>
+              setStage(allStages.find((value) => value === event.target.value))
+            }
+          >
+            <NativeSelectOption value="">Any stage</NativeSelectOption>
+            {allStages.map((value) => (
+              <NativeSelectOption key={value} value={value}>
+                {dealStages[value].label}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        )}
         <SortSelect
           sorts={sorts}
           value={sort}
           onChange={(next) => show({ ...params, sort: next })}
         />
       </div>
-      <CursorTable
-        label="Deals"
-        columns={dealColumns(team.members)}
-        pages={pages}
-        what="deals"
-        empty={
-          filtered ? (
-            <EmptyState
-              title="No deals match"
-              action={
-                <Button
-                  variant="outline"
-                  // One navigation: the search and the stage go, the sort
-                  // stays.
-                  onClick={() =>
-                    navigate(
-                      `/deals${writeListParams({ q: '', sort }, defaultDealSort)}`,
-                      { replace: true },
-                    )
-                  }
-                >
-                  Clear filters
-                </Button>
-              }
-            />
-          ) : (
-            <EmptyState
-              title="No deals yet"
-              description="Add the deals your team is working."
-              action={newDeal}
-            />
-          )
-        }
-      />
+      {board ? (
+        <DealsBoard team={team} where={search} q={params.q} sort={sort} />
+      ) : (
+        <DealsTable
+          team={team}
+          where={counted}
+          sort={sort}
+          empty={
+            filtered ? (
+              <EmptyState
+                title="No deals match"
+                action={
+                  <Button
+                    variant="outline"
+                    // One navigation: the search and the stage go, the sort
+                    // stays.
+                    onClick={() =>
+                      navigate(
+                        `/deals${writeListParams({ q: '', sort }, defaultDealSort, '?view=table')}`,
+                        { replace: true },
+                      )
+                    }
+                  >
+                    Clear filters
+                  </Button>
+                }
+              />
+            ) : (
+              <EmptyState
+                title="No deals yet"
+                description="Add the deals your team is working."
+                action={newDeal}
+              />
+            )
+          }
+        />
+      )}
       <FormSheet
         open={creating}
         onOpenChange={setCreating}
@@ -182,5 +222,38 @@ function Deals({ team }: { readonly team: Team }) {
         />
       </FormSheet>
     </>
+  );
+}
+
+/**
+ * The table view: each deal with its company, in one request per page.
+ * Only the table reads it: the board reads a page per column.
+ */
+function DealsTable({
+  team,
+  where,
+  sort,
+  empty,
+}: {
+  readonly team: Team;
+  readonly where: DealWhere;
+  readonly sort: DealSort;
+  readonly empty: ReactNode;
+}) {
+  const { swr } = useApi();
+  const pages = useCursorPages(
+    swr.deals.find.key,
+    { where, sort: [sort], limit: 20, populate: ['companyId'] },
+    (input) => swr.deals.find({ ...input, populate: ['companyId'] }),
+  );
+  useRoleRecheck(pages.error);
+  return (
+    <CursorTable
+      label="Deals"
+      columns={dealColumns(team.members)}
+      pages={pages}
+      what="deals"
+      empty={empty}
+    />
   );
 }

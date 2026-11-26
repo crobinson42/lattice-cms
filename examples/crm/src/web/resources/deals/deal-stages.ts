@@ -30,6 +30,8 @@ export const openStages = [
   'negotiation',
 ] as const satisfies readonly DealStage[];
 
+export type OpenStage = (typeof openStages)[number];
+
 /** Every stage: the open ones, then how a deal closes. */
 export const allStages = [
   ...openStages,

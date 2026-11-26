@@ -21,13 +21,25 @@ import { builtPage } from '../test/web.js';
 
 const password = 'correct horse battery';
 
+/** The API as Max, a manager in `organizationId`. */
+function clientFor(crm: ReturnType<typeof createApp>, organizationId: string) {
+  return createLocalClient(crm.app, {
+    context: {
+      actor: { userId: 'max', organizationId, role: 'manager' },
+      logger: new NoopLogger(),
+    },
+  });
+}
+
 describe('deals in a browser', () => {
   const url = inject('mongoUrl');
   const database = `crm_${crypto.randomUUID().replaceAll('-', '')}`;
   let running: Running;
   let browser: Browser;
   let base: URL;
-  const ids = { rockets: '', bolt: '', fuel: '' };
+  // The manager's own client, to change a deal behind the page's back.
+  let max: ReturnType<typeof clientFor>;
+  const ids = { rockets: '', bolt: '', fuel: '', order: '', ana: '', ben: '' };
 
   beforeAll(async () => {
     const store = new MongoStore({ url, database });
@@ -68,12 +80,7 @@ describe('deals in a browser', () => {
       )
     ).docs;
     if (orgA === undefined) throw new Error('Org A was not provisioned');
-    const max = createLocalClient(crm.app, {
-      context: {
-        actor: { userId: 'max', organizationId: orgA.id, role: 'manager' },
-        logger: new NoopLogger(),
-      },
-    });
+    max = clientFor(crm, orgA.id);
     const rockets = await max.companies.create({ name: 'Acme Rockets' });
     const bolt = await max.companies.create({ name: 'Bolt Works' });
     ids.rockets = rockets.id;
@@ -87,11 +94,24 @@ describe('deals in a browser', () => {
       expectedCloseDate: '2026-12-01',
     });
     ids.fuel = fuel.id;
-    await max.deals.create({
+    const order = await max.deals.create({
       title: 'Bolt order',
       companyId: bolt.id,
       amount: 900,
     });
+    ids.order = order.id;
+    const ana = await max.contacts.create({
+      name: 'Ana Diaz',
+      email: 'ana@rockets.test',
+      companyId: rockets.id,
+    });
+    const ben = await max.contacts.create({
+      name: 'Ben Brook',
+      email: 'ben@bolt.test',
+      companyId: bolt.id,
+    });
+    ids.ana = ana.id;
+    ids.ben = ben.id;
     await max.deals.create({
       title: 'Old engine',
       companyId: rockets.id,
@@ -136,7 +156,7 @@ describe('deals in a browser', () => {
     page.getByLabel('Sort by').locator('option').allTextContents();
 
   it('shows a manager amounts, and filters and sorts by them', async () => {
-    const page = await signedIn('max', '/deals');
+    const page = await signedIn('max', '/deals?view=table');
     await page.getByRole('heading', { name: 'Deals', level: 1 }).waitFor();
     await page.getByText('3 deals').waitFor();
     // Title, Company, Stage, Amount, Owner, Expected close.
@@ -144,7 +164,7 @@ describe('deals in a browser', () => {
     expect(await sortOptions(page)).toContain('Largest amount');
 
     await page.getByLabel('Stage').selectOption({ label: 'Proposal' });
-    await page.waitForURL(/\?stage=proposal$/);
+    await page.waitForURL(/\?view=table&stage=proposal$/);
     await page.getByText('1 deal', { exact: true }).waitFor();
     expect(await column(page, 'Deals', 1)).toEqual(['Rocket fuel']);
     // The owner's cell is their avatar's initials, then their name.
@@ -154,14 +174,14 @@ describe('deals in a browser', () => {
 
     await page.getByLabel('Stage').selectOption({ label: 'Any stage' });
     await page.getByLabel('Sort by').selectOption({ label: 'Largest amount' });
-    await page.waitForURL(/\?sort=-amount$/);
+    await page.waitForURL(/\?view=table&sort=-amount$/);
     await expect
       .poll(() => column(page, 'Deals', 1))
       .toEqual(['Rocket fuel', 'Bolt order', 'Old engine']);
   });
 
   it('withholds amounts from a member, and offers no amount sort', async () => {
-    const page = await signedIn('mia', '/deals?sort=-amount');
+    const page = await signedIn('mia', '/deals?view=table&sort=-amount');
     await page.getByText('3 deals').waitFor();
     expect(await column(page, 'Deals', 4)).toEqual([
       'Withheld',
@@ -245,10 +265,11 @@ describe('deals in a browser', () => {
       .click();
     await page.getByText('Archived Old engine').waitFor();
     await page.getByRole('heading', { name: 'Deals', level: 1 }).waitFor();
-    // The list reads again from nothing: once its rows are there, the
-    // archived deal is not among them, with no stale moment to wait out.
-    await page.getByRole('link', { name: 'Bolt order' }).waitFor();
-    expect(await column(page, 'Deals', 1)).not.toContain('Old engine');
+    // The board opens, read fresh: once the Qualified column has its rows,
+    // the archived deal is not among them, with no stale moment.
+    const qualified = page.getByRole('list', { name: 'Qualified' });
+    await qualified.getByRole('listitem').first().waitFor();
+    expect(await qualified.textContent()).not.toContain('Old engine');
   });
 
   it("lists a company's deals, and adds one with the company picked", async () => {
@@ -269,5 +290,141 @@ describe('deals in a browser', () => {
     await page.getByText('Created Bolt service').waitFor();
     await expect.poll(() => column(page, table, 1)).toContain('Bolt service');
     expect(new URL(page.url()).pathname).toBe(`/companies/${ids.bolt}`);
+  });
+
+  /** What a `set` request sent: its input, the deal's id and its whole new list. */
+  const sentSet = async (
+    page: Page,
+    change: () => Promise<void>,
+  ): Promise<unknown> => {
+    const sent = page.waitForRequest((request) =>
+      request.url().includes('contacts/set'),
+    );
+    await change();
+    return JSON.parse((await sent).postData() ?? 'null');
+  };
+
+  it('adds contacts to a deal with roles, sending the full list each time', async () => {
+    const page = await signedIn('max', `/deals/${ids.order}`);
+    const section = page.getByRole('region', { name: 'Contacts' });
+    await section.getByText('No contacts on this deal').waitFor();
+
+    await section.getByRole('button', { name: 'Add contact' }).click();
+    const contact = page.getByRole('combobox', { name: 'Contact' });
+    // With nothing typed, the deal's company's contacts come first.
+    await contact.click();
+    await page.getByRole('option', { name: 'Ben Brook' }).waitFor();
+    await contact.press('ArrowDown');
+    await contact.press('Enter');
+    await page
+      .getByLabel('Role', { exact: true })
+      .selectOption({ label: 'Champion' });
+    expect(
+      await sentSet(page, () =>
+        page.getByRole('button', { name: 'Add contact' }).last().click(),
+      ),
+    ).toEqual({
+      input: {
+        id: ids.order,
+        links: [{ contactsId: ids.ben, role: 'champion' }],
+      },
+    });
+    await section.getByRole('link', { name: 'Ben Brook' }).waitFor();
+
+    // Another, from another company, found by name. Ben, on the deal
+    // already, is not offered.
+    await section.getByRole('button', { name: 'Add contact' }).click();
+    await contact.click();
+    await page
+      .getByRole('status')
+      .filter({ hasText: /No contacts found|contact/ })
+      .first()
+      .waitFor({ state: 'attached' });
+    expect(await page.getByRole('option', { name: 'Ben Brook' }).count()).toBe(
+      0,
+    );
+    await contact.fill('ana');
+    await page.getByRole('option', { name: 'Ana Diaz' }).waitFor();
+    await contact.press('ArrowDown');
+    await contact.press('Enter');
+    await page
+      .getByLabel('Role', { exact: true })
+      .selectOption({ label: 'Decision maker' });
+    expect(
+      await sentSet(page, () =>
+        page.getByRole('button', { name: 'Add contact' }).last().click(),
+      ),
+    ).toEqual({
+      input: {
+        id: ids.order,
+        links: [
+          { contactsId: ids.ben, role: 'champion' },
+          { contactsId: ids.ana, role: 'decision_maker' },
+        ],
+      },
+    });
+    await section.getByRole('link', { name: 'Ana Diaz' }).waitFor();
+    await section.getByRole('link', { name: 'Acme Rockets' }).waitFor();
+  });
+
+  it('changes roles quickly, and removes a contact, sending the full list each time', async () => {
+    const page = await signedIn('max', `/deals/${ids.order}`);
+    const section = page.getByRole('region', { name: 'Contacts' });
+    const ben = section.getByLabel('Role of Ben Brook');
+    const ana = section.getByLabel('Role of Ana Diaz');
+    await ana.waitFor();
+    // Two changes, one right after the other: the second waits for the
+    // first, and both survive.
+    await ben.selectOption({ label: 'Other' });
+    await ana.selectOption({ label: 'Champion' });
+    expect(await ben.inputValue()).toBe('other');
+    await expect.poll(() => ana.isEnabled()).toBe(true);
+    await page.reload();
+    await ana.waitFor();
+    expect(await ben.inputValue()).toBe('other');
+    expect(await ana.inputValue()).toBe('champion');
+
+    // Remove Ana: the list sent is Ben alone, and focus goes to Add contact.
+    await section
+      .getByRole('row', { name: /Ana Diaz/ })
+      .getByRole('button', { name: 'Remove' })
+      .click();
+    expect(
+      await sentSet(page, () =>
+        page
+          .getByRole('alertdialog')
+          .getByRole('button', { name: 'Remove' })
+          .click(),
+      ),
+    ).toEqual({
+      input: { id: ids.order, links: [{ contactsId: ids.ben, role: 'other' }] },
+    });
+    await expect
+      .poll(() => section.getByRole('link', { name: 'Ana Diaz' }).count())
+      .toBe(0);
+    await expect
+      .poll(() => page.evaluate(() => document.activeElement?.textContent))
+      .toBe('Add contact');
+  });
+
+  it('says a deal closed in another tab once, without a success', async () => {
+    const page = await signedIn('max', `/deals/${ids.order}`);
+    const section = page.getByRole('region', { name: 'Contacts' });
+    await section.getByLabel('Role of Ben Brook').waitFor();
+    // Closed behind the page's back.
+    await max.deals.close({ id: ids.order, outcome: 'lost' });
+    await section.getByRole('button', { name: 'Add contact' }).click();
+    const contact = page.getByRole('combobox', { name: 'Contact' });
+    await contact.fill('ana');
+    await page.getByRole('option', { name: 'Ana Diaz' }).waitFor();
+    await contact.press('ArrowDown');
+    await contact.press('Enter');
+    await page.getByRole('button', { name: 'Add contact' }).last().click();
+    await page
+      .getByText('Bolt order was closed or archived, perhaps in another tab.')
+      .waitFor();
+    expect(await page.getByText(/^Added as/).count()).toBe(0);
+    // The page reads the deal again: closed, its contacts read-only.
+    await page.getByText('Closed deals can’t be edited.').waitFor();
   });
 });

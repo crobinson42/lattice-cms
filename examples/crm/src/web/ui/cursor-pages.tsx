@@ -62,7 +62,7 @@ export function useCursorPages<
   refresh.current = pages.mutate;
   useEffect(() => {
     lists.known.add(cacheKey);
-    lists.mounted.set(cacheKey, () => void refresh.current());
+    lists.mounted.set(cacheKey, () => refresh.current());
     return () => {
       lists.mounted.delete(cacheKey);
     };
