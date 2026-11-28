@@ -418,6 +418,42 @@ describe.each(backends)('on $name', (backend) => {
       expect(again.error.data).toEqual({ id: deal.id });
       expect(again.error.status).toBe(409);
     });
+
+    it('close lets one of two racing closes win, and refuses the other', async () => {
+      const { local, events } = setup();
+      const deal = await local.deals.create({
+        title: 'Raced',
+        companyId: 'c1',
+        amount: 1,
+      });
+      const before = events.messages.length;
+
+      const results = await Promise.all([
+        asResult(local.deals.close({ id: deal.id, outcome: 'won' })),
+        asResult(local.deals.close({ id: deal.id, outcome: 'lost' })),
+      ]);
+
+      expect(results.filter((result) => result.ok)).toHaveLength(1);
+      const refused = results.find((result) => !result.ok);
+      expect(refused?.ok === false && refused.error.code).toBe('AlreadyClosed');
+      expect(events.messages.length - before).toBe(1);
+    });
+
+    it('close answers NOT_FOUND for an archived deal, as get does', async () => {
+      const { local } = setup();
+      const deal = await local.deals.create({
+        title: 'Gone',
+        companyId: 'c1',
+        amount: 1,
+      });
+      await local.deals.delete({ id: deal.id });
+
+      const closed = await asResult(
+        local.deals.close({ id: deal.id, outcome: 'won' }),
+      );
+
+      expect(closed.ok === false && closed.error.code).toBe('NOT_FOUND');
+    });
   });
 
   describe('memberships', () => {

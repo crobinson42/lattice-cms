@@ -70,10 +70,17 @@ The family checks access before every `execute`: generated operations, overrides
 ```ts
 // examples/crm/src/app/use-cases/deals/close-deal.ts
     const scope = await ctx.access.scope(Deals, 'close');
-    const deal = await this.deps.deals.get(input.id, scope);
+    // The condition is checked in the same write, so two closes cannot both
+    // win: the second finds the deal closed and gets null.
+    const closed = await this.deps.deals.update(
+      input.id,
+      { stage: input.outcome, closedAt: new Date().toISOString() },
+      scope,
+      { if: { closedAt: { exists: false } } },
+    );
 ```
 
-A deal outside the scope is `null` there, as it is `NOT_FOUND` to a client.
+A deal outside the scope is `null` there, as it is `NOT_FOUND` to a client. The scope and the `if` are one filter in one store call.
 
 ## Do not
 
