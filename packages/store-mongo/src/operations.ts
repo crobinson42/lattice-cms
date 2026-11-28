@@ -11,8 +11,14 @@ import {
   type Patch,
   type StoredDoc,
 } from '@latticecms/core/store';
-import type { ClientSession, Collection, Db, Document } from 'mongodb';
-import { writing } from './errors.js';
+import type {
+  ClientSession,
+  Collection,
+  CreateIndexesOptions,
+  Db,
+  Document,
+} from 'mongodb';
+import { isIndexNameTaken, isIndexUnderOtherName, writing } from './errors.js';
 import { and, mongoField, toFilter, toSort } from './filter.js';
 import type { MongoDoc, MongoDocument } from './mapper.js';
 import { traced } from './tracing.js';
@@ -77,11 +83,12 @@ export class MongoOperations {
   async ensure(collection: string, indexes: readonly Index[]): Promise<void> {
     return this.#traced('createIndexes', collection, async () => {
       const target = this.#collection(collection);
-      // createIndex is a no-op for an index that exists, and rejects one with
-      // the same keys and other options (IndexOptionsConflict or
-      // IndexKeySpecsConflict), or a unique one over duplicates (11000).
-      // Each passes through: changing an index is a migration. An index is
-      // never built inside a transaction, so it takes no session.
+      // createIndex is a no-op for an index that exists, and rejects the same
+      // index under another name or with other options Lattice does not
+      // declare, such as a TTL (85), an index that differs under the
+      // default name (86), or a unique one over duplicates (11000). Changing
+      // an index is a migration, so ensure never drops one. An index is never
+      // built inside a transaction, so it takes no session.
       for (const index of indexes) {
         const keys = Object.fromEntries(
           Object.entries(index.fields).map(([field, direction]) => [
@@ -89,18 +96,17 @@ export class MongoOperations {
             direction,
           ]),
         );
-        await target.createIndex(keys, {
-          ...(index.unique === true ? { unique: true } : {}),
-          ...(index.present === undefined
-            ? {}
-            : {
-                partialFilterExpression: Object.fromEntries(
-                  index.present.map((field) => [
-                    mongoField(field),
-                    { $type: valueTypes },
-                  ]),
-                ),
-              }),
+        await target.createIndex(keys, options(index)).catch((error) => {
+          if (isIndexUnderOtherName(error)) return;
+          if (!isIndexNameTaken(error)) throw error;
+          // The name MongoDB gives the keys, which the existing index holds.
+          const name = Object.entries(keys)
+            .map(([field, direction]) => `${field}_${direction}`)
+            .join('_');
+          throw new Error(
+            `MongoStore: "${collection}" has an index "${name}" that differs from the declared one on ${Object.keys(index.fields).join(', ')}. Changing an index is a migration: drop it in one, since migrations run before ensure().`,
+            { cause: error },
+          );
         });
       }
     });
@@ -346,4 +352,21 @@ function updateOf(patch: Patch): Document | undefined {
   if (Object.keys(set).length > 0) update.$set = set;
   if (Object.keys(unset).length > 0) update.$unset = unset;
   return Object.keys(update).length === 0 ? undefined : update;
+}
+
+/** `createIndex`'s options for an index: unique, and `present` as a partial filter. */
+function options(index: Index): CreateIndexesOptions {
+  return {
+    ...(index.unique === true ? { unique: true } : {}),
+    ...(index.present === undefined
+      ? {}
+      : {
+          partialFilterExpression: Object.fromEntries(
+            index.present.map((field) => [
+              mongoField(field),
+              { $type: valueTypes },
+            ]),
+          ),
+        }),
+  };
 }

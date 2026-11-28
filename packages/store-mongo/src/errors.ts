@@ -19,6 +19,23 @@ export class MongoStoreError extends Errors('store-mongo', {
   },
 }) {}
 
+/**
+ * `createIndex` when an index with the same keys and identifying options
+ * (unique, partial filter, sparse, collation) exists under another name, or
+ * differs only in others, such as a TTL: IndexOptionsConflict (85).
+ */
+export function isIndexUnderOtherName(error: unknown): boolean {
+  return error instanceof MongoServerError && error.code === 85;
+}
+
+/**
+ * `createIndex` when an index that differs holds the requested name:
+ * IndexKeySpecsConflict (86).
+ */
+export function isIndexNameTaken(error: unknown): boolean {
+  return error instanceof MongoServerError && error.code === 86;
+}
+
 /** A duplicate key on a write: an id clash or a unique index. */
 export function isDuplicateKey(error: unknown): error is MongoServerError {
   return error instanceof MongoServerError && error.code === 11000;
