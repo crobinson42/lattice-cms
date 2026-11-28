@@ -18,6 +18,30 @@ import type { MongoDoc, MongoDocument } from './mapper.js';
 import { traced } from './tracing.js';
 
 /**
+ * Every BSON type but null, undefined and array, for `Index.present`. A
+ * partial filter cannot say `$ne: null`, and `$exists` keeps null. On an
+ * array field, `$type` matches by element, so `[]` and `[null]` are left
+ * out, as is an array of arrays.
+ */
+const valueTypes = [
+  'double',
+  'string',
+  'object',
+  'binData',
+  'objectId',
+  'bool',
+  'date',
+  'regex',
+  'javascript',
+  'int',
+  'timestamp',
+  'long',
+  'decimal',
+  'minKey',
+  'maxKey',
+];
+
+/**
  * The port's operations on one database, optionally inside a session. The
  * store runs them without one, and a transaction's view of the store with
  * its session, so both share every query.
@@ -65,10 +89,19 @@ export class MongoOperations {
             direction,
           ]),
         );
-        await target.createIndex(
-          keys,
-          index.unique === true ? { unique: true } : {},
-        );
+        await target.createIndex(keys, {
+          ...(index.unique === true ? { unique: true } : {}),
+          ...(index.present === undefined
+            ? {}
+            : {
+                partialFilterExpression: Object.fromEntries(
+                  index.present.map((field) => [
+                    mongoField(field),
+                    { $type: valueTypes },
+                  ]),
+                ),
+              }),
+        });
       }
     });
   }
