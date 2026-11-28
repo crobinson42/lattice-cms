@@ -1,5 +1,11 @@
 # @latticecms/core
 
+## 0.8.1
+
+### Patch Changes
+
+- [#18](https://github.com/crobinson42/lattice-cms/pull/18) [`9b59674`](https://github.com/crobinson42/lattice-cms/commit/9b59674fb4506891286e68e36c865ff5933e49ee) Thanks [@crobinson42](https://github.com/crobinson42)! - `.collection()` accepts an access function that is an app's generic helper's call, such as `allow<W>(...)`, beside `methods`. Before, it reported each method as having no access function, and a plain arrow beside it lost its `actor` type. The README narrows a populated ref on a system field, `'createdAt' in post.authorId`, which works for every collection.
+
 ## 0.8.0
 
 ### Minor Changes
