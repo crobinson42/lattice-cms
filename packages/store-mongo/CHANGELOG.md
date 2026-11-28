@@ -1,5 +1,16 @@
 # @latticecms/store-mongo
 
+## 0.9.0
+
+### Minor Changes
+
+- [#20](https://github.com/crobinson42/lattice-cms/pull/20) [`9df6bfe`](https://github.com/crobinson42/lattice-cms/commit/9df6bfeba4f3791d6f0ca9db352a649f859cab1a) Thanks [@crobinson42](https://github.com/crobinson42)! - `MongoStore` implements `countBy` as one aggregation: `$match`, `$project` and `$unwind` to each value's keys, then `$group`, `$sort` and `$limit`.
+
+### Patch Changes
+
+- Updated dependencies [[`9df6bfe`](https://github.com/crobinson42/lattice-cms/commit/9df6bfeba4f3791d6f0ca9db352a649f859cab1a)]:
+  - @latticecms/core@0.9.0
+
 ## 0.8.0
 
 ### Minor Changes

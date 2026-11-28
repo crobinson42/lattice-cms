@@ -1,5 +1,13 @@
 # @latticecms/cli
 
+## 0.6.1
+
+### Patch Changes
+
+- Updated dependencies [[`9df6bfe`](https://github.com/crobinson42/lattice-cms/commit/9df6bfeba4f3791d6f0ca9db352a649f859cab1a), [`9df6bfe`](https://github.com/crobinson42/lattice-cms/commit/9df6bfeba4f3791d6f0ca9db352a649f859cab1a)]:
+  - @latticecms/core@0.9.0
+  - @latticecms/store-mongo@0.9.0
+
 ## 0.6.0
 
 ### Minor Changes

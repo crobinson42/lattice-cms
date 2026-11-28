@@ -1,5 +1,11 @@
 # @latticecms/admin
 
+## 0.1.2
+
+### Patch Changes
+
+- [#20](https://github.com/crobinson42/lattice-cms/pull/20) [`9df6bfe`](https://github.com/crobinson42/lattice-cms/commit/9df6bfeba4f3791d6f0ca9db352a649f859cab1a) Thanks [@crobinson42](https://github.com/crobinson42)! - The admin reads a catalog that has `countBy` procedures.
+
 ## 0.1.1
 
 ### Patch Changes
