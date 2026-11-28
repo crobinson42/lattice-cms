@@ -1,5 +1,13 @@
 # @latticecms/core
 
+## 0.7.0
+
+### Minor Changes
+
+- [#14](https://github.com/crobinson42/lattice-cms/pull/14) [`c6e37ed`](https://github.com/crobinson42/lattice-cms/commit/c6e37ed3edbd40b28f02170fc98325551e1c85f9) Thanks [@crobinson42](https://github.com/crobinson42)! - A unique index takes `present: ['emails']`: it covers only rows where each listed field has a value, not missing or null, and for an array, an element that is neither null nor an array. Two contacts without emails, or two rows whose optional `externalId` is unset, no longer clash. `collection()` throws when `present` is on an index that is not unique, is empty, or names a field outside the index. `MemoryStore` enforces it. A declared index with `present` does not stand in for a ref's lookup index, since MongoDB does not use it for the lookup. When it has exactly the lookup's keys, the lookup index adds `id`.
+
+  A custom `CollectionStore` should honor `Index.present` in `ensure`. One that ignores it enforces the index on every row, as before.
+
 ## 0.6.0
 
 ### Minor Changes
