@@ -48,6 +48,9 @@ Each step ends with its tests passing, an independent review, a changeset and a 
 - [x] Record: [0042](../decisions/0042-conflict-names-the-clashing-fields.md).
 - [x] MemoryStore hands `work` a store of its own and runs transactions one at a time. A rollback undoes only that store's writes and indexes. A `CONFLICT` inside a transaction aborts it, as on MongoDB. An index refuses two array fields. Conformance cases for each that MongoDB shares.
 - [x] `Index` gains `present: [field]` on a unique index: the index covers only rows where each field has a value, and an array has an element that is neither null nor an array. MongoStore maps it to a `partialFilterExpression` of `$type`s, so no schema kinds are needed. Conformance cases. Record: [0043](../decisions/0043-a-unique-index-can-skip-rows-without-a-value.md).
+- [x] A unique index on a tenanted collection must include the tenant field: a compile error and a throw. A client's `CONFLICT` leaves the tenant field out. Records: [0044](../decisions/0044-a-tenanted-unique-index-includes-the-tenant-field.md), [0045](../decisions/0045-lattice-errors-are-final-at-the-client-boundary.md).
+- [x] `build().clientError(error)` and the `latticeErrors` export, so an app's own router sends Lattice's errors as the procedures do. The crm's `/auth` router and edges use them.
+- [x] `ensure()` over an index that differs from the declared one throws an error that names the existing index and says to drop it in a migration. The READMEs say migrations run before `ensure()`.
 
 ### 4. Tenancy by field, and no tenant
 
@@ -94,3 +97,4 @@ Recorded, not scheduled:
 - A partial filter cannot say `$ne: null`, but a `$type` list of every type except null, undefined and array can. On an array, `$type` matches by element, so `[]`, `[null]` and `[[1]]` are left out. A row a partial index leaves out is not checked for parallel arrays.
 - A declared index stood in for a ref's lookup index when its keys led with the ref. A partial one cannot: MongoDB 8.0 collection-scans `{ ref: id }` beside a `$type` partial index. With the same keys, MongoDB refuses the plain lookup index (code 86), so that lookup index adds `id`.
 - MongoDB compares partial filters as documents, ignoring field order, so `present: ['a','b']` and `['b','a']` are the same index.
+- `CollectionIndex`'s tenant check needs `NoInfer<Tenant>`, or TypeScript infers the tenant from a unique index's keys.

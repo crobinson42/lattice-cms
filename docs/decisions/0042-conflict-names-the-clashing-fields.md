@@ -11,6 +11,7 @@ revisit: A client needs to tell apart two unique indexes over the same fields, o
 
 - `CONFLICT` data is `{ collection, id, fields }`. `id` is the document being written. `fields` are the clashing unique index's fields as declared, tenant field included, or `['id']` when the id exists. It is `[]` when the store cannot tell, as on a MongoDB-compatible server whose error has no `keyPattern`.
 - The store sets `fields`. `MemoryStore` names the index it checked, and `MongoStore` reads the error's `keyPattern`, with `_id` as `id`.
+- A client's `CONFLICT` leaves out the collection's tenant field, which it cannot change, unless it is the only field, as in one row per tenant. Server code gets every field.
 - It stays a 409. The message is "A document with the same unique key already exists".
 
 ## Why

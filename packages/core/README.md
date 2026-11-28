@@ -377,6 +377,7 @@ export type CrmApp = ReturnType<typeof createApp>;
 | `repos` | A `Repo<C>` per collection: the objects the factories received |
 | `transaction` | `transaction(async (repos) => …)`: runs repo writes as one store transaction. See [Transactions](#transactions) |
 | `onError` | `onError(logger)` for `FetchHandler` |
+| `clientError` | `clientError(error)`: the error a client receives for a `LatticeError`, as the procedures send it, or undefined for any other. See [Errors](#errors) |
 | `context` | `context({ actor, logger })`: the context for a direct `useCases.*.execute` call |
 | `ensure` | `ensure()`: creates each collection's declared indexes, in definition order, and never drops one |
 
@@ -384,7 +385,7 @@ export type CrmApp = ReturnType<typeof createApp>;
 - `access` replaces the functions given at `.collection()` with another `Access` adapter.
 - `app` adds a fresh `access` to each call's context. A direct caller gets one from `context()`. Access answers are kept on the context, so make one per call or per job.
 - `events` must take every collection's events. One that cannot is a compile error that names each refused token.
-- Await `ensure()` after the store has started and before serving, as the CRM's [`server.ts`](#build) does.
+- Await `ensure()` after the store has started, after migrations and before serving, as the CRM's [`server.ts`](#build) does. `ensure()` never drops or changes an index. To change one, a migration drops the old one, then `ensure()` creates the declared one. An existing index that differs from the declared one makes `ensure()` throw, naming the collection and the fields; the store's README says how it matches them. A migration that needs an index to run fast creates that index itself.
 - `Framework<Actor, D, E, Tenanted>` is the definition's type.
 
 #### An override that adds a rule
@@ -841,7 +842,7 @@ export function actorContext(deps: HttpDeps) {
         code: 'FORBIDDEN',
         reason: organizationId === null ? 'no-organization' : 'not-a-member',
       });
-      throw refusal('FORBIDDEN');
+      throw deps.crm.clientError(LatticeError.FORBIDDEN());
     }
     return { actor: { userId, organizationId, role: member.role }, logger };
   };
@@ -859,7 +860,8 @@ export function actorContext(deps: HttpDeps) {
   const apiContext = async (request: Request) => {
     const logger = deps.logger.child({ requestId: requestIdOf(request) });
     const user = await signedIn(deps, request, logger, 'rpc');
-    if (user === undefined) throw refusal('UNAUTHORIZED');
+    if (user === undefined)
+      throw deps.crm.clientError(LatticeError.UNAUTHORIZED());
     return contextOf(user.userId, request, logger, 'rpc');
   };
 ```
@@ -895,9 +897,7 @@ export const authContract = router({
   organizations: procedure
     .input(z.object({}))
     .output(z.array(z.object({ id: z.string(), name: z.string() })))
-    .errors({
-      UNAUTHORIZED: { status: 401, message: 'The actor is missing or invalid' },
-    }),
+    .errors({ UNAUTHORIZED: latticeErrors.UNAUTHORIZED }),
 });
 ```
 
@@ -1063,7 +1063,7 @@ The tools run in process through the implemented router, so access, tenancy, mas
         typeof requestId !== 'string' ||
         request === undefined
       ) {
-        throw refusal('UNAUTHORIZED');
+        throw deps.crm.clientError(LatticeError.UNAUTHORIZED());
       }
       return contextOf(
         userId,
@@ -1145,7 +1145,7 @@ Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `out
 - `maskable: ['amount']` names schema fields a caller's rules may withhold; see [Field masking](#field-masking). A maskable field may not be a ref or in a unique index.
 - `label: { singular: 'person', plural: 'people' }` says how the collection reads mid-sentence, in generated summaries and the admin. Without it, the label comes from the slug: `deal_stages` reads "deal stage" and "deal stages". Declare it when the slug's singular would be wrong, as for `people` or `news`. `labelOf(slug)` returns the label a slug gets.
 - A field's label in a client such as the admin is its name in words, or its JSON Schema `title`: `amount: z.number().meta({ title: 'Deal value' })`. Zod's `.meta()` reaches the catalog, OpenAPI and MCP.
-- `indexes` lists the indexes the store creates at startup, through `build().ensure()`: `[{ fields: { stage: 1, createdAt: -1 } }, { fields: { email: 1 }, unique: true }]`. Fields are named from the stored document, so the system fields and the tenant field count; any other name is a compile error and a throw. Key order is the index's order. `present: ['emails']` makes a unique index cover only rows where each listed field has a value: not missing or null, and for an array, an element that is neither null nor an array. So two contacts without emails, or two rows whose optional `externalId` is unset, do not clash. A row the index covers is keyed by every element, null included, as without `present`. `present` needs `unique: true`, and each listed field must be one of the index's. `id` needs no index. A tenanted collection's indexes usually lead with the tenant field, because every call filters by it; Lattice does not add it for you.
+- `indexes` lists the indexes the store creates at startup, through `build().ensure()`: `[{ fields: { stage: 1, createdAt: -1 } }, { fields: { email: 1 }, unique: true }]`. Fields are named from the stored document, so the system fields and the tenant field count; any other name is a compile error and a throw. Key order is the index's order. `present: ['emails']` makes a unique index cover only rows where each listed field has a value: not missing or null, and for an array, an element that is neither null nor an array. So two contacts without emails, or two rows whose optional `externalId` is unset, do not clash. A row the index covers is keyed by every element, null included, as without `present`. `present` needs `unique: true`, and each listed field must be one of the index's. `id` needs no index. A tenanted collection's indexes usually lead with the tenant field, because every call filters by it; Lattice does not add it for you. A unique one must include it, anywhere in its keys. Without it, two tenants could not hold the same value, and a `CONFLICT` would tell one tenant what another holds. Leaving it out is a compile error and a throw.
 
 ### Catalog facts
 
@@ -1190,11 +1190,37 @@ Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `out
 
 ### Errors
 
-Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404 with `{ collection, id }`), `CONFLICT` (409 with `{ collection, id, fields }`, where `fields` are the clashing unique index's fields as declared, tenant field included, `['id']`, or `[]` when the store cannot tell) and `REFERENCED` (409 with `{ collection, id, by }`), plus the app's declared errors. `VALIDATION` is ts-pf's protocol code, with `{ path, message }[]` issues.
+Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404 with `{ collection, id }`), `CONFLICT` (409 with `{ collection, id, fields }`, where `fields` are the clashing unique index's fields as declared, `['id']`, or `[]` when the store cannot tell) and `REFERENCED` (409 with `{ collection, id, by }`), plus the app's declared errors. `VALIDATION` is ts-pf's protocol code, with `{ path, message }[]` issues.
 
 - `LatticeError` is the hexok `Errors` catalog behind those codes. Overrides and methods throw it, so they answer as the generated operations do: `LatticeError.NOT_FOUND({ collection: 'deals', id })`.
 - The app's errors are a hexok `Errors` catalog, its client map and its mapper, as in hexok's app-template: `framework({ errors: { declared, map } })`. An app code that collides with Lattice's is a compile error.
 - An error that is neither Lattice's nor mapped by the app reaches an HTTP client as `INTERNAL`. An in-process caller gets the original error.
+- Lattice's errors are final at the client boundary. The app's `map` never sees a `LatticeError`, so every app sends the same code, status and data for it, and typed clients and the admin read one shape.
+- An app's own router, such as one for sign-in or public reads, sends Lattice's errors as the procedures do. `build().clientError(error)` returns the ts-pf error a client receives for a `LatticeError`, or undefined for any other, so a middleware throws what it returns. That middleware logs the refusal, as Lattice's procedures do: `onError` logs only `INTERNAL`. A hexok `VALIDATION` is not a `LatticeError`, so `clientError` leaves it to the router. `latticeErrors` is the table of declared errors and statuses, for that router's `.errors()`. Given a `LatticeError`, `clientError`'s type has no undefined.
+
+```ts
+// examples/crm/src/servers/auth/router.ts
+  // Lattice's errors, such as a repo's, go out as /rpc sends them. A
+  // refusal is logged here, as /rpc logs it: onError logs only INTERNAL.
+  const impl = createImplementer(authContract)
+    .$context<AuthRpcCtx>()
+    .use(async ({ context, next, path }) => {
+      try {
+        return await next();
+      } catch (error) {
+        const sent = deps.crm.clientError(error);
+        if (sent === undefined) throw error;
+        context.logger.info(`auth.${path.join('.')}`, {
+          outcome: 'refused',
+          code: sent.code,
+        });
+        throw sent;
+      }
+    });
+```
+
+- A client's `CONFLICT` leaves out the collection's tenant field, which the client cannot change, unless it is the index's only field, as in one row per tenant. Server code that catches the `LatticeError`, such as an override or a repo call, gets every field.
+- `CONFLICT`'s `id` is the document being written, never the one it clashed with, so it reveals nothing about another row.
 
 ### `Repo` and `Doc`
 
@@ -1203,7 +1229,7 @@ Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (4
 - `insert` takes the schema's input type and parses it, as create does: defaults apply, unknown keys are dropped, and a failed check throws `LatticeError` `VALIDATION` with create's issues. Then it stamps `id`, `createdAt` and `updatedAt`.
 - `update` takes a typed patch of the schema's output and writes it as given, with no parse. It bumps `updatedAt`. A key set to `undefined` removes the field.
 - `update` and `remove` take `{ if }`, a `Where` the row must meet. It is checked in the same store call as the write, so nothing can change the row between the check and the write. A row that fails it is left alone and the call returns null, as a missing row does.
-- `insert` takes `{ id }`, for a row that shares another's id, such as a projection of it. The id is any non-empty string, not only a UUID, so `${eventId}:${field}` works as a deterministic id. An id that exists is `LatticeError` `CONFLICT`. Without it, the id is a new UUID. Generated create always uses a new UUID.
+- `insert` takes `{ id }`, for a row that shares another's id, such as a projection of it. The id is any non-empty string, not only a UUID, so `${eventId}:${field}` works as a deterministic id. An id that exists is `LatticeError` `CONFLICT`. Without it, the id is a new UUID. Generated create always uses a new UUID. Never pass an id a client sent: a `CONFLICT` with `fields: ['id']` would tell the client that id exists, in any tenant.
 - Each `Where` a repo takes, in `find`, `count` and `if`, is checked at runtime as an access answer is. An undefined operand or a field with no operator throws, instead of dropping a clause.
 
 ```ts

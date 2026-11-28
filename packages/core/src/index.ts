@@ -20,7 +20,7 @@ export {
   reservedFields,
 } from './collection.js';
 export { type LatticeMeta, labelOf } from './describe.js';
-export { LatticeError } from './errors.js';
+export { LatticeError, latticeErrors } from './errors.js';
 export {
   type CallContext,
   type Family,

@@ -1,4 +1,5 @@
-import { unscoped } from '@latticecms/core';
+import { LatticeError, MemoryStore, unscoped } from '@latticecms/core';
+import type { FindQuery } from '@latticecms/core/store';
 import { describe, expect, it } from 'vitest';
 import { httpSetup, refusals, rpcRequest } from '../../test/http.js';
 import { backends, storeOf } from '../../test/stores.js';
@@ -134,4 +135,43 @@ describe.each(backends)('organizations through /rpc on $name', (backend) => {
       output: { docs: [{ name: 'Acme' }, { name: 'Zeta' }] },
     });
   });
+});
+
+it('sends a Lattice error from /auth as /rpc sends it, not as INTERNAL', async () => {
+  // A store that refuses every membership read, as a repo can.
+  class Refusing extends MemoryStore {
+    override async find(query: FindQuery) {
+      if (query.collection !== 'memberships') return super.find(query);
+      throw LatticeError.NOT_FOUND({ collection: 'memberships', id: 'x' });
+    }
+  }
+  const s = httpSetup(new Refusing());
+  const ann = s.logger.records.length;
+  const token = await s.signIn('ann');
+
+  const response = await s.fetch(
+    new Request('http://localhost/auth/organizations', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ input: {} }),
+    }),
+  );
+  expect(response.status).toBe(404);
+  expect(await response.json()).toEqual({
+    ok: false,
+    error: {
+      code: 'NOT_FOUND',
+      message: 'No document with this id',
+      data: { collection: 'memberships', id: 'x' },
+    },
+  });
+  expect(
+    s.logger.records
+      .slice(ann)
+      .filter((record) => record.fields.outcome === 'refused')
+      .map((record) => [record.message, record.fields.code]),
+  ).toEqual([['auth.organizations', 'NOT_FOUND']]);
 });

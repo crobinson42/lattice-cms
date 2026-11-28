@@ -1,3 +1,4 @@
+import { latticeErrors } from '@latticecms/core';
 import { procedure, router } from '@ts-pf/contract';
 import { z } from 'zod';
 import { loginInput } from '../../app/use-cases/auth/login.js';
@@ -24,7 +25,5 @@ export const authContract = router({
   organizations: procedure
     .input(z.object({}))
     .output(z.array(z.object({ id: z.string(), name: z.string() })))
-    .errors({
-      UNAUTHORIZED: { status: 401, message: 'The actor is missing or invalid' },
-    }),
+    .errors({ UNAUTHORIZED: latticeErrors.UNAUTHORIZED }),
 });

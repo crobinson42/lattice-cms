@@ -20,7 +20,7 @@ import {
 } from '@ts-pf/contract';
 import type { DocsMeta } from '@ts-pf/docs';
 import type { McpEffect } from '@ts-pf/mcp/meta';
-import { isPFError, isUnexpectedError } from '@ts-pf/protocol';
+import { isPFError, isUnexpectedError, type PFError } from '@ts-pf/protocol';
 import {
   createImplementer,
   type ImplementedProcedure,
@@ -56,9 +56,11 @@ import {
 } from './crud.js';
 import { type EffectOf, generatedMeta, methodMeta } from './describe.js';
 import {
-  declaredErrors,
   type LatticeCode,
+  type LatticeError,
+  latticeClientError,
   latticeCodes,
+  latticeErrors,
   refusal,
   toClientError,
 } from './errors.js';
@@ -388,7 +390,7 @@ type DeclaredCheck<D> = [keyof D & LatticeCode] extends [never]
     };
 
 /** The errors every procedure declares: Lattice's, then the app's. */
-type Declared<D extends ErrorMap> = typeof declaredErrors & D;
+type Declared<D extends ErrorMap> = typeof latticeErrors & D;
 
 /**
  * A procedure as ts-pf's `procedure.input(In).output(Out)` types it: a
@@ -877,6 +879,16 @@ type UseCases<E extends Entries, Ctx> = {
   } & RelationUseCases<E, E[S], Ctx>;
 };
 
+/**
+ * The error a client receives for a LatticeError, as Lattice's procedures
+ * send it, or undefined for any other. An app's own router sends Lattice's
+ * errors through it, so both routes answer with one shape.
+ */
+type ClientError = {
+  (error: LatticeError): PFError;
+  (error: unknown): PFError | undefined;
+};
+
 /** What `build()` returns. */
 type Built<E extends Entries, D extends ErrorMap, Actor> = {
   readonly app: ImplementedRouter<Contract<E, D>, CallContext<Actor>>;
@@ -885,6 +897,7 @@ type Built<E extends Entries, D extends ErrorMap, Actor> = {
   /** Runs work on the repos as one store transaction. */
   readonly transaction: Transaction<Repos<E>>;
   readonly onError: typeof unexpectedErrors;
+  readonly clientError: ClientError;
   /**
    * Creates the indexes each collection declares, collection by collection
    * in definition order, and never drops one. Await it after the store has
@@ -1208,6 +1221,7 @@ export class Framework<
     readonly repos: RuntimeWiring['repos'];
     readonly transaction: RuntimeWiring['transaction'];
     readonly onError: typeof unexpectedErrors;
+    readonly clientError: ClientError;
     readonly ensure: () => Promise<void>;
     readonly context: (base: CallContext<Actor>) => FamilyContext<Actor>;
   } {
@@ -1530,7 +1544,19 @@ export class Framework<
         { ...sliceUseCases, ...relationUseCases[slug] },
       ]),
     );
-    const errors = clientCalls(this.family, this.errors.map);
+    const tenants = new Map(
+      this.entries.flatMap(({ collection }) =>
+        collection.tenant === undefined
+          ? []
+          : [[collection.slug, collection.tenant] as const],
+      ),
+    );
+    const errors = clientCalls(this.family, this.errors.map, tenants);
+    function clientError(error: LatticeError): PFError;
+    function clientError(error: unknown): PFError | undefined;
+    function clientError(error: unknown): PFError | undefined {
+      return latticeClientError(error, tenants);
+    }
     return {
       app: rootRouter<CallContext<Actor>>(
         createImplementer(contract).$context<CallContext<Actor>>().use(errors),
@@ -1540,6 +1566,7 @@ export class Framework<
       repos,
       transaction,
       onError: unexpectedErrors,
+      clientError,
       ensure: async () => {
         for (const { collection } of this.entries) {
           if (collection.indexes.length === 0) continue;
@@ -1578,7 +1605,7 @@ function contractOf(
   entries: readonly Entry[],
   declared: ErrorMap,
 ): RuntimeContract {
-  const call = procedure.errors({ ...declaredErrors, ...declared });
+  const call = procedure.errors({ ...latticeErrors, ...declared });
   // What a client receives of each collection's documents: each maskable
   // field optional. Where and sort stay on the stored output, so a caller
   // allowed to read a field can filter by it.
@@ -1816,6 +1843,7 @@ function isExecutable<Ctx>(
 function clientCalls<Actor>(
   family: Family<Actor>,
   map: (error: unknown) => unknown,
+  tenants: ReadonlyMap<string, string>,
 ): MiddlewareFn<CallContext<Actor>> {
   return async ({ context, next, path }) => {
     const span = tracer.startSpan(path.join('/'), { kind: SpanKind.SERVER });
@@ -1839,7 +1867,7 @@ function clientCalls<Actor>(
       if (recording) span.setAttribute('lattice.outcome', 'ok');
       return output;
     } catch (error) {
-      const sent = toClientError(error, map);
+      const sent = toClientError(error, map, tenants);
       if (!isPFError(sent) || sent.code === 'INTERNAL') {
         failed(span, error);
         throw sent;
