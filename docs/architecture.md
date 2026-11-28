@@ -393,6 +393,7 @@ interface CallAccess {
 - A default filter, such as hiding soft-deleted rows, is a `read` filter: `read: () => ({ archived: { eq: false } })`.
 - Access functions attach at `framework().collection(C, { access })`, where the actor type is known ([0021](decisions/0021-access-attaches-at-composition.md)). Each gets `{ actor }`, and `create` also gets `data`. `read`, `update`, `delete` and custom methods return `boolean | Where<Doc<C>>`; `create` returns `boolean`. A `Where` on a field the collection lacks is a compile error.
 - A `Where` result is ANDed with the caller's `where` in `find`, and is the `where` of `get`, `update` and `delete`. A caller can only narrow it. Access is never checked by loading a row and then deciding.
+- `CallAccess.scope()` checks every `Where` answer against the collection's output, from any adapter, before it reaches a store. The check is stricter than a client's `where`: a present key must hold a value and a field must name an operator, so an undefined operand cannot drop a clause. A bad answer is an app bug, a plain `Error` naming each path, never a widened filter ([0005](decisions/0005-access-and-tenancy-are-query-filters.md)). An empty `or` matches nothing, so a filter built from an empty list is allowed.
 - `false` throws one `FORBIDDEN` error. A row outside a `Where` is `NOT_FOUND`, so callers cannot probe for IDs.
 - When `@hexok/authz` ships, it becomes an adapter of this port. Its list checks must return a filter, not only a yes or no.
 

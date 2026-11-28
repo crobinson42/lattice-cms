@@ -6,7 +6,13 @@ import { LatticeError } from './errors.js';
 import type { CallContext, Family, FamilyContext } from './family.js';
 import type { Doc } from './repo.js';
 import { Scope, type Tenant, tenancy, tenantClause } from './tenancy.js';
-import { type AnyWhere, both, type FieldWhere, type Where } from './where.js';
+import {
+  type AnyWhere,
+  both,
+  checkCodeWhere,
+  type FieldWhere,
+  type Where,
+} from './where.js';
 
 /** What `Access.check` decides on: who does what to which collection. */
 export type AccessRequest<Actor> = {
@@ -276,6 +282,13 @@ export class CallAccess {
     }
     const answer = await this.answer(slug, action, data);
     if (answer === false) throw LatticeError.FORBIDDEN();
+    if (answer !== true) {
+      checkCodeWhere(
+        collection.output,
+        answer,
+        `the "${action}" access of "${slug}"`,
+      );
+    }
     if (tenant === tenancy.bypass) this.#logBypass(slug, action);
     return new Scope(
       slug,

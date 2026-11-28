@@ -110,6 +110,12 @@ function scope<C extends Tenanted>(
   if (collection.tenant === undefined) {
     throw new Error(`Lattice: "${collection.slug}" has no tenant field`);
   }
+  // As tenantOf's answer: an undefined tenant would drop the tenant clause.
+  if (typeof tenantId !== 'string' || tenantId === '') {
+    throw new Error(
+      `Lattice: tenancy.scope was given ${JSON.stringify(tenantId) ?? String(tenantId)} for "${collection.slug}"; it must be a non-empty string`,
+    );
+  }
   return new Scope(
     collection.slug,
     tenantClause(collection, tenantId),

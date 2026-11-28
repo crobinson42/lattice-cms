@@ -502,4 +502,12 @@ describe('type errors and throws', () => {
       tenancy.scope(Labels, 'o1'),
     );
   });
+
+  it('tenancy.scope with no tenant, which would drop the tenant clause', () => {
+    const loose: { organizationId?: string } = {};
+    expect(() => tenancy.scope(Notes, loose.organizationId as string)).toThrow(
+      'tenancy.scope was given undefined for "notes"; it must be a non-empty string',
+    );
+    expect(() => tenancy.scope(Notes, '')).toThrow('a non-empty string');
+  });
 });

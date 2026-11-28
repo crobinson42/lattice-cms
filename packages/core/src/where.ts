@@ -87,7 +87,9 @@ export type FieldWhere<V> = {
 
 /**
  * A filter on a collection's documents. Several fields, or several operators
- * on one field, all have to match. `and` and `or` take one or more filters.
+ * on one field, all have to match. A client's `and` and `or` take one or
+ * more filters. Server code may pass empty ones: an empty `or` matches
+ * nothing, and an empty `and` matches everything.
  */
 export type Where<Doc> = {
   readonly [K in keyof Doc]?: FieldWhere<Doc[K]>;
@@ -303,7 +305,14 @@ function operandSchema(op: string, value: z.core.$ZodType): z.core.$ZodType {
   }
 }
 
-function fieldSchema(field: z.core.$ZodType): z.core.$ZodType {
+/**
+ * How a validator marks an absent key: `z.optional` for a client's `Where`,
+ * or `z.exactOptional` for one that app code built, which refuses a key that
+ * is present but undefined.
+ */
+type Absent = (schema: z.core.$ZodType) => z.core.$ZodType;
+
+function fieldSchema(field: z.core.$ZodType, absent: Absent): z.ZodObject {
   const kind = kindOf(field);
   // An enum's values are checked by its own schema, without wrappers such as
   // catch, which would accept anything. An array's operand is one element.
@@ -316,7 +325,7 @@ function fieldSchema(field: z.core.$ZodType): z.core.$ZodType {
     Object.fromEntries(
       Object.entries(operators)
         .filter(([, kinds]) => kinds.some((k) => k === kind))
-        .map(([op]) => [op, z.optional(operandSchema(op, value))]),
+        .map(([op]) => [op, absent(operandSchema(op, value))]),
     ),
   );
 }
@@ -333,7 +342,7 @@ export function whereSchema<S extends z.ZodObject>(
 export function whereSchema(schema: z.ZodObject): z.ZodType {
   const fields = Object.fromEntries(
     Object.entries(schema.shape).map(([name, field]) => {
-      const entry = z.optional(fieldSchema(field));
+      const entry = z.optional(fieldSchema(field, z.optional));
       // The family guard refuses it for a caller who may not read it; the
       // description reaches JSON Schema, so OpenAPI and MCP say so.
       return [
@@ -351,6 +360,74 @@ export function whereSchema(schema: z.ZodObject): z.ZodType {
     or: clauses,
   });
   return where;
+}
+
+/** Each output schema's validator of code-built Wheres, built once. */
+const codeWheres = new WeakMap<z.ZodObject, z.ZodType>();
+
+/**
+ * The validator of a `Where` that app code built, on documents of
+ * `schema`. It is stricter than a client's where an undefined value would
+ * widen the filter: a key that is present must hold a value, and a field
+ * must name an operator. It is looser
+ * where code builds the filter from a list: an empty `or` is allowed, and
+ * matches nothing, and an empty `and` matches everything.
+ */
+function codeWhereSchema(schema: z.ZodObject): z.ZodType {
+  const known = codeWheres.get(schema);
+  if (known !== undefined) return known;
+  const fields = Object.fromEntries(
+    Object.entries(schema.shape).map(([name, field]) => [
+      name,
+      // A field with no operator matches every row in MemoryStore. It is
+      // what `{ eq: undefined }` becomes once it passes through JSON.
+      z.exactOptional(
+        fieldSchema(field, z.exactOptional).refine(
+          (ops) => Object.keys(ops).length > 0,
+          'a field needs at least one operator',
+        ),
+      ),
+    ]),
+  );
+  const clauses = z.exactOptional(z.array(z.lazy(() => where)));
+  const where: z.ZodType = z.strictObject({
+    ...fields,
+    and: clauses,
+    or: clauses,
+  });
+  codeWheres.set(schema, where);
+  return where;
+}
+
+/**
+ * Checks a `Where` that app code built for documents of `schema`: an access
+ * answer, or a repo's query or condition. A bad one is an app bug, so it
+ * throws a plain Error that names each path, and never reaches the store:
+ * an undefined operand would drop its clause and widen the filter (0005).
+ */
+export function checkCodeWhere(
+  schema: z.ZodObject,
+  where: AnyWhere,
+  source: string,
+): void {
+  const result = codeWhereSchema(schema).safeParse(where);
+  if (result.success) return;
+  const issues = result.error.issues
+    .map((issue) => {
+      const path = issue.path.map(String).join('.') || '(root)';
+      // Below a field name, an unknown key is an operator; elsewhere, a field.
+      const unknown =
+        typeof issue.path.at(-1) === 'string'
+          ? 'is not an operator of this field'
+          : 'is not a field';
+      const detail =
+        issue.code === 'unrecognized_keys'
+          ? `"${issue.keys.join('", "')}" ${unknown}`
+          : issue.message;
+      return `${path}: ${detail}`;
+    })
+    .join('; ');
+  throw new Error(`Lattice: ${source} has an invalid Where: ${issues}`);
 }
 
 /** Parses a `Where` on documents of `schema`, or throws `VALIDATION` naming each path. */
