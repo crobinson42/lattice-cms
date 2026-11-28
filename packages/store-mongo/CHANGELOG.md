@@ -1,5 +1,16 @@
 # @latticecms/store-mongo
 
+## 0.8.0
+
+### Minor Changes
+
+- [#16](https://github.com/crobinson42/lattice-cms/pull/16) [`912bac1`](https://github.com/crobinson42/lattice-cms/commit/912bac12148b2454318deafe2527feabe5a30c9d) Thanks [@crobinson42](https://github.com/crobinson42)! - Peers on `@latticecms/core` 0.8. `ensure()` over an index that differs and holds the declared index's default name, such as `email_1`, throws an `Error` that names it and says to drop it in a migration. The driver's error is its `cause`. An index with the declared keys, `unique` and `present`, under another name or with options Lattice does not declare, such as a TTL, now counts as ensured, where it threw before.
+
+### Patch Changes
+
+- Updated dependencies [[`8377030`](https://github.com/crobinson42/lattice-cms/commit/83770309d782eb1241bd920a9120b5b19a3eb540)]:
+  - @latticecms/core@0.8.0
+
 ## 0.7.0
 
 ### Minor Changes
