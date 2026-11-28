@@ -597,6 +597,44 @@ describe('type errors', () => {
     );
   });
 
+  it('a generic helper’s call beside a method', () => {
+    // An app's rule helper, generic in the Where it may return.
+    const allow =
+      <W = never>(rule: (actor: Actor) => boolean | W) =>
+      ({ actor }: { readonly actor: Actor }) =>
+        rule(actor);
+    typeOnly(() => [
+      framework({ family: AppUseCase }).collection(Notes, {
+        access: {
+          read: allow(() => true),
+          rename: allow((actor) => actor.roles.includes('editor')),
+        },
+        methods: { rename: RenameNote },
+      }),
+      // A plain arrow beside it keeps its actor's type.
+      framework({ family: AppUseCase }).collection(Notes, {
+        access: {
+          read: ({ actor }) => ({ ownerId: { eq: actor.userId } }),
+          rename: allow(() => true),
+        },
+        methods: { rename: RenameNote },
+      }),
+      framework({ family: AppUseCase }).collection(Notes, {
+        access: {
+          // @ts-expect-error a Where on "owner", which notes does not have
+          read: allow(() => ({ owner: { eq: 'x' } })),
+          rename: allow(() => true),
+        },
+        methods: { rename: RenameNote },
+      }),
+      // @ts-expect-error notes.rename has no access function; it is always FORBIDDEN
+      framework({ family: AppUseCase }).collection(Notes, {
+        access: { read: allow(() => true) },
+        methods: { rename: RenameNote },
+      }),
+    ]);
+  });
+
   it('a Where on an unknown field', () => {
     typeOnly(() =>
       // @ts-expect-error access.read filters on "owner", which notes does not have
