@@ -1404,6 +1404,177 @@ export const storeCases: readonly StoreCase[] = [
     },
   },
   {
+    name: 'a unique index with present skips rows without a value',
+    async run(store) {
+      await store.ensure('e_present', [
+        { fields: { org: 1, emails: 1 }, unique: true, present: ['emails'] },
+      ]);
+      const without = [
+        { org: 'o1' },
+        { org: 'o1', emails: null },
+        { org: 'o1', emails: [] },
+        { org: 'o1', emails: [null] },
+        { org: 'o1', emails: [['a']] },
+      ];
+      await seed(
+        store,
+        'e_present',
+        [...without, ...without].map((doc, at) => ({ id: `n${at}`, ...doc })),
+      );
+      await seed(store, 'e_present', [
+        { id: 'u1', org: 'o1', emails: ['a', 'b'] },
+        { id: 'u2', org: 'o2', emails: ['a'] },
+        { id: 'u3', org: 'o1', emails: [null, 'c'] },
+      ]);
+      await conflict(
+        store.insert('e_present', { id: 'u4', org: 'o1', emails: ['b'] }),
+        'e_present',
+        'u4',
+        ['org', 'emails'],
+        'insert o1 with b',
+      );
+      await conflict(
+        store.insert('e_present', { id: 'u4', org: 'o1', emails: ['c'] }),
+        'e_present',
+        'u4',
+        ['org', 'emails'],
+        'insert o1 with c, beside a null',
+      );
+    },
+  },
+  {
+    name: 'a unique index with present applies to a scalar field',
+    async run(store) {
+      await store.ensure('e_present_scalar', [
+        { fields: { externalId: 1 }, unique: true, present: ['externalId'] },
+      ]);
+      await seed(store, 'e_present_scalar', [
+        { id: 'u1' },
+        { id: 'u2' },
+        { id: 'u3', externalId: null },
+        { id: 'u4', externalId: null },
+        { id: 'u5', externalId: 'x1' },
+        { id: 'u6', externalId: 0 },
+        { id: 'u7', externalId: false },
+      ]);
+      for (const externalId of ['x1', 0, false]) {
+        await conflict(
+          store.insert('e_present_scalar', { id: 'u8', externalId }),
+          'e_present_scalar',
+          'u8',
+          ['externalId'],
+          `insert ${show(externalId)}`,
+        );
+      }
+    },
+  },
+  {
+    name: 'an update moves a row into and out of a unique index with present',
+    async run(store) {
+      await store.ensure('e_present_update', [
+        { fields: { emails: 1 }, unique: true, present: ['emails'] },
+      ]);
+      await seed(store, 'e_present_update', [
+        { id: 'u1', emails: ['a'] },
+        { id: 'u2', emails: [] },
+      ]);
+      await conflict(
+        store.update('e_present_update', 'u2', { emails: ['a'] }),
+        'e_present_update',
+        'u2',
+        ['emails'],
+        'update u2 into the index with a',
+      );
+      await store.update('e_present_update', 'u1', { emails: undefined });
+      same(
+        await store.update('e_present_update', 'u2', { emails: ['a'] }),
+        { id: 'u2', emails: ['a'] },
+        'update u2 to a once u1 left the index',
+      );
+    },
+  },
+  {
+    name: 'a unique index with present needs every listed field',
+    async run(store) {
+      await store.ensure('e_present_both', [
+        { fields: { a: 1, b: 1 }, unique: true, present: ['a', 'b'] },
+      ]);
+      await seed(store, 'e_present_both', [
+        { id: 'u1', a: 'x' },
+        { id: 'u2', a: 'x' },
+        { id: 'u3', a: 'x', b: 'y' },
+      ]);
+      await conflict(
+        store.insert('e_present_both', { id: 'u4', a: 'x', b: 'y' }),
+        'e_present_both',
+        'u4',
+        ['a', 'b'],
+        'insert x, y',
+      );
+    },
+  },
+  {
+    name: 'a row that present leaves out is not checked for parallel arrays',
+    async run(store) {
+      await store.ensure('e_present_parallel', [
+        { fields: { a: 1, b: 1 }, unique: true, present: ['a'] },
+      ]);
+      await seed(store, 'e_present_parallel', [
+        { id: 'u1', a: [], b: [1] },
+        { id: 'u2', a: [null], b: [1] },
+      ]);
+      const error = await rejection(
+        store.insert('e_present_parallel', { id: 'u3', a: [1], b: [1] }),
+        'insert a covered row with two arrays',
+      );
+      assert.match(String(error), /parallel arrays/);
+    },
+  },
+  {
+    name: 'ensuring a unique index with present skips rows without a value',
+    async run(store) {
+      await seed(store, 'e_present_dupes', [
+        { id: 'u1' },
+        { id: 'u2' },
+        { id: 'u3', email: null },
+      ]);
+      await store.ensure('e_present_dupes', [
+        { fields: { email: 1 }, unique: true, present: ['email'] },
+      ]);
+      await seed(store, 'e_present_dupes_values', [
+        { id: 'u1', email: 'a@x' },
+        { id: 'u2', email: 'a@x' },
+      ]);
+      await rejection(
+        store.ensure('e_present_dupes_values', [
+          { fields: { email: 1 }, unique: true, present: ['email'] },
+        ]),
+        'ensure over two a@x',
+      );
+    },
+  },
+  {
+    name: 'ensuring the same keys with other present rejects, in any order',
+    async run(store) {
+      const keys = { a: 1, b: 1 } as const;
+      await store.ensure('e_present_options', [
+        { fields: keys, unique: true, present: ['a', 'b'] },
+      ]);
+      await store.ensure('e_present_options', [
+        { fields: keys, unique: true, present: ['b', 'a'] },
+      ]);
+      for (const index of [
+        { fields: keys, unique: true, present: ['b'] },
+        { fields: keys, unique: true },
+      ]) {
+        await rejection(
+          store.ensure('e_present_options', [index]),
+          `ensure ${show(index)}`,
+        );
+      }
+    },
+  },
+  {
     name: 'a non-unique index changes no results',
     async run(store) {
       await store.ensure('e_plain', [{ fields: { a: 1, b: -1 } }]);

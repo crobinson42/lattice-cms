@@ -55,5 +55,6 @@ These are not decided yet. Treat them as context, not rules.
 | [0040](0040-repos-join-a-transaction-through-transaction.md) | Repos join a transaction through `transaction`, beside `repos` | default | A collection lives in a different store from another that one transaction writes, the outbox replaces held events, or apps compose use cases that each open a transaction. |
 | [0041](0041-repo-writes-take-a-condition-and-an-id.md) | Repo writes take a condition, and an insert takes an id | default | An app needs a condition on a generated update or delete from a client, or a conditional write that changes many rows at once. |
 | [0042](0042-conflict-names-the-clashing-fields.md) | CONFLICT names the clashing fields | default | A client needs to tell apart two unique indexes over the same fields, or a store cannot say which index clashed. |
+| [0043](0043-a-unique-index-can-skip-rows-without-a-value.md) | A unique index can skip rows without a value | default | A store cannot express a filter on presence, an app needs an index filtered on a value rather than on presence, or one needs a partial index that is not unique. |
 
 2 superseded records are history and not listed. Do not follow them.

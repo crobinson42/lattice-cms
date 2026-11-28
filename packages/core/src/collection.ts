@@ -280,11 +280,13 @@ export type Events<
 /**
  * An index on a collection, by the names of its stored document's fields:
  * the schema's, the system fields and the tenant field. Key order is the
- * index's key order.
+ * index's key order. `present` makes a unique index cover only documents
+ * where each listed field has a value, so rows without one never clash.
  */
 export type CollectionIndex<Doc> = {
   readonly fields: { readonly [K in keyof Doc & string]?: 1 | -1 };
   readonly unique?: boolean;
+  readonly present?: readonly (keyof Doc & string)[];
 };
 
 /** A collection's data without system fields: what create takes. */
@@ -735,7 +737,7 @@ export function collection<
   // A stored index names each field with its direction; an optional key
   // left undefined names nothing.
   const declaredIndexes: readonly Index[] = (options.indexes ?? []).map(
-    ({ fields, unique }) => ({
+    ({ fields, unique, present }) => ({
       fields: Object.fromEntries(
         Object.entries(fields).flatMap(
           ([field, direction]): [string, 1 | -1][] =>
@@ -743,6 +745,7 @@ export function collection<
         ),
       ),
       ...(unique === undefined ? {} : { unique }),
+      ...(present === undefined ? {} : { present }),
     }),
   );
   const maskable: readonly M[] = options.maskable ?? [];
@@ -762,6 +765,30 @@ export function collection<
     options.label ?? labelOf(slug),
     maskable,
   );
+}
+
+/**
+ * `present` lists fields of a unique index, at least one, each once. A
+ * partial index that is not unique serves only queries that repeat its
+ * filter, which a `Where` cannot say on MongoDB, so it is not offered.
+ */
+function checkPresent(slug: string, index: Index, keys: readonly string[]) {
+  const { present } = index;
+  if (present === undefined) return;
+  const where = `an index on "${slug}"`;
+  if (index.unique !== true) {
+    throw new Error(`Lattice: ${where} has present but is not unique`);
+  }
+  if (present.length === 0) {
+    throw new Error(`Lattice: ${where} has an empty present`);
+  }
+  for (const [at, field] of present.entries()) {
+    if (!keys.includes(field) || present.indexOf(field) !== at) {
+      throw new Error(
+        `Lattice: ${where} has present "${field}", which is not one of its fields, or is named twice`,
+      );
+    }
+  }
 }
 
 /** The generated operations, for the relation-name check. */
@@ -805,6 +832,7 @@ function define<
         `Lattice: an index on "${slug}" names "${unknown}", which is not a field`,
       );
     }
+    checkPresent(slug, index, keys);
   }
   const refs = refsOf(slug, schema.shape);
   for (const field of maskable) {
@@ -828,16 +856,23 @@ function define<
   // restrict, cascade and nullify look children up by their ref field,
   // within the tenant: each ref gets an index, unless a declared one starts
   // with the same keys, which serves the lookup as well.
-  const refIndexes = refs
-    .map(
-      ({ field }): Index => ({
-        fields:
-          tenant === undefined ? { [field]: 1 } : { [tenant]: 1, [field]: 1 },
-      }),
-    )
-    .filter(
-      (index) => !declaredIndexes.some((other) => startsWith(other, index)),
+  const refIndexes = refs.flatMap(({ field }): Index[] => {
+    const lookup: Index = {
+      fields:
+        tenant === undefined ? { [field]: 1 } : { [tenant]: 1, [field]: 1 },
+    };
+    // MongoDB uses a partial index only for a query that repeats its filter,
+    // and a lookup does not.
+    const serving = declaredIndexes.filter(
+      (other) => other.present === undefined,
     );
+    if (serving.some((other) => startsWith(other, lookup))) return [];
+    // A partial index with these exact keys takes the name MongoDB gives
+    // them, so this one adds `id`, the order the lookup reads in.
+    return declaredIndexes.some((other) => sameKeys(other, lookup))
+      ? [{ fields: { ...lookup.fields, id: 1 } }]
+      : [lookup];
+  });
   return declared<Slug, Shape, Tenant, Relations, M>(
     slug,
     label,
@@ -1013,6 +1048,14 @@ function declared<
         { ...hooks, ...next },
       ),
   };
+}
+
+/** Whether two indexes have the same keys, in the same order and directions. */
+function sameKeys(a: Index, b: Index): boolean {
+  return (
+    Object.keys(a.fields).length === Object.keys(b.fields).length &&
+    startsWith(a, b)
+  );
 }
 
 /** Whether index `a` starts with the keys of `b`, in the same order and directions. */

@@ -38,10 +38,16 @@ export type Page = { readonly docs: StoredDoc[]; readonly next: string | null };
  * the index's key order. A unique index treats a missing field as null, as
  * MongoDB does, so two documents missing it conflict. An array field keys
  * each of its elements, so two documents that share one element conflict.
+ *
+ * With `present`, the index covers only documents where each listed field
+ * has a value: not missing or null, and for an array, an element that is
+ * neither null nor an array. Each is one of `fields`. A document it does not cover is not
+ * keyed, so it never conflicts.
  */
 export type Index = {
   readonly fields: Readonly<Record<string, 1 | -1>>;
   readonly unique?: boolean;
+  readonly present?: readonly string[];
 };
 
 /**
@@ -219,7 +225,7 @@ export class MemoryStore extends Adapter(CollectionStore) {
       // Changing an index is a migration, so the same keys with other
       // options reject, as MongoDB's IndexOptionsConflict does.
       if (existing !== undefined) {
-        if ((existing.unique === true) !== (index.unique === true)) {
+        if (!sameOptions(existing, index)) {
           throw new Error(
             `MemoryStore: "${collection}" has an index on ${fields} with other options`,
           );
@@ -416,8 +422,10 @@ const emptyArray = Symbol('empty array');
  * field, a missing field as null. A compound index over an array has a key
  * per element, with the other fields' values. Two array fields in one index
  * throw, empty or not, as MongoDB's "cannot index parallel arrays" does.
+ * A document that `present` leaves out has no keys, and is never checked.
  */
 function keysOf(index: Index, doc: StoredDoc): unknown[][] {
+  if (!(index.present ?? []).every((field) => hasValue(doc[field]))) return [];
   const fields = Object.keys(index.fields);
   const arrays = fields.filter((field) => Array.isArray(doc[field]));
   if (arrays.length > 1) {
@@ -449,6 +457,31 @@ function hasDuplicates(keys: readonly unknown[][][]): boolean {
 /** Whether two documents' keys under one index share a key. */
 function shareKey(a: readonly unknown[][], b: readonly unknown[][]): boolean {
   return a.some((key) => b.some((other) => isDeepStrictEqual(key, other)));
+}
+
+/**
+ * Whether a field has a value for `present`. MongoStore's `$type` filter
+ * matches an array by its elements and does not look inside a nested one,
+ * so `[]`, `[null]` and `[[1]]` have none.
+ */
+function hasValue(value: unknown): boolean {
+  return Array.isArray(value)
+    ? value.some((element) => !Array.isArray(element) && isSet(element))
+    : isSet(value);
+}
+
+function isSet(value: unknown): boolean {
+  return value !== null && value !== undefined;
+}
+
+/** Whether two indexes with the same keys have the same options. */
+function sameOptions(a: Index, b: Index): boolean {
+  return (
+    (a.unique === true) === (b.unique === true) &&
+    // MongoDB compares partial filters as documents, whose field order
+    // does not matter: two `present` lists with the same fields agree.
+    isDeepStrictEqual(new Set(a.present ?? []), new Set(b.present ?? []))
+  );
 }
 
 /** Whether two indexes have the same keys, in the same order and directions. */
