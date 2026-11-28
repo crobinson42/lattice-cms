@@ -1,5 +1,16 @@
 # @latticecms/store-mongo
 
+## 0.6.0
+
+### Minor Changes
+
+- [#12](https://github.com/crobinson42/lattice-cms/pull/12) [`98c24f9`](https://github.com/crobinson42/lattice-cms/commit/98c24f98a01db13f04cb9b1c0a5464f047424a01) Thanks [@crobinson42](https://github.com/crobinson42)! - Peers on `@latticecms/core` 0.6. `CONFLICT` names the clashing index's fields in `data.fields`, read from the duplicate key error's `keyPattern`, with `_id` as `id`. A server that leaves `keyPattern` out gives `fields: []`.
+
+### Patch Changes
+
+- Updated dependencies [[`d2badf8`](https://github.com/crobinson42/lattice-cms/commit/d2badf86801fe4b6a31300035556f9b3c2e9a959)]:
+  - @latticecms/core@0.6.0
+
 ## 0.5.0
 
 ### Minor Changes
