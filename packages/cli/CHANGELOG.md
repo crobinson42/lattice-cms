@@ -1,5 +1,17 @@
 # @latticecms/cli
 
+## 0.5.0
+
+### Minor Changes
+
+- [#14](https://github.com/crobinson42/lattice-cms/pull/14) [`c6e37ed`](https://github.com/crobinson42/lattice-cms/commit/c6e37ed3edbd40b28f02170fc98325551e1c85f9) Thanks [@crobinson42](https://github.com/crobinson42)! - Peers on `@latticecms/core` 0.7. Upgrade core, store-mongo and the CLI together.
+
+### Patch Changes
+
+- Updated dependencies [[`c6e37ed`](https://github.com/crobinson42/lattice-cms/commit/c6e37ed3edbd40b28f02170fc98325551e1c85f9), [`5f46912`](https://github.com/crobinson42/lattice-cms/commit/5f4691253d91b04a0eb78f069e08a743229f6166)]:
+  - @latticecms/core@0.7.0
+  - @latticecms/store-mongo@0.7.0
+
 ## 0.4.0
 
 ### Minor Changes

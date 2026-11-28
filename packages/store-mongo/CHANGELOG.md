@@ -1,5 +1,16 @@
 # @latticecms/store-mongo
 
+## 0.7.0
+
+### Minor Changes
+
+- [#14](https://github.com/crobinson42/lattice-cms/pull/14) [`5f46912`](https://github.com/crobinson42/lattice-cms/commit/5f4691253d91b04a0eb78f069e08a743229f6166) Thanks [@crobinson42](https://github.com/crobinson42)! - Peers on `@latticecms/core` 0.7. An index with `present` is created with a `partialFilterExpression` that matches each listed field by `$type`, so rows without a value are left out of it.
+
+### Patch Changes
+
+- Updated dependencies [[`c6e37ed`](https://github.com/crobinson42/lattice-cms/commit/c6e37ed3edbd40b28f02170fc98325551e1c85f9)]:
+  - @latticecms/core@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes
