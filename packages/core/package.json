@@ -1,6 +1,6 @@
 {
   "name": "@latticecms/core",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Collections that compile into hexok use cases and a ts-pf contract.",
   "keywords": [
     "lattice",
