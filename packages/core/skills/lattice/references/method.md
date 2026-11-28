@@ -35,12 +35,23 @@ export class CloseDeal extends AppUseCase('deals.close', {
 ```ts
 // examples/crm/src/app/use-cases/deals/close-deal.ts
     const scope = await ctx.access.scope(Deals, 'close');
-    const deal = await this.deps.deals.get(input.id, scope);
-    if (deal === null) throw notFound(input.id);
-    if (deal.closedAt !== undefined) {
+    // The condition is checked in the same write, so two closes cannot both
+    // win: the second finds the deal closed and gets null.
+    const closed = await this.deps.deals.update(
+      input.id,
+      { stage: input.outcome, closedAt: new Date().toISOString() },
+      scope,
+      { if: { closedAt: { exists: false } } },
+    );
+    if (closed === null) {
+      const deal = await this.deps.deals.get(input.id, scope);
+      if (deal === null) throw notFound(input.id);
       throw DomainError.AlreadyClosed({ id: input.id });
     }
 ```
+
+- A rule on the row's state goes in the write's `if`, not in a check before it: two calls that read the row first could both pass. A row that fails `if` returns null, as a missing one does. Read it again to tell the two apart.
+- Writes to several rows that must agree go in `transaction(async (repos) => …)`, from the methods factory. Publish after it resolves.
 
 - A domain refusal, such as `AlreadyClosed`, is a member of the app's `Errors` catalog. The app declares it in `framework({ errors: { declared, map } })`, so a client narrows on its code and data.
 - A method publishes its own events: a hexok `Event` the app adds to its catalog, with the tenant in its payload.

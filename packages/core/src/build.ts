@@ -82,7 +82,7 @@ import {
   type Withheld,
 } from './populate.js';
 import { type CascadeFields, type RefSlugs, referrersOf } from './relations.js';
-import { type ClientDoc, type Repo, repo } from './repo.js';
+import { type ClientDoc, type Repo, repo, type Transaction } from './repo.js';
 import type { CollectionStore } from './store.js';
 import type { TenantField } from './tenancy.js';
 import { failed, tracer } from './tracing.js';
@@ -736,8 +736,15 @@ type Generated<in out E extends Entries, in Ctx> = {
  * overrides factory also receives the generated operations it may call.
  */
 type Wiring<E extends Entries, Kind, Ctx> = Kind extends 'overrides'
-  ? { readonly repos: Repos<E>; readonly generated: Generated<E, Ctx> }
-  : { readonly repos: Repos<E> };
+  ? {
+      readonly repos: Repos<E>;
+      readonly transaction: Transaction<Repos<E>>;
+      readonly generated: Generated<E, Ctx>;
+    }
+  : {
+      readonly repos: Repos<E>;
+      readonly transaction: Transaction<Repos<E>>;
+    };
 
 /**
  * One kind of instance `build()` takes: a factory that returns one instance
@@ -875,6 +882,8 @@ type Built<E extends Entries, D extends ErrorMap, Actor> = {
   readonly app: ImplementedRouter<Contract<E, D>, CallContext<Actor>>;
   readonly useCases: UseCases<E, FamilyContext<Actor>>;
   readonly repos: Repos<E>;
+  /** Runs work on the repos as one store transaction. */
+  readonly transaction: Transaction<Repos<E>>;
   readonly onError: typeof unexpectedErrors;
   /**
    * Creates the indexes each collection declares, collection by collection
@@ -948,6 +957,7 @@ type FactoryFn<Actor, W> = {
 /** What the methods factory receives, as the implementation builds it. */
 type RuntimeWiring = {
   readonly repos: Readonly<Record<string, Repo<AnyCollection>>>;
+  readonly transaction: Transaction<RuntimeWiring['repos']>;
 };
 
 /** What the overrides factory receives: also each overridden body. */
@@ -1192,6 +1202,7 @@ export class Framework<
       Record<string, Readonly<Record<string, unknown>>>
     >;
     readonly repos: RuntimeWiring['repos'];
+    readonly transaction: RuntimeWiring['transaction'];
     readonly onError: typeof unexpectedErrors;
     readonly ensure: () => Promise<void>;
     readonly context: (base: CallContext<Actor>) => FamilyContext<Actor>;
@@ -1216,12 +1227,16 @@ export class Framework<
       );
     const context = (base: CallContext<Actor>): FamilyContext<Actor> =>
       familyContext(access, base, this.family);
-    const repos = Object.fromEntries(
-      this.entries.map(({ collection }) => [
-        collection.slug,
-        repo(store, collection),
-      ]),
-    );
+    const reposOf = (on: CollectionStore) =>
+      Object.fromEntries(
+        this.entries.map(({ collection }) => [
+          collection.slug,
+          repo(on, collection),
+        ]),
+      );
+    const repos = reposOf(store);
+    const transaction: RuntimeWiring['transaction'] = (work) =>
+      store.transaction((tx) => work(reposOf(tx)));
     type Ctx = FamilyContext<Actor>;
     // Every generated operation, with its body and the class that overrides
     // it, if any: a generated use case runs the body, and an override may
@@ -1317,9 +1332,10 @@ export class Framework<
           : [[entry.collection.slug, declared]];
       }),
     );
-    const methodInstances = options.methods?.({ repos });
+    const methodInstances = options.methods?.({ repos, transaction });
     const overrideInstances = options.overrides?.({
       repos,
+      transaction,
       generated: generatedBodies,
     });
     // Each operation and method's use case, and each relation operation's,
@@ -1490,6 +1506,7 @@ export class Framework<
       ),
       useCases,
       repos,
+      transaction,
       onError: unexpectedErrors,
       ensure: async () => {
         for (const { collection } of this.entries) {

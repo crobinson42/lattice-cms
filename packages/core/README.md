@@ -375,11 +375,12 @@ export type CrmApp = ReturnType<typeof createApp>;
 | `app` | The implemented ts-pf router, for `FetchHandler` and `createLocalClient` |
 | `useCases` | The hexok instance that serves each procedure: generated, override or method, each typed precisely. Server code: it returns whole documents, unmasked. A second gateway that serves clients from it must call through `createLocalClient(app)`, or withhold maskable fields itself |
 | `repos` | A `Repo<C>` per collection: the objects the factories received |
+| `transaction` | `transaction(async (repos) => …)`: runs repo writes as one store transaction. See [Transactions](#transactions) |
 | `onError` | `onError(logger)` for `FetchHandler` |
 | `context` | `context({ actor, logger })`: the context for a direct `useCases.*.execute` call |
 | `ensure` | `ensure()`: creates each collection's declared indexes, in definition order, and never drops one |
 
-- `methods` and `overrides` are factories, `({ repos }) => instances`, keyed by slug and then name. Each is required exactly when a collection declared one. `overrides` also receives `generated`; see [An override that adds a rule](#an-override-that-adds-a-rule).
+- `methods` and `overrides` are factories, `({ repos, transaction }) => instances`, keyed by slug and then name. Each is required exactly when a collection declared one. `overrides` also receives `generated`; see [An override that adds a rule](#an-override-that-adds-a-rule).
 - `access` replaces the functions given at `.collection()` with another `Access` adapter.
 - `app` adds a fresh `access` to each call's context. A direct caller gets one from `context()`. Access answers are kept on the context, so make one per call or per job.
 - `events` must take every collection's events. One that cannot is a compile error that names each refused token.
@@ -491,7 +492,14 @@ A hand-written use case gets its filter with `ctx.access.scope(C, action)`, and 
 ```ts
 // examples/crm/src/app/use-cases/deals/close-deal.ts
 const scope = await ctx.access.scope(Deals, 'close');
-const deal = await this.deps.deals.get(input.id, scope);
+// The condition is checked in the same write, so two closes cannot both
+// win: the second finds the deal closed and gets null.
+const closed = await this.deps.deals.update(
+  input.id,
+  { stage: input.outcome, closedAt: new Date().toISOString() },
+  scope,
+  { if: { closedAt: { exists: false } } },
+);
 ```
 
 Hide rows with a `read` filter, such as soft-deleted ones. The CRM's `live` filter above hides an archived deal from `find` and `get`, and keeps it from changing.
@@ -1194,6 +1202,17 @@ Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (4
 
 - `insert` takes the schema's input type and parses it, as create does: defaults apply, unknown keys are dropped, and a failed check throws `LatticeError` `VALIDATION` with create's issues. Then it stamps `id`, `createdAt` and `updatedAt`.
 - `update` takes a typed patch of the schema's output and writes it as given, with no parse. It bumps `updatedAt`. A key set to `undefined` removes the field.
+- `update` and `remove` take `{ if }`, a `Where` the row must meet. It is checked in the same store call as the write, so nothing can change the row between the check and the write. A row that fails it is left alone and the call returns null, as a missing row does.
+- `insert` takes `{ id }`, for a row that shares another's id, such as a projection of it. An id that exists is `LatticeError` `CONFLICT`. Without it, the id is a new UUID. Generated create always uses a new UUID.
+- Each `Where` a repo takes, in `find`, `count` and `if`, is checked at runtime as an access answer is. An undefined operand or a field with no operator throws, instead of dropping a clause.
+
+```ts
+// Book a slot once: a second booking that read the same version gets null.
+const booked = await slots.update(id, { status: 'booked', version: slot.version + 1 }, scope, {
+  if: { status: { eq: 'open' }, version: { eq: slot.version } },
+});
+if (booked === null) throw DomainError.SlotTaken({ id });
+```
 
 Every call takes a scope as its last argument: the call's `Scope` from `ctx.access.scope()`, a tenant's from `tenancy.scope()`, or `unscoped`. A row outside the scope acts as missing. `unscoped` reads and writes every row; trusted code that acts for no caller passes it, such as a script. A `Scope` for another collection throws.
 
@@ -1227,6 +1246,52 @@ export class ArchiveDeal extends AppUseCase('deals.delete', {
   }
 }
 ```
+
+#### Transactions
+
+`transaction(work)` runs `work` as one unit: every write commits, or on a throw, none does. `work` receives repos bound to the transaction, and returns the value `transaction` resolves to. It is on `build()` and in both factories' wiring.
+
+```ts
+// Closes a deal and logs an activity on it: both rows, or neither.
+class CloseAndLog extends AppUseCase('deals.closeAndLog', { collection: Deals /* … */ }) {
+  constructor(
+    private readonly deps: {
+      transaction: Transaction<{ deals: Repo<typeof Deals>; activities: Repo<typeof Activities> }>;
+      events: DomainEventPublisher;
+    },
+  ) {
+    super();
+  }
+
+  async execute(ctx: AppCtx, input: { id: string }) {
+    const scope = await ctx.access.scope(Deals, 'closeAndLog');
+    const now = new Date().toISOString();
+    const closed = await this.deps.transaction(async ({ deals, activities }) => {
+      const deal = await deals.update(input.id, { stage: 'won', closedAt: now }, scope, {
+        if: { closedAt: { exists: false } },
+      });
+      if (deal === null) throw LatticeError.NOT_FOUND({ collection: Deals.slug, id: input.id });
+      await activities.insert(
+        { dealId: deal.id, kind: 'note', body: 'Closed as won', occurredAt: now, authorId: AppUseCase.actorId(ctx.actor) },
+        tenancy.scope(Activities, deal.organizationId),
+      );
+      return deal;
+    });
+    await this.deps.events.publish(new DealClosedEvent({ dealId: closed.id /* … */ })); // after the commit
+    return closed;
+  }
+}
+
+// the wiring
+methods: ({ transaction }) => ({ deals: { closeAndLog: new CloseAndLog({ transaction, events }) } }),
+```
+
+- A use case names only the repos it uses in `Transaction<R>`. The `transaction` that `build()` gives, over every repo, fits it.
+- Only calls through the repos `work` receives join the transaction. A call through the outer `repos` does not.
+- Repos publish no events. Publish after `transaction` resolves, so a rolled-back write publishes nothing.
+- `work` may run more than once: MongoDB retries a transaction on a transient error. Keep side effects out of it.
+- How atomic it is depends on the store (`CollectionStore.transaction`). `MongoStore` needs a replica set. On a standalone server, the writes run in order, with no rollback. `MemoryStore` rolls back, but does not isolate: a rollback also undoes writes that other calls made while `work` ran. It is for tests and development.
+- Do not call `transaction` inside `work`. It starts a separate transaction: on MongoDB its writes commit on their own, and a write to a row the outer one wrote waits on it. Code that runs inside a transaction takes the repos `work` received as arguments.
 
 ### `CollectionStore` and `MemoryStore`
 

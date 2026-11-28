@@ -32,13 +32,13 @@ Each step ends with its tests passing, an independent review, a changeset and a 
 
 ### 2. Repos in a transaction
 
-- [ ] `transaction(async (repos) => …)` beside `repos` in the methods and overrides factories, and on `build()`. It runs `CollectionStore.transaction` and hands the work repos bound to the transaction's store. Repos publish no events, so the app publishes after the commit. Record: a new rule.
+- [x] `transaction(async (repos) => …)` beside `repos` in the methods and overrides factories, and on `build()`. It runs `CollectionStore.transaction` and hands the work repos bound to the transaction's store. Repos publish no events, so the app publishes after the commit. Record: [0040](../decisions/0040-repos-join-a-transaction-through-transaction.md).
 
 ### 3. Conditional writes and a given id
 
-- [ ] `repo.update(id, patch, scope, { if })` and `repo.remove(id, scope, { if })`: the `if` Where is ANDed with the scope, and a failed condition returns null, like a missing row.
-- [ ] `repo.insert(data, scope, { id })`: server code inserts with its own id, such as a projection that shares its source's id. An existing id is `CONFLICT`. Generated create keeps server UUIDs.
-- [ ] Record: repo writes take a condition and an id.
+- [x] `repo.update(id, patch, scope, { if })` and `repo.remove(id, scope, { if })`: the `if` Where is ANDed with the scope, and a failed condition returns null, like a missing row.
+- [x] `repo.insert(data, scope, { id })`: server code inserts with its own id, such as a projection that shares its source's id. An existing id is `CONFLICT`. Generated create keeps server UUIDs.
+- [x] Record: repo writes take a condition and an id ([0041](../decisions/0041-repo-writes-take-a-condition-and-an-id.md)).
 
 ### 4. Tenancy by field, and no tenant
 
@@ -75,3 +75,5 @@ Recorded, not scheduled:
 
 - The walkthrough packed every package as 0.1.0, which broke once the internal peer ranges moved. It now packs each package at its own version.
 - `{ field: {} }` passed the first access check. It is what `{ eq: undefined }` becomes after JSON, as from a remote policy service, and `MemoryStore` matched every row with it. A field in a code-built `Where` now needs an operator.
+- A `transaction` called inside another's `work` starts a separate transaction. On MongoDB its writes commit on their own, and MemoryStore joined it only through a store-wide flag. 0040 says it does not nest: inner code takes the repos `work` received.
+- `MemoryStore` does not isolate concurrent transactions: a rollback undoes writes that other calls made meanwhile. The README says it is for tests and development.

@@ -37,7 +37,7 @@ export {
   type Ref,
   ref,
 } from './relations.js';
-export type { ClientDoc, Doc, Repo } from './repo.js';
+export type { ClientDoc, Doc, Repo, Transaction } from './repo.js';
 export type { Sort } from './sort.js';
 export { CollectionStore, MemoryStore } from './store.js';
 export { type Scope, tenancy } from './tenancy.js';
