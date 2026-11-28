@@ -43,7 +43,7 @@ class LockPost extends AppUseCase('posts.lock', {
 /** A store whose every insert finds the id taken. */
 class TakenStore extends MemoryStore {
   override async insert(collection: string, doc: StoredDoc): Promise<void> {
-    throw LatticeError.CONFLICT({ collection, id: doc.id });
+    throw LatticeError.CONFLICT({ collection, id: doc.id, fields: ['id'] });
   }
 }
 
@@ -215,8 +215,16 @@ describe('what a client receives', () => {
     expectTypeOf(error.data).toEqualTypeOf<{
       collection: string;
       id: string;
+      fields: string[];
     }>();
-    expect(error.data).toEqual({ collection: 'posts', id: expect.any(String) });
+    expect(error.data).toEqual({
+      collection: 'posts',
+      id: expect.any(String),
+      fields: ['id'],
+    });
+    expect(error.message).toBe(
+      'A document with the same unique key already exists',
+    );
     expect(error.status).toBe(409);
   });
 

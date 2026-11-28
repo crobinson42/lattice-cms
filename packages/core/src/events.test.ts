@@ -77,7 +77,7 @@ class DownPublisher extends Adapter(DomainEventPublisher) {
 /** A store whose every insert finds the id taken. */
 class TakenStore extends MemoryStore {
   override async insert(collection: string, doc: StoredDoc): Promise<void> {
-    throw LatticeError.CONFLICT({ collection, id: doc.id });
+    throw LatticeError.CONFLICT({ collection, id: doc.id, fields: ['id'] });
   }
 }
 

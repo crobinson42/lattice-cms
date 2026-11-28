@@ -1190,7 +1190,7 @@ Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `out
 
 ### Errors
 
-Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404 with `{ collection, id }`), `CONFLICT` (409 with `{ collection, id }`) and `REFERENCED` (409 with `{ collection, id, by }`), plus the app's declared errors. `VALIDATION` is ts-pf's protocol code, with `{ path, message }[]` issues.
+Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404 with `{ collection, id }`), `CONFLICT` (409 with `{ collection, id, fields }`, where `fields` are the clashing unique index's fields as declared, tenant field included, `['id']`, or `[]` when the store cannot tell) and `REFERENCED` (409 with `{ collection, id, by }`), plus the app's declared errors. `VALIDATION` is ts-pf's protocol code, with `{ path, message }[]` issues.
 
 - `LatticeError` is the hexok `Errors` catalog behind those codes. Overrides and methods throw it, so they answer as the generated operations do: `LatticeError.NOT_FOUND({ collection: 'deals', id })`.
 - The app's errors are a hexok `Errors` catalog, its client map and its mapper, as in hexok's app-template: `framework({ errors: { declared, map } })`. An app code that collides with Lattice's is a compile error.
@@ -1290,8 +1290,26 @@ methods: ({ transaction }) => ({ deals: { closeAndLog: new CloseAndLog({ transac
 - Only calls through the repos `work` receives join the transaction. A call through the outer `repos` does not.
 - Repos publish no events. Publish after `transaction` resolves, so a rolled-back write publishes nothing.
 - `work` may run more than once: MongoDB retries a transaction on a transient error. Keep side effects out of it.
-- How atomic it is depends on the store (`CollectionStore.transaction`). `MongoStore` needs a replica set. On a standalone server, the writes run in order, with no rollback. `MemoryStore` rolls back, but does not isolate: a rollback also undoes writes that other calls made while `work` ran. It is for tests and development.
-- Do not call `transaction` inside `work`. It starts a separate transaction: on MongoDB its writes commit on their own, and a write to a row the outer one wrote waits on it. Code that runs inside a transaction takes the repos `work` received as arguments.
+- How atomic it is depends on the store (`CollectionStore.transaction`). `MongoStore` needs a replica set. On a standalone server, the writes run in order, with no rollback. `MemoryStore` rolls back and runs transactions one at a time. It is for tests and development.
+- **A `CONFLICT` inside `work` ends the transaction.** MongoDB aborts a transaction on a duplicate key. Code that catches the `CONFLICT` and carries on never commits: the driver runs `work` again until it times out. `MemoryStore` throws at once instead. Let the `CONFLICT` end `work`, and run the transaction again:
+
+```ts
+// A ticket's number is the highest so far plus 1. Two requests can read the same
+// highest, so the unique index on number refuses one, and it runs again.
+for (let attempt = 1; ; attempt += 1) {
+  try {
+    return await this.deps.transaction(async ({ tickets }) => {
+      const scope = ctx.access.scope('tickets');
+      const { docs } = await tickets.find({ sort: ['-number'], limit: 1 }, scope);
+      return tickets.insert({ ...input, number: (docs[0]?.number ?? 0) + 1 }, scope);
+    });
+  } catch (error) {
+    if (!LatticeError.is(error) || error.code !== 'CONFLICT' || attempt === 3) throw error;
+  }
+}
+```
+
+- Do not call `transaction` inside `work`. It starts a separate transaction: its writes commit on their own, and on MongoDB a write to a row the outer one wrote conflicts, so the driver retries it, and the outer one stalls until the driver gives up. Code that runs inside a transaction takes the repos `work` received as arguments.
 
 In the overrides factory, `work` also receives `generated`, bound to the transaction. An override runs the generated operation and its own writes as one unit:
 
@@ -1334,9 +1352,9 @@ overrides: ({ transaction }) => ({ tickets: { update: new UpdateTicket({ transac
 
 `CollectionStore` is the hexok port every collection uses: `ensure`, `find`, `count`, `get`, `getMany`, `insert`, `update`, `remove` and `transaction`. A `where` on a single-row call limits the rows it can touch; a row outside it acts as missing. `MemoryStore` is the in-memory adapter, for tests and examples. It stores copies and enforces unique indexes.
 
-- `ensure(collection, indexes)` creates the indexes a collection lacks and never drops one. An `Index` is `{ fields: { status: 1, createdAt: -1 }, unique? }`. A unique index treats a missing field as null, as MongoDB does, and a write that breaks one is `CONFLICT`.
+- `ensure(collection, indexes)` creates the indexes a collection lacks and never drops one. An `Index` is `{ fields: { status: 1, createdAt: -1 }, unique? }`. A unique index treats a missing field as null, as MongoDB does, and keys each element of an array field, so two documents that share one element clash. A write that breaks one is `CONFLICT`, with the index's fields.
 - `count(collection, where?)` counts the documents that match.
-- `transaction(work)` runs `work` with a store whose calls join one unit: a commit, or on a throw, nothing. Each store makes it as atomic as it can, and a store without transactions runs `work` on itself, in order. A nested `transaction` joins the outer one. `MemoryStore` snapshots its collections and restores them on a throw; it does not isolate calls made outside `work` while it runs.
+- `transaction(work)` runs `work` with a store whose calls join one unit: a commit, or on a throw, nothing. Each store makes it as atomic as it can, and a store without transactions runs `work` on itself, in order. A `transaction` on the store `work` receives joins the outer one. `MemoryStore` hands `work` a store of its own, as MongoDB binds calls to a session, and undoes that store's writes on a throw. It runs one transaction at a time; one started on the root store from inside `work` runs beside it, as a separate one. A call on the root store runs at once, sees writes not yet committed, and is kept on a rollback. A `CONFLICT` aborts the transaction, as on MongoDB, and a call on the transaction's store after it ends throws.
 
 ### Writing a store adapter
 

@@ -246,12 +246,12 @@ await store.stop()  // closes the client
 
 - A call before `start()`, during it, or after `stop()` rejects with `MongoStoreError` (`NotStarted`, `Starting`, `Stopped`), using ioredis-lifecycle's names.
 - Each collection is a Mongo collection of the same name. `Where` translates one to one; `exists` follows Lattice's null rule, not Mongo's `$exists`, and `contains` is an escaped, case-insensitive regex. Filters are combined with `$and`, never spread, so a filter on `id` cannot replace the id lookup.
-- A duplicate key (11000) on a write is `CONFLICT` with `{ collection, id }`. `ensure` runs `createIndex`, and an options conflict or a unique index over duplicates passes through.
+- A duplicate key (11000) on a write is `CONFLICT` with `{ collection, id, fields }`, `fields` from the error's `keyPattern`, or `[]` without one. `ensure` runs `createIndex`, and an options conflict or a unique index over duplicates passes through.
 - Sorts follow three plans. With no ascending optional key, it uses a plain sort, served by an index, because Mongo already puts null last on a descending key. When the first key is the only ascending optional one, it runs two queries: rows with a value (index-served), then rows without, only when the page is short, and never once the cursor is past the values. Any other ascending optional key uses an aggregate with a computed missing flag, which sorts in memory.
 - Two known differences from `MemoryStore`. Mongo orders strings by UTF-8 bytes, which differs from JavaScript only for U+E000–U+FFFF against astral characters. `contains` folds case differently outside ASCII.
 - Tests run on `mongodb-memory-server`: one single-node replica set per run, pinned to mongod 8.0.14, with a database per test.
 - A `Patch` sets each key it has; a key set to `undefined` removes the field (Mongo `$unset`). It can never change `id`.
-- `MemoryStore` ships in `@latticecms/core` for tests and examples, the way `@hexok/logger` ships `MemoryLogger`. It enforces unique indexes as Mongo does: a missing field keys as null, `ensure` rejects a unique index over existing duplicates, and it rejects an index whose keys exist with other options.
+- `MemoryStore` ships in `@latticecms/core` for tests and examples, the way `@hexok/logger` ships `MemoryLogger`. It enforces indexes as Mongo does: a missing field keys as null, an array keys each element, two array fields in one index throw, `ensure` rejects a unique index over existing duplicates, and it rejects an index whose keys exist with other options. Each transaction hands `work` a store of its own, as a Mongo session binds calls, and undoes that store's writes on a throw. Transactions run one at a time. One started on the root store from inside `work`, found by async context, runs beside it, as Mongo's separate one does. A CONFLICT aborts a transaction: Mongo then retries `work` until it times out, and `MemoryStore` throws at once.
 - A store receives a parsed `AnyWhere`, not the typed `Where<Doc>`: validation happened before it.
 
 ### Writing a store adapter
@@ -502,7 +502,7 @@ await local.posts.find({ where: { status: { eq: 'published' } }, limit: 20 })
 | TypeScript clients | `@ts-pf/client` + `client-http`, `@ts-pf/swr`, `@ts-pf/mvc-kit` | Import `contract` only, never server code |
 | Split repos | `@ts-pf/codegen` | `.d.ts` from the catalog, plus a breaking-change check in CI |
 
-Errors are a hexok `Errors` catalog mapped once to ts-pf errors, as `app-template`'s `rpc/errors.ts` does. Procedures declare `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404), `CONFLICT` (409) and `REFERENCED` (409, `{ collection, id, by: { collection, field, relation? } }`: a `restrict` child blocks a delete; `relation: { collection, name }` names the parent relation when `by.collection` is a join collection). `VALIDATION` is not declared: it is a ts-pf protocol code, and a `LatticeError` or hexok `CodedError` `VALIDATION` is sent as it, with `{ path, message }[]` issues.
+Errors are a hexok `Errors` catalog mapped once to ts-pf errors, as `app-template`'s `rpc/errors.ts` does. Procedures declare `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404), `CONFLICT` (409, `{ collection, id, fields }`: the clashing unique index's fields, `['id']`, or `[]` when the store cannot tell) and `REFERENCED` (409, `{ collection, id, by: { collection, field, relation? } }`: a `restrict` child blocks a delete; `relation: { collection, name }` names the parent relation when `by.collection` is a join collection). `VALIDATION` is not declared: it is a ts-pf protocol code, and a `LatticeError` or hexok `CodedError` `VALIDATION` is sent as it, with `{ path, message }[]` issues.
 
 - `framework({ errors: { declared, map } })` takes the app's own client error map and mapper, the ones app-template keeps in `servers/rpc/errors.ts`, unchanged. Every procedure, generated or not, declares Lattice's codes plus the app's, so an override or method can throw an app domain error and a client narrows on it.
 - Overrides and methods throw `LatticeError` (exported) for Lattice's own codes, so an override answers a missing id with the same `NOT_FOUND` as the operation it replaces. Hand-written use cases name the document type as `Doc<typeof Deals>`.
@@ -572,7 +572,7 @@ What the built system does not do yet, or does with a known gap. Each is a candi
   - Population is one level deep, and `find` populates refs only.
 - **Repos.** `Repo.update` writes its patch as given and does not re-validate the merged document, as generated update does.
 - **Stores.**
-  - `MemoryStore.transaction` restores on a throw, but does not isolate calls made outside `work`.
+  - `MemoryStore` runs transactions one at a time. A call on the root store sees a transaction's writes before the commit, and does not wait for a row the transaction wrote, so a rollback can restore a row over it.
   - A standalone MongoDB runs a transaction's work in order, without atomicity.
   - `MemoryStore` and MongoDB differ on string order outside the BMP, and on non-ASCII case folding in `contains`.
   - One store serves every collection.

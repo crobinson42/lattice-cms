@@ -294,7 +294,11 @@ describe('family logging', () => {
     const { publish } = setup();
     const { root, logger } = requestLogger();
 
-    publish.throws = LatticeError.CONFLICT({ collection: 'posts', id: 'p1' });
+    publish.throws = LatticeError.CONFLICT({
+      collection: 'posts',
+      id: 'p1',
+      fields: ['id'],
+    });
     await expect(
       publish.execute(callContext(logger), { id: 'p1' }),
     ).rejects.toThrow();
