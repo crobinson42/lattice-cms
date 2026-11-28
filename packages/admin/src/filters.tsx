@@ -37,6 +37,8 @@ const operatorLabels: Readonly<Record<string, string>> = {
   lt: '<',
   lte: '≤',
   contains: 'contains',
+  has: 'has',
+  nhas: 'does not have',
   exists: 'exists',
 };
 

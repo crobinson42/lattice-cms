@@ -123,7 +123,7 @@ The stylesheet is compiled at the admin's build, with Tailwind's preflight and t
 - **The index:** every collection, by its label (`collection(slug, { label })`, or one from the slug).
 - **A list:**
   - Columns: the title field, then the required scalar fields in schema order, up to six in all, then `updatedAt`. The title field is the first required string among `name`, `title`, `label` and `email`, never a maskable one. A ref shows its target's title, from `find`'s `populate`.
-  - Filters: at most one condition per field, ANDed. Each field offers the operators its `where` schema allows: `is`, `is one of`, `>`, `contains`, `exists` and the rest.
+  - Filters: at most one condition per field, ANDed. Each field offers the operators its `where` schema allows: `is`, `is one of`, `>`, `contains`, `has`, `does not have`, `exists` and the rest.
   - Sort: one column, by clicking its header, for the keys `find`'s sort enum lists.
   - Pages: Next and Back over cursors. There are no page numbers ([0008](../../docs/decisions/0008-cursor-pagination.md)).
   - A count of what the filters match, from `count` with the same `where`.

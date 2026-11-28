@@ -7,7 +7,13 @@ import { noSubscribers } from './fixtures/events.js';
 import { type Forms, forms } from './fixtures/forms.js';
 import { validationPaths } from './fixtures/validation.js';
 import { collection, framework, MemoryStore, type Where } from './index.js';
-import { type KindOf, kindOf, matches, parseWhere } from './where.js';
+import {
+  type KindOf,
+  kindOf,
+  matches,
+  parseWhere,
+  whereSchema,
+} from './where.js';
 
 const Things = collection('things', {
   schema: z.object({
@@ -84,7 +90,12 @@ describe('Where type', () => {
       | undefined
     >();
     expectTypeOf<Where<Thing>['tags']>().toEqualTypeOf<
-      { readonly has?: string; readonly exists?: boolean } | undefined
+      | {
+          readonly has?: string;
+          readonly nhas?: string;
+          readonly exists?: boolean;
+        }
+      | undefined
     >();
   });
 
@@ -116,7 +127,7 @@ describe('Where type', () => {
       });
       local.things.find({
         where: {
-          // @ts-expect-error arrays take has and exists only
+          // @ts-expect-error arrays take has, nhas and exists only
           tags: { eq: ['x'] },
         },
       });
@@ -230,6 +241,16 @@ describe('matches', () => {
     expect(match({ ...doc, tags: 'x' }, { tags: { has: 'x' } })).toBe(false);
   });
 
+  it('nhas: no equal element; a missing or null array has none', () => {
+    expect(match(doc, { tags: { nhas: 'x' } })).toBe(false);
+    expect(match(doc, { tags: { nhas: 'y' } })).toBe(true);
+    expect(match({ ...doc, tags: [] }, { tags: { nhas: 'x' } })).toBe(true);
+    expect(match({ ...doc, tags: null }, { tags: { nhas: 'x' } })).toBe(true);
+    const { tags: _tags, ...noTags } = doc;
+    expect(match(noTags, { tags: { nhas: 'x' } })).toBe(true);
+    expect(match(noTags, { tags: { nhas: 'x', exists: true } })).toBe(false);
+  });
+
   it('has is validated as one element', () => {
     expect(parseWhere(Things.output, { tags: { has: 'x' } })).toEqual({
       tags: { has: 'x' },
@@ -240,6 +261,29 @@ describe('matches', () => {
     expect(() => parseWhere(Things.output, { count: { has: 1 } })).toThrow(
       LatticeError,
     );
+    expect(parseWhere(Things.output, { tags: { nhas: 'x' } })).toEqual({
+      tags: { nhas: 'x' },
+    });
+    expect(() => parseWhere(Things.output, { tags: { nhas: ['x'] } })).toThrow(
+      LatticeError,
+    );
+  });
+
+  it('has and nhas refuse null, even when an element may be null', () => {
+    // Mongo matches a missing array with `$eq: null` and not `$ne: null`,
+    // the reverse of the matcher's "a missing array has no elements".
+    const Maybe = collection('maybes', {
+      schema: z.object({ marks: z.array(z.union([z.literal('a'), z.null()])) }),
+    });
+    for (const op of ['has', 'nhas']) {
+      expect(() => parseWhere(Maybe.output, { marks: { [op]: null } })).toThrow(
+        LatticeError,
+      );
+    }
+    expect(parseWhere(Maybe.output, { marks: { nhas: 'a' } })).toEqual({
+      marks: { nhas: 'a' },
+    });
+    expect(() => z.toJSONSchema(whereSchema(Maybe.output))).not.toThrow();
   });
 
   it('eq: null matches null or missing', () => {
