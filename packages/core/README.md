@@ -373,7 +373,7 @@ export type CrmApp = ReturnType<typeof createApp>;
 | Output | What it is |
 | --- | --- |
 | `app` | The implemented ts-pf router, for `FetchHandler` and `createLocalClient` |
-| `useCases` | The hexok instance that serves each procedure: generated, override or method, each typed precisely |
+| `useCases` | The hexok instance that serves each procedure: generated, override or method, each typed precisely. Server code: it returns whole documents, unmasked. A second gateway that serves clients from it must call through `createLocalClient(app)`, or withhold maskable fields itself |
 | `repos` | A `Repo<C>` per collection: the objects the factories received |
 | `onError` | `onError(logger)` for `FetchHandler` |
 | `context` | `context({ actor, logger })`: the context for a direct `useCases.*.execute` call |
