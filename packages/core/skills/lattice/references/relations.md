@@ -71,7 +71,7 @@ expectTypeOf(got.companyId).toEqualTypeOf<
 ```
 
 - `get` populates refs and relations. `find` populates refs only.
-- A document the caller may not read, or one that is gone, is `Withheld`: `{ id }` only. Narrow with a field: `'name' in got.companyId`.
+- A document the caller may not read, or one that is gone, is `Withheld`: `{ id }` only. Narrow with a system field: `'createdAt' in got.companyId`. A schema field can be maskable or optional, and differs between collections.
 - Population runs under the caller's `read` access on the target, with its tenant. One level deep.
 - An overridden read takes no `populate`.
 

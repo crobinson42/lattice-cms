@@ -110,7 +110,7 @@ type Unknown<W, D> = W extends boolean
           ? Unknown<I, D>
           : never);
 
-type AccessError<R, M, C extends AnyCollection> =
+type AccessError<R, M, C extends AnyCollection, K> =
   | {
       [A in keyof R]: A extends AccessAction | keyof M
         ? [Unknown<R[A], Doc<C>>] extends [never]
@@ -121,21 +121,27 @@ type AccessError<R, M, C extends AnyCollection> =
   | {
       [N in Exclude<
         keyof M,
-        keyof R
+        Given<R, K>
       >]: `${C['slug']}.${N & string} has no access function; it is always FORBIDDEN`;
-    }[Exclude<keyof M, keyof R>];
+    }[Exclude<keyof M, Given<R, K>>];
+
+/** `access`'s keys: `K`, unless it widened to every string, as from `any`. */
+type Given<R, K> = string extends K ? keyof R : K;
 
 /**
  * Checks `.collection()`'s options: each `Where` names the collection's
  * fields, each key is an action or a method, and each method has a
  * function. On the options object, not on `access`: a check on `access`
  * would depend on the functions it types, and `actor` would lose its type.
+ * `K` is `access`'s keys, inferred apart from `R`: beside a method, a
+ * generic helper's call leaves `R` uninferred, and each method would read as
+ * having no function.
  */
-export type AccessCheck<R, M, C extends AnyCollection> = [
-  AccessError<R, M, C>,
+export type AccessCheck<R, M, C extends AnyCollection, K> = [
+  AccessError<R, M, C, K>,
 ] extends [never]
   ? unknown
-  : { readonly '~error': AccessError<R, M, C> };
+  : { readonly '~error': AccessError<R, M, C, K> };
 
 /**
  * The default adapter: the functions given at `.collection(C, { access })`.

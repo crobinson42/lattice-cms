@@ -98,3 +98,4 @@ Recorded, not scheduled:
 - A declared index stood in for a ref's lookup index when its keys led with the ref. A partial one cannot: MongoDB 8.0 collection-scans `{ ref: id }` beside a `$type` partial index. With the same keys, MongoDB refuses the plain lookup index (code 86), so that lookup index adds `id`.
 - MongoDB compares partial filters as documents, ignoring field order, so `present: ['a','b']` and `['b','a']` are the same index.
 - `CollectionIndex`'s tenant check needs `NoInfer<Tenant>`, or TypeScript infers the tenant from a unique index's keys.
+- `.collection()` lost `R` when an access function was a generic helper's call, such as an app's `allow<W>(...)`, beside a method. Each method read as having no access function, and a plain arrow beside it lost its `actor` type. The method check now reads `access`'s keys from a separate type parameter.

@@ -1010,6 +1010,7 @@ export class Framework<
   collection<
     C extends AnyCollection,
     const R extends AccessReturns<R, C>,
+    K extends PropertyKey,
     M extends {
       [N in keyof M]: MethodCheck<M[N], C, N, FamilyContext<Actor>>;
     } = Record<never, never>,
@@ -1023,11 +1024,11 @@ export class Framework<
        * Who may do what (0021): `read` (find and get), `create`, `update`,
        * `delete`, and one per method. A missing function denies.
        */
-      readonly access: AccessFns<Actor, R, C>;
+      readonly access: AccessFns<Actor, R, C> & { readonly [P in K]: unknown };
       readonly methods?: M;
       readonly overrides?: O;
     } & FieldsOption<Actor, C> &
-      AccessCheck<R, M, C> &
+      AccessCheck<R, M, C, K> &
       CascadeOverrideCheck<C, O>,
   ): Framework<
     Actor,

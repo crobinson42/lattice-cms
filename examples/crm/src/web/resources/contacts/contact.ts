@@ -28,11 +28,12 @@ export type ContactRef = NonNullable<
   >['docs'][number]['contactId']
 >;
 
-/** Whether the caller may read the populated contact: it has its fields. */
+/** Whether the caller may read the populated contact: it has its fields. Every
+ * populated document has `createdAt`; `Withheld` is only `{ id }`. */
 export function isReadableContact(
   contact: ContactRef,
-): contact is Extract<ContactRef, { readonly name: string }> {
-  return 'name' in contact;
+): contact is Extract<ContactRef, { readonly createdAt: string }> {
+  return 'createdAt' in contact;
 }
 
 type Inputs = InferContractInputs<typeof contract>['contacts'];

@@ -635,7 +635,7 @@ const links = await client.posts.categories.list({ id, populate: ['categoriesId'
 
 - `get` populates ref fields and `many()` relations. `find` populates ref fields only, so one page cannot fetch up to 1000 links per document; a relation on `find` is a compile error and `VALIDATION`. A relation's `list` populates its links' refs, which is how a page of links gets its documents.
 - A ref populates as the target document. A list of ids populates element-wise. A nullable or optional ref keeps its `null` or `undefined`. A relation populates as its links, each `{ ...fields, doc }`, and is in the output only when populated.
-- A populated document the caller may not read, or one that no longer exists, is `Withheld`: `{ id }` only. Narrow with a field: `'email' in post.authorId`.
+- A populated document the caller may not read, or one that no longer exists, is `Withheld`: `{ id }` only. Narrow with a system field: `'createdAt' in post.authorId`. Every populated document has one, and no rule withholds it. A schema field can be maskable or optional, and differs between collections.
 - Each target collection is read once per call, with `getMany`, for all the documents and fields that refer to it. It runs under the caller's `read` access there, which carries the tenant, and through its `afterRead`. A relation's links are read in one `find` on the join collection, inside the parent's tenant, under the parent's `read`.
 - A `read: false` on a target does not fail the read: every document of that target is `{ id }`.
 - One level deep: a populated document's own refs stay ids.

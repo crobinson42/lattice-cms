@@ -25,11 +25,12 @@ export type DealRef = NonNullable<
   >['docs'][number]['dealId']
 >;
 
-/** Whether the caller may read the populated deal: it has its fields. */
+/** Whether the caller may read the populated deal: it has its fields. Every
+ * populated document has `createdAt`; `Withheld` is only `{ id }`. */
 export function isReadableDeal(
   deal: DealRef,
-): deal is Extract<DealRef, { readonly title: string }> {
-  return 'title' in deal;
+): deal is Extract<DealRef, { readonly createdAt: string }> {
+  return 'createdAt' in deal;
 }
 
 type Inputs = InferContractInputs<typeof contract>['deals'];
