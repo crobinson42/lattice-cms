@@ -1203,7 +1203,7 @@ Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (4
 - `insert` takes the schema's input type and parses it, as create does: defaults apply, unknown keys are dropped, and a failed check throws `LatticeError` `VALIDATION` with create's issues. Then it stamps `id`, `createdAt` and `updatedAt`.
 - `update` takes a typed patch of the schema's output and writes it as given, with no parse. It bumps `updatedAt`. A key set to `undefined` removes the field.
 - `update` and `remove` take `{ if }`, a `Where` the row must meet. It is checked in the same store call as the write, so nothing can change the row between the check and the write. A row that fails it is left alone and the call returns null, as a missing row does.
-- `insert` takes `{ id }`, for a row that shares another's id, such as a projection of it. An id that exists is `LatticeError` `CONFLICT`. Without it, the id is a new UUID. Generated create always uses a new UUID.
+- `insert` takes `{ id }`, for a row that shares another's id, such as a projection of it. The id is any non-empty string, not only a UUID, so `${eventId}:${field}` works as a deterministic id. An id that exists is `LatticeError` `CONFLICT`. Without it, the id is a new UUID. Generated create always uses a new UUID.
 - Each `Where` a repo takes, in `find`, `count` and `if`, is checked at runtime as an access answer is. An undefined operand or a field with no operator throws, instead of dropping a clause.
 
 ```ts
