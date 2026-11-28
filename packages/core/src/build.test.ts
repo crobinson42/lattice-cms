@@ -250,6 +250,7 @@ describe('override checks', () => {
     expect(Object.keys(app.contract.posts)).toEqual([
       'find',
       'count',
+      'countBy',
       'get',
       'create',
       'update',
@@ -424,6 +425,7 @@ describe('build checks', () => {
     expect(Object.keys(app.contract.comments)).toEqual([
       'find',
       'count',
+      'countBy',
       'get',
       'create',
       'update',

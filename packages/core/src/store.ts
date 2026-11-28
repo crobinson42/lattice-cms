@@ -33,6 +33,27 @@ export type FindQuery = {
 /** One page of a find. `next` is null on the last page. */
 export type Page = { readonly docs: StoredDoc[]; readonly next: string | null };
 
+/** The documents that match `where`, counted by the value of `field`. */
+export type CountByQuery = {
+  readonly collection: string;
+  readonly field: string;
+  readonly where?: AnyWhere;
+  /** The most groups to return. */
+  readonly limit: number;
+};
+
+/** A value of the counted field, or null for none, and how many documents hold it. */
+export type Group = {
+  readonly key: string | number | boolean | null;
+  readonly count: number;
+};
+
+/**
+ * A grouped count (0046). Groups are sorted by count, highest first, then by
+ * key, null first. `more` is true when groups past `limit` were left out.
+ */
+export type Groups = { readonly groups: Group[]; readonly more: boolean };
+
 /**
  * An index on a collection. `fields` maps each field to its direction, in
  * the index's key order. A unique index treats a missing field as null, as
@@ -63,6 +84,12 @@ export abstract class CollectionStore extends Port('CollectionStore') {
   abstract find(query: FindQuery): Promise<Page>;
   /** How many documents match `where`. */
   abstract count(collection: string, where?: AnyWhere): Promise<number>;
+  /**
+   * How many documents that match `where` hold each value of `field`. An
+   * array counts each distinct element once per document; a missing or null
+   * value, `[]` and a null element count under `null`.
+   */
+  abstract countBy(query: CountByQuery): Promise<Groups>;
   abstract get(
     collection: string,
     id: string,
@@ -314,6 +341,22 @@ export class MemoryStore extends Adapter(CollectionStore) {
     return count;
   }
 
+  async countBy(query: CountByQuery): Promise<Groups> {
+    this.live();
+    const { collection, field, where, limit } = query;
+    const counts = new Map<Group['key'], number>();
+    for (const doc of this.rows(collection).values()) {
+      if (where !== undefined && !matches(doc, where)) continue;
+      for (const key of groupKeys(doc[field])) {
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+    const groups = [...counts]
+      .map(([key, count]) => ({ key, count }))
+      .sort((a, b) => b.count - a.count || compareKeys(a.key, b.key));
+    return { groups: groups.slice(0, limit), more: groups.length > limit };
+  }
+
   private visible(
     collection: string,
     id: string,
@@ -487,4 +530,29 @@ function sameOptions(a: Index, b: Index): boolean {
 /** Whether two indexes have the same keys, in the same order and directions. */
 function sameKeys(a: Index, b: Index): boolean {
   return isDeepStrictEqual(Object.entries(a.fields), Object.entries(b.fields));
+}
+
+/** The keys a document's value counts under: each distinct one, or null. */
+function groupKeys(value: unknown): Set<Group['key']> {
+  const values = Array.isArray(value) ? value : [value];
+  const keys = new Set<Group['key']>();
+  for (const element of values) {
+    keys.add(
+      typeof element === 'string' ||
+        typeof element === 'number' ||
+        typeof element === 'boolean'
+        ? element
+        : null,
+    );
+  }
+  if (keys.size === 0) keys.add(null);
+  return keys;
+}
+
+/** Keys in MongoDB's order: null first; a field holds one type otherwise. */
+function compareKeys(a: Group['key'], b: Group['key']): number {
+  if (a === b) return 0;
+  if (a === null) return -1;
+  if (b === null) return 1;
+  return a < b ? -1 : 1;
 }

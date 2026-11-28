@@ -53,7 +53,15 @@ function isStringArray(value: unknown): value is string[] {
   );
 }
 
-const operations = ['find', 'count', 'get', 'create', 'update', 'delete'];
+const operations = [
+  'find',
+  'count',
+  'countBy',
+  'get',
+  'create',
+  'update',
+  'delete',
+];
 
 function isLabel(value: unknown): value is LatticeMeta['label'] {
   return (

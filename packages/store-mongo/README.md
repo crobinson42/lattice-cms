@@ -73,6 +73,7 @@ Lattice uses `store.transaction(work)` for a delete that cascades or nullifies r
 - A duplicate key on `insert` or `update`, from the id or a unique index, is Lattice's `CONFLICT` with `{ collection, id, fields }`: `id` is the document being written, and `fields` are the clashing index's keys from the error's `keyPattern`, with `_id` as `id`. A server that leaves `keyPattern` out, as some MongoDB-compatible services do, gives `fields: []`.
 - `ensure(collection, indexes)` creates each index with `createIndex` and never drops one. An index with `present` gets a `partialFilterExpression` that matches each listed field by `$type`, every type but null, undefined and array. On an array field, `$type` matches by element, so `[]` and `[null]` are left out. `build().ensure()` calls it for every collection that declares indexes. MongoStore never names an index, so MongoDB gives it the default name, such as `email_1`. An existing index under that name that differs throws an `Error` that names it, with the driver's error as its `cause`. An index with the declared keys and identifying options counts as ensured, under another name or with options Lattice does not declare, such as a TTL or `hidden`. An index under another name with the same keys and other options is left alone, and the declared one is created beside it. A unique index over existing duplicates throws the driver's error. Changing an index is a migration: drop the old one there, and `ensure()` creates the new one.
 - `count` is `countDocuments`.
+- `countBy` is one aggregation: `$match`, a `$project` that turns the field into its keys (each distinct element of an array, or `null` for a missing value or `[]`), `$unwind`, `$group`, `$sort` by count and key, and `$limit` one past the limit, to tell whether there are more.
 - `has` is equality on the array field, which Mongo matches against any element. `nhas` is `$ne`, which matches when no element is equal, and matches a missing or null array.
 
 ## Migrations
@@ -143,7 +144,7 @@ The command starts the store, runs `migrate()` with a `ConsoleLogger`, stops the
 
 Each store call is one OpenTelemetry client span, a child of the active span, through `@opentelemetry/api`. With no SDK registered it is a no-op. The tracer is `@latticecms/store-mongo`.
 
-- The span is named `{operation} {collection}`, such as `find deals`, after the Mongo command the call runs: `find` (find, get, getMany), `aggregate` (count), `insert`, `findAndModify` (update, remove) and `createIndexes` (ensure).
+- The span is named `{operation} {collection}`, such as `find deals`, after the Mongo command the call runs: `find` (find, get, getMany), `aggregate` (count, countBy), `insert`, `findAndModify` (update, remove) and `createIndexes` (ensure).
 - Attributes: `db.system.name` (`mongodb`), `db.namespace` (the database), `db.operation.name` and `db.collection.name`.
 - A transaction is one `transaction` span, and the calls in it are its children.
 - A failed call sets status ERROR and `error.type`: Lattice's code, such as `CONFLICT`, or the error's name. It records no exception event, since a driver's message can quote a document's values, such as a duplicate key.

@@ -258,7 +258,7 @@ export function applyMask(
 }
 
 /**
- * Refuses, as VALIDATION, a `where` or `sort` on find or count, or an
+ * Refuses, as VALIDATION, a `where`, `sort` or countBy `field` on a read, or an
  * update patch, that names a field withheld from the caller (0031, 0035).
  * A query would reveal it through which rows match or their order, and an
  * update would change a value the caller cannot see. The family guard runs
@@ -274,7 +274,14 @@ export async function refuseWithheld(
   action: string,
   input: unknown,
 ): Promise<void> {
-  if (action !== 'find' && action !== 'count' && action !== 'update') return;
+  if (
+    action !== 'find' &&
+    action !== 'count' &&
+    action !== 'countBy' &&
+    action !== 'update'
+  ) {
+    return;
+  }
   const withheld = await CallAccess.withheld(access, collection);
   if (withheld.size === 0) return;
   const issues =
@@ -301,7 +308,7 @@ function withheldWrites(
     }));
 }
 
-/** The where and sort paths that name a withheld field, for VALIDATION issues. */
+/** The where, sort and field paths that name a withheld field, for VALIDATION issues. */
 function withheldPaths(
   input: unknown,
   withheld: ReadonlySet<string>,
@@ -322,6 +329,9 @@ function withheldPaths(
   };
   if (!isRecord(input)) return issues;
   where(input.where, ['where']);
+  if (typeof input.field === 'string' && withheld.has(input.field)) {
+    issues.push({ path: ['field'], message: message(input.field) });
+  }
   const { sort } = input;
   if (Array.isArray(sort)) {
     sort.forEach((key, index) => {

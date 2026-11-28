@@ -13,7 +13,10 @@ export {
 } from '../sort.js';
 export {
   CollectionStore,
+  type CountByQuery,
   type FindQuery,
+  type Group,
+  type Groups,
   type Index,
   type Page,
   type Patch,

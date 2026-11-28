@@ -83,6 +83,10 @@ describe('procedure meta', () => {
     ).toEqual({
       'posts/find': ['read', `Find posts. ${query}`],
       'posts/count': ['read', 'Count posts. Filter with where.'],
+      'posts/countBy': [
+        'read',
+        'Count posts by each value of one field, most first. Filter with where.',
+      ],
       'posts/get': ['read', 'Get one post by id.'],
       'posts/create': ['write', 'Create one post.'],
       'posts/update': [
@@ -95,6 +99,10 @@ describe('procedure meta', () => {
       'posts/publish': ['write', 'Publish a post by its id.'],
       'deals/find': ['read', `Find deals. ${query}`],
       'deals/count': ['read', 'Count deals. Filter with where.'],
+      'deals/countBy': [
+        'read',
+        'Count deals by each value of one field, most first. Filter with where.',
+      ],
       'deals/get': ['read', 'Get one deal by id.'],
       'deals/create': ['write', 'Create one deal.'],
       'deals/update': [
@@ -107,6 +115,10 @@ describe('procedure meta', () => {
         `Find tasks. ${query} populate expands dealId, relatedIds into documents.`,
       ],
       'tasks/count': ['read', 'Count tasks. Filter with where.'],
+      'tasks/countBy': [
+        'read',
+        'Count tasks by each value of one field, most first. Filter with where.',
+      ],
       'tasks/get': [
         'read',
         'Get one task by id. populate expands dealId, relatedIds into documents.',
@@ -120,6 +132,10 @@ describe('procedure meta', () => {
       // A declared label, where the slug's would be wrong.
       'people/find': ['read', `Find people. ${query}`],
       'people/count': ['read', 'Count people. Filter with where.'],
+      'people/countBy': [
+        'read',
+        'Count people by each value of one field, most first. Filter with where.',
+      ],
       'people/get': [
         'read',
         'Get one person by id. populate expands boards into documents.',
@@ -161,6 +177,11 @@ describe('procedure meta', () => {
         collection: 'posts',
         label: label('post', 'posts'),
         operation: 'count',
+      },
+      'posts/countBy': {
+        collection: 'posts',
+        label: label('post', 'posts'),
+        operation: 'countBy',
       },
       'posts/get': {
         collection: 'posts',
@@ -526,7 +547,7 @@ function whereOf(key: string): unknown {
 
 describe('a maskable field in a query', () => {
   it('says, in where, that a caller who may not read it is refused', () => {
-    for (const key of ['deals/find', 'deals/count']) {
+    for (const key of ['deals/find', 'deals/count', 'deals/countBy']) {
       const where = whereOf(key);
       expect(at(where, ['properties', 'amount', 'description'])).toBe(
         'Refused (VALIDATION) when the caller may not read amount.',
@@ -546,6 +567,17 @@ describe('a maskable field in a query', () => {
     );
     expect(
       at(inputOf('tasks/find'), ['properties', 'sort', 'description']),
+    ).toBeUndefined();
+  });
+
+  it("says so in countBy's field", () => {
+    expect(
+      at(inputOf('deals/countBy'), ['properties', 'field', 'description']),
+    ).toBe(
+      'The field to count by. Counting by amount, note is refused (VALIDATION) when the caller may not read it.',
+    );
+    expect(
+      at(inputOf('tasks/countBy'), ['properties', 'field', 'description']),
     ).toBeUndefined();
   });
 });

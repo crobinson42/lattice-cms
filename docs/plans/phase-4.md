@@ -86,6 +86,8 @@ Recorded, not scheduled:
 
 ## Discoveries
 
+- A grouped count could not be a `count` option: ts-pf types a procedure's output from its `.expand()` list, not from a scalar input, so `count({ groupBy })` would have typed both outputs as optional. It is `countBy` (0046). A built app's inferred type now names `GroupableField`, so core exports it, as it exports `Sort`.
+- countBy costs the crm about 6k type instantiations per collection, 8% in all. The cheaper-looking forms of `GroupableField` cost the same or more: the cost is the typed client and MCP evaluating one more procedure. The crm budgets rose to 565k and 580k.
 - The walkthrough packed every package as 0.1.0, which broke once the internal peer ranges moved. It now packs each package at its own version.
 - `{ field: {} }` passed the first access check. It is what `{ eq: undefined }` becomes after JSON, as from a remote policy service, and `MemoryStore` matched every row with it. A field in a code-built `Where` now needs an operator.
 - A `transaction` called inside another's `work` starts a separate transaction. On MongoDB its writes commit on their own, and MemoryStore joined it only through a store-wide flag. 0040 says it does not nest: inner code takes the repos `work` received.

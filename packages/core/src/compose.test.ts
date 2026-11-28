@@ -98,6 +98,7 @@ describe('the definition', () => {
     expect(Object.keys(definition.contract.posts)).toEqual([
       'find',
       'count',
+      'countBy',
       'get',
       'create',
       'update',
@@ -446,13 +447,14 @@ describe('load time', () => {
     expect(Object.keys(definition.contract.posts)).toEqual([
       'find',
       'count',
+      'countBy',
       'get',
       'create',
       'update',
       'delete',
       'publish',
     ]);
-    expect(Object.keys(definition.contract.comments)).toHaveLength(6);
+    expect(Object.keys(definition.contract.comments)).toHaveLength(7);
   });
 });
 

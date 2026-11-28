@@ -13,7 +13,7 @@ metadata:
 
 # Lattice
 
-Import from `@latticecms/core`. A collection is a slug and a Zod schema. `framework()` compiles each one into hexok use cases, hexok events and a ts-pf contract, with `find`, `count`, `get`, `create`, `update` and `delete`. Every generated piece is a real hexok `UseCase` and `Event`, and a real ts-pf procedure, so hand-written code takes its place with the same types.
+Import from `@latticecms/core`. A collection is a slug and a Zod schema. `framework()` compiles each one into hexok use cases, hexok events and a ts-pf contract, with `find`, `count`, `countBy`, `get`, `create`, `update` and `delete`. Every generated piece is a real hexok `UseCase` and `Event`, and a real ts-pf procedure, so hand-written code takes its place with the same types.
 
 The app owns authentication, HTTP, the store's lifecycle, migrations' timing and the worker. Lattice owns the collection's procedures, its access and tenant filters, masking, population and its events.
 

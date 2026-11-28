@@ -1143,6 +1143,137 @@ export const storeCases: readonly StoreCase[] = [
     },
   },
 
+  // ---------------------------------------------------------------- countBy
+  {
+    name: 'countBy on an empty or unknown collection has no groups',
+    async run(store) {
+      same(
+        await store.countBy({
+          collection: 'g_none',
+          field: 'status',
+          limit: 10,
+        }),
+        { groups: [], more: false },
+        'countBy of an unknown collection',
+      );
+    },
+  },
+  {
+    name: 'countBy counts by value, most first, then by key with null first',
+    async run(store) {
+      await seed(store, 'g_scalar', [
+        post('p1', { status: 'open', n: 2, flag: true }),
+        post('p2', { status: 'open', n: 1, flag: false }),
+        post('p3', { status: 'closed', n: 2, flag: true }),
+        post('p4', { status: null, n: 1 }),
+        { id: 'p5', title: 'Post p5', n: 3, flag: false },
+        post('p6', { status: 'draft', n: 3, flag: true }),
+      ]);
+      const by = (field: string, where?: AnyWhere) =>
+        store.countBy({
+          collection: 'g_scalar',
+          field,
+          limit: 10,
+          ...(where === undefined ? {} : { where }),
+        });
+      same(
+        await by('status'),
+        {
+          groups: [
+            { key: null, count: 2 },
+            { key: 'open', count: 2 },
+            { key: 'closed', count: 1 },
+            { key: 'draft', count: 1 },
+          ],
+          more: false,
+        },
+        'countBy a string, with a missing and a null value',
+      );
+      same(
+        (await by('n')).groups,
+        [
+          { key: 1, count: 2 },
+          { key: 2, count: 2 },
+          { key: 3, count: 2 },
+        ],
+        'countBy a number',
+      );
+      same(
+        (await by('flag')).groups,
+        [
+          { key: true, count: 3 },
+          { key: false, count: 2 },
+          { key: null, count: 1 },
+        ],
+        'countBy a boolean',
+      );
+      same(
+        (await by('status', { n: { gt: 1 } })).groups,
+        [
+          { key: null, count: 1 },
+          { key: 'closed', count: 1 },
+          { key: 'draft', count: 1 },
+          { key: 'open', count: 1 },
+        ],
+        'countBy with where',
+      );
+    },
+  },
+  {
+    name: 'countBy an array counts each distinct element once per document',
+    async run(store) {
+      await seed(store, 'g_array', [
+        post('p1', { tags: ['a', 'b', 'a'] }),
+        post('p2', { tags: ['b'] }),
+        post('p3', { tags: [] }),
+        post('p4', { tags: [null, 'c'] }),
+        post('p5'),
+      ]);
+      same(
+        await store.countBy({
+          collection: 'g_array',
+          field: 'tags',
+          limit: 10,
+        }),
+        {
+          groups: [
+            { key: null, count: 3 },
+            { key: 'b', count: 2 },
+            { key: 'a', count: 1 },
+            { key: 'c', count: 1 },
+          ],
+          more: false,
+        },
+        'countBy an array field',
+      );
+    },
+  },
+  {
+    name: 'countBy cuts at limit and says there are more',
+    async run(store) {
+      await seed(store, 'g_limit', [
+        post('p1', { status: 'a' }),
+        post('p2', { status: 'b' }),
+        post('p3', { status: 'b' }),
+        post('p4', { status: 'c' }),
+      ]);
+      const at = (limit: number) =>
+        store.countBy({ collection: 'g_limit', field: 'status', limit });
+      same(
+        await at(2),
+        {
+          groups: [
+            { key: 'b', count: 2 },
+            { key: 'a', count: 1 },
+          ],
+          more: true,
+        },
+        'countBy past its limit',
+      );
+      same((await at(3)).more, false, 'countBy at exactly its limit');
+    },
+  },
+
   // ---------------------------------------------------------------- ensure
   {
     name: 'ensure is idempotent and never drops an index',

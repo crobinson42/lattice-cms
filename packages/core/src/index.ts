@@ -27,6 +27,7 @@ export {
   type FamilyContext,
   family,
 } from './family.js';
+export type { GroupableField } from './group.js';
 export type { Withheld } from './populate.js';
 export {
   type JoinShape,

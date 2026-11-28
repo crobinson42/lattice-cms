@@ -35,7 +35,7 @@ const editable = () => ({
 
 ## How it works
 
-- `access` has one function per action: `read` (find, count and get), `create`, `update`, `delete`, and one per method.
+- `access` has one function per action: `read` (find, count, countBy and get), `create`, `update`, `delete`, and one per method.
 - Each function receives `{ actor }`, typed by the family's actor schema. `create` also receives `data`, its parsed input.
 - `read`, `update`, `delete` and a method return `boolean` or a `Where` on the collection's documents, or a promise of one. `create` returns `boolean`.
 - `true` allows every row. `false` refuses the call with `FORBIDDEN`. A `Where` limits the call to the rows that match: a row outside it is `NOT_FOUND` on get, update and delete, and `find` never returns it.

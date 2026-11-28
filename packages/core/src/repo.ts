@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import { unscoped, whereOf } from './access.js';
 import type { AnyCollection } from './collection.js';
 import { LatticeError, parse } from './errors.js';
+import { type GroupableField, type GroupsOf, maxGroups } from './group.js';
 import { defaultLimit, defaultSort, keyOf, type Sort } from './sort.js';
 import type { CollectionStore, FindQuery, Patch, StoredDoc } from './store.js';
 import { type Scope, type TenantField, withoutTenant } from './tenancy.js';
@@ -32,6 +33,14 @@ export type RepoQuery<D> = {
   readonly limit?: number;
   /** The `next` cursor of the previous page. */
   readonly after?: string;
+};
+
+/** What `Repo.countBy` counts: the documents matching `where`, by `field`. */
+export type RepoCountBy<D, F extends GroupableField<D>> = {
+  readonly field: F;
+  readonly where?: Where<D>;
+  /** The most groups to return. */
+  readonly limit?: number;
 };
 
 /**
@@ -76,6 +85,14 @@ export interface Repo<C extends AnyCollection> {
   }>;
   /** How many documents in scope match `where`. */
   count(where: Where<Doc<C>>, scope: RepoScope<C>): Promise<number>;
+  /**
+   * How many documents in scope that match `where` hold each value of
+   * `field`, as the generated countBy counts. `limit` defaults to 1000.
+   */
+  countBy<F extends GroupableField<Doc<C>>>(
+    query: RepoCountBy<Doc<C>, F>,
+    scope: RepoScope<C>,
+  ): Promise<GroupsOf<Doc<C>, F>>;
   /**
    * Parses `data` with the collection's schema, as create does: defaults
    * apply, unknown keys are dropped, and a failed check is VALIDATION. Then
@@ -250,6 +267,16 @@ export function repo(
     }
     return where;
   };
+  // A store passes the limit to its database, so a bad one would fail there
+  // in one store and return a wrong page in another.
+  const counted = (limit: number | undefined, source: string) => {
+    if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1)) {
+      throw new Error(
+        `${source} on "${slug}": limit must be a positive integer, got ${limit}`,
+      );
+    }
+    return limit;
+  };
   // Each method is async, so a scope for another collection rejects, as a
   // store failure would, rather than throwing before a promise exists.
   return {
@@ -264,13 +291,26 @@ export function repo(
         checked(query.where, 'a repo find'),
         whereOf(slug, scope),
       );
-      return store.find(findQuery(collection, { ...query, where }));
+      const limit = counted(query.limit, 'a repo find');
+      return store.find(findQuery(collection, { ...query, where, limit }));
     },
     async count(where, scope) {
       return store.count(
         slug,
         both(checked(where, 'a repo count'), whereOf(slug, scope)),
       );
+    },
+    async countBy(query, scope) {
+      const where = both(
+        checked(query.where, 'a repo countBy'),
+        whereOf(slug, scope),
+      );
+      return store.countBy({
+        collection: slug,
+        field: query.field,
+        limit: counted(query.limit, 'a repo countBy') ?? maxGroups,
+        ...(where === undefined ? {} : { where }),
+      });
     },
     async insert(data, scope, options) {
       // A new row has no filter to meet, but a scope for another collection

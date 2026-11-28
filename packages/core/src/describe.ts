@@ -13,6 +13,7 @@ import { type McpEffect, mcp } from '@ts-pf/mcp/meta';
 type GeneratedOp =
   | 'find'
   | 'count'
+  | 'countBy'
   | 'get'
   | 'create'
   | 'update'
@@ -29,6 +30,7 @@ type GeneratedOp =
 export type EffectOf<Op extends GeneratedOp> = Op extends
   | 'find'
   | 'count'
+  | 'countBy'
   | 'get'
   | 'list'
   ? 'read'
@@ -39,6 +41,7 @@ export type EffectOf<Op extends GeneratedOp> = Op extends
 const effects: { readonly [Op in GeneratedOp]: EffectOf<Op> } = {
   find: 'read',
   count: 'read',
+  countBy: 'read',
   get: 'read',
   list: 'read',
   create: 'write',
@@ -64,6 +67,7 @@ export type LatticeMeta =
       readonly operation:
         | 'find'
         | 'count'
+        | 'countBy'
         | 'get'
         | 'create'
         | 'update'
@@ -157,6 +161,8 @@ function summaryOf(described: Described): string {
       return `Find ${plural}. ${query}${populate}`;
     case 'count':
       return `Count ${plural}. Filter with where.`;
+    case 'countBy':
+      return `Count ${plural} by each value of one field, most first. Filter with where.`;
     case 'get':
       return `Get one ${singular} by id.${populate}`;
     case 'create':
@@ -224,6 +230,11 @@ export function methodMeta<Fx extends McpEffect>(method: {
 /** A `where` entry's description for a maskable field. */
 export function refusedWhere(field: string): string {
   return `Refused (VALIDATION) when the caller may not read ${field}.`;
+}
+
+/** A countBy `field` description for a collection with maskable fields. */
+export function refusedGroup(fields: readonly string[]): string {
+  return `The field to count by. Counting by ${fields.join(', ')} is refused (VALIDATION) when the caller may not read it.`;
 }
 
 /** A `sort` description for a collection with maskable fields. */

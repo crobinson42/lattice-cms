@@ -314,7 +314,7 @@ export {
 
 `framework({ family, errors? })` starts a definition. `errors` is the app's `{ declared, map }`; an app with no domain errors leaves it out.
 
-`.collection(C, { access, fields?, methods?, overrides? })` adds a collection. Its slug becomes a contract slice with `find`, `count`, `get`, `create`, `update` and `delete`. `access` is required; see [Access](#access).
+`.collection(C, { access, fields?, methods?, overrides? })` adds a collection. Its slug becomes a contract slice with `find`, `count`, `countBy`, `get`, `create`, `update` and `delete`. `access` is required; see [Access](#access).
 
 - `fields: { amount: { read } }` gives each maskable field its read rule, and is required exactly when `C` has one; see [Field masking](#field-masking).
 - `methods: { name: Class }` adds a procedure. `overrides: { action: Class }` replaces a generated one.
@@ -430,7 +430,7 @@ export class UpdateDeal extends AppUseCase('deals.update', {
 ```
 
 - `generated.<slug>.<operation>(ctx, input)` runs that generated operation: it parses the input, takes the call's access scope, runs the hooks, writes, and publishes the event. A relation's is `generated.<slug>.<relation>.<op>`. It holds only the operations the app overrides: `generated.deals.update` exists because deals overrides update, and `generated.companies.create` does not.
-- Each body checks what its own action needs: create's access, with the data it writes; a field withheld from the caller in an update patch, or in a find's or count's `where` or `sort`; and a read's `populate` keys. So a call from another override, such as a create override that calls `generated.deals.update`, skips nothing.
+- Each body checks what its own action needs: create's access, with the data it writes; a field withheld from the caller in an update patch, in a read's `where` or `sort`, or as countBy's `field`; and a read's `populate` keys. So a call from another override, such as a create override that calls `generated.deals.update`, skips nothing.
 - It runs no guards, logging or spans. The override's own use case has run them, so they run once, and the access function runs once.
 - It is typed as a direct caller sees the generated use case: it takes the schema's input type and returns the stored document. The router masks the override's result, as it masks every result.
 - An override that changes what the operation does, such as `ArchiveDeal`, writes through `repos` instead, and publishes its own events.
@@ -476,7 +476,7 @@ expect(again.error.status).toBe(409);
 
 Access decides what a call may see and change. It is a filter in the query: Lattice never loads a row and then decides whether the caller may see it.
 
-`.collection(C, { access })` takes one function per action: `read` (find, count and get), `create`, `update`, `delete`, and one per method.
+`.collection(C, { access })` takes one function per action: `read` (find, count, countBy and get), `create`, `update`, `delete`, and one per method.
 
 - Each function receives `{ actor }`, typed by the family's actor schema. `create` also receives `data`, its parsed input.
 - `read`, `update`, `delete` and a method return `boolean` or a `Where` on `C`'s documents, or a promise of one. `create` returns `boolean`.
@@ -505,7 +505,7 @@ const closed = await this.deps.deals.update(
 
 Hide rows with a `read` filter, such as soft-deleted ones. The CRM's `live` filter above hides an archived deal from `find` and `get`, and keeps it from changing.
 
-`Access` is the hexok port behind this. `build({ access })` takes another adapter of it. Its `check({ actor, collection, action, data? })` returns `boolean` or a `Where`; `action` is `find`, `count`, `get`, `create`, `update`, `delete` or a method's name, and `data` is passed for `create` only. Its `readable({ actor, collection, fields })` returns which of a collection's maskable fields the actor may read; a field it leaves out is withheld, so an adapter that forgets one withholds it.
+`Access` is the hexok port behind this. `build({ access })` takes another adapter of it. Its `check({ actor, collection, action, data? })` returns `boolean` or a `Where`; `action` is `find`, `count`, `countBy`, `get`, `create`, `update`, `delete` or a method's name, and `data` is passed for `create` only. Its `readable({ actor, collection, fields })` returns which of a collection's maskable fields the actor may read; a field it leaves out is withheld, so an adapter that forgets one withholds it.
 
 ### Tenancy
 
@@ -680,7 +680,7 @@ export const Deals = collection('deals', {
 
 - A withheld field is left out of what a client receives: `get`, `find`, `create`, `update` and `delete`, a relation's `list`, and documents populated into another collection's read, under the caller's rule for that collection. It is masked where every procedure returns to a client (HTTP, `createLocalClient`, MCP), so overrides and methods are masked too.
 - A client's type has the field optional: `deal.amount` is `number | undefined`, for every caller, since types cannot follow the actor. `ClientDoc<C>` names that document; `Doc<C>` stays the stored one.
-- A `where` or a `sort` on a field the caller may not read, at any depth, on `find` or `count`, is `VALIDATION` naming its path. So no filter, count, order or cursor reveals it. A caller who may read it filters and sorts as usual.
+- A `where` or a `sort` on a field the caller may not read, at any depth, on `find`, `count` or `countBy`, or countBy's `field`, is `VALIDATION` naming its path. So no filter, count, order or cursor reveals it. A caller who may read it filters and sorts as usual.
 - An `update` whose patch names a field the caller may not read, with a value or `null`, is `VALIDATION` at its path: `"amount" is not readable, so it cannot be changed`. A caller cannot see what the write would destroy. The family's guard checks it, so an override of `update` is refused too. `create` still takes the field, so a caller who may not read a required maskable field can create the document.
 - A method that returns a collection's documents declares `output: Deals.clientOutput`, or a schema built from it (`.extend()`, `.pick()`, `shape.amount`). An output that holds a maskable field where it is required, such as `Deals.output`, throws at `build()`, and so does an output Lattice cannot see through (`z.lazy()`, a transform, `z.custom()`, `z.unknown()`, `z.any()`) in an app with a maskable field.
 - Server code sees whole documents: repos, direct `useCases.*.execute` calls and events' `doc`. A page rendered for a user calls through `createLocalClient`. Masking for a webhook happens where the webhook maps the event.
@@ -757,6 +757,7 @@ Each generated procedure carries `docs({ summary })` and `mcp({ effect })` in it
 | --- | --- | --- |
 | `find` | `read` | Find deals. Filter with where, order with sort, and page with limit and after (the previous page’s next). populate expands companyId into documents. |
 | `count` | `read` | Count deals. Filter with where. |
+| `countBy` | `read` | Count deals by each value of one field, most first. Filter with where. |
 | `get` | `read` | Get one deal by id. populate expands companyId into documents. |
 | `create` | `write` | Create one deal. |
 | `update` | `write` | Update one deal by id. Send only the fields to change, and null to clear an optional one. |
@@ -1182,6 +1183,23 @@ Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `out
 
 `count` takes `{ where? }` and returns `{ count }`: how many documents `find` would return across every page. It runs `read` access and the tenant clause, as `find` does, validates `where` the same way, and writes one log line. A list that needs a total calls `find` and `count` side by side; `find` never counts.
 
+`countBy` takes `{ field, where?, limit? }` and returns `{ groups: { key, count }[], more }`: how many matching documents hold each value of `field`. It runs `read` access and the tenant clause, as `count` does, and writes one log line ([0046](../../docs/decisions/0046-a-grouped-count-is-its-own-operation.md)).
+
+```ts
+// Open tickets per project, for a list of projects, in one call.
+const { groups } = await client.tickets.countBy({
+  field: 'projectId',
+  where: { projectId: { in: projectIds }, status: { eq: 'open' } },
+});
+const openIn = new Map(groups.map(({ key, count }) => [key, count]));
+```
+
+- `field` is a string, number, enum or boolean field, or an array of strings, numbers or enum values. The system fields are not. Any other name is a type error and `VALIDATION`; its JSON Schema lists the fields it accepts.
+- An array counts each distinct element once per document. A missing or null value, `[]` and a null element count under `key: null`. A project with no tickets has no group: read it as 0.
+- Groups are sorted by count, highest first, then by key, `null` first. `limit` is 1 to 1000, default 1000. Past it, the result is cut and `more` is `true`, so a screen keeps working as data grows.
+- `key` is `string | number | boolean | null` on a client, since one output serves every field. `Repo.countBy` types it from the field.
+- The tenant field is `VALIDATION` unless the call bypasses tenancy: any other caller sees one tenant, so its count by tenant is its total.
+
 `update` takes `{ id }` and the fields to change. A field left out keeps its value, and a patch never applies a default.
 
 - `null` clears an optional field with no default: the key is removed, and the `updated` event's `doc` lacks it. Its JSON Schema, and so its client type, takes `null`: `closedAt?: string | null`.
@@ -1224,13 +1242,14 @@ Every procedure declares `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (4
 
 ### `Repo` and `Doc`
 
-`Repo<C>` is a typed view of the store for one collection: `get`, `getMany`, `find`, `count`, `insert`, `update` and `remove`. Use it in hand-written use cases and event handlers. It is trusted: it runs no hooks, no events and no access check.
+`Repo<C>` is a typed view of the store for one collection: `get`, `getMany`, `find`, `count`, `countBy`, `insert`, `update` and `remove`. Use it in hand-written use cases and event handlers. It is trusted: it runs no hooks, no events and no access check.
 
 - `insert` takes the schema's input type and parses it, as create does: defaults apply, unknown keys are dropped, and a failed check throws `LatticeError` `VALIDATION` with create's issues. Then it stamps `id`, `createdAt` and `updatedAt`.
 - `update` takes a typed patch of the schema's output and writes it as given, with no parse. It bumps `updatedAt`. A key set to `undefined` removes the field.
 - `update` and `remove` take `{ if }`, a `Where` the row must meet. It is checked in the same store call as the write, so nothing can change the row between the check and the write. A row that fails it is left alone and the call returns null, as a missing row does.
 - `insert` takes `{ id }`, for a row that shares another's id, such as a projection of it. The id is any non-empty string, not only a UUID, so `${eventId}:${field}` works as a deterministic id. An id that exists is `LatticeError` `CONFLICT`. Without it, the id is a new UUID. Generated create always uses a new UUID. Never pass an id a client sent: a `CONFLICT` with `fields: ['id']` would tell the client that id exists, in any tenant.
-- Each `Where` a repo takes, in `find`, `count` and `if`, is checked at runtime as an access answer is. An undefined operand or a field with no operator throws, instead of dropping a clause.
+- `countBy({ field, where?, limit? }, scope)` groups and orders as the generated countBy does. It is trusted: it counts by the tenant field or a withheld one. `limit` defaults to 1000 and has no upper bound. Its `key` is typed from the field: `'open' | 'closed' | null` for an enum, the element type or null for an array.
+- Each `Where` a repo takes, in `find`, `count`, `countBy` and `if`, is checked at runtime as an access answer is. An undefined operand or a field with no operator throws, instead of dropping a clause.
 
 ```ts
 // Book a slot once: a second booking that read the same version gets null.
@@ -1376,15 +1395,16 @@ overrides: ({ transaction }) => ({ tickets: { update: new UpdateTicket({ transac
 
 ### `CollectionStore` and `MemoryStore`
 
-`CollectionStore` is the hexok port every collection uses: `ensure`, `find`, `count`, `get`, `getMany`, `insert`, `update`, `remove` and `transaction`. A `where` on a single-row call limits the rows it can touch; a row outside it acts as missing. `MemoryStore` is the in-memory adapter, for tests and examples. It stores copies and enforces unique indexes.
+`CollectionStore` is the hexok port every collection uses: `ensure`, `find`, `count`, `countBy`, `get`, `getMany`, `insert`, `update`, `remove` and `transaction`. A `where` on a single-row call limits the rows it can touch; a row outside it acts as missing. `MemoryStore` is the in-memory adapter, for tests and examples. It stores copies and enforces unique indexes.
 
 - `ensure(collection, indexes)` creates the indexes a collection lacks and never drops one. An `Index` is `{ fields: { status: 1, createdAt: -1 }, unique?, present? }`. A unique index treats a missing field as null, as MongoDB does, and keys each element of an array field, so two documents that share one element clash. A write that breaks one is `CONFLICT`, with the index's fields.
 - `count(collection, where?)` counts the documents that match.
+- `countBy({ collection, field, where?, limit })` returns `{ groups: { key, count }[], more }`, with countBy's rules for arrays, null, order and the cut. The conformance cases check each.
 - `transaction(work)` runs `work` with a store whose calls join one unit: a commit, or on a throw, nothing. Each store makes it as atomic as it can, and a store without transactions runs `work` on itself, in order. A `transaction` on the store `work` receives joins the outer one. `MemoryStore` hands `work` a store of its own, as MongoDB binds calls to a session, and undoes that store's writes on a throw. It runs one transaction at a time; one started on the root store from inside `work` runs beside it, as a separate one. A call on the root store runs at once, sees writes not yet committed, and is kept on a rollback. A `CONFLICT` aborts the transaction, as on MongoDB, and a call on the transaction's store after it ends throws.
 
 ### Writing a store adapter
 
-`@latticecms/core/store` has what an adapter needs: the `CollectionStore` port, its types (`StoredDoc`, `Patch`, `FindQuery`, `Page`, `Index`), the parsed filter (`AnyWhere`, with `FieldOps` for each field's operators), and the cursor helpers (`orderOf`, `Order`, `after`, `encodeCursor`). A store receives values Lattice has parsed. Filters follow MongoDB's null and missing rules, and the keyset of `after` is itself an `AnyWhere`, so a store applies it like any filter.
+`@latticecms/core/store` has what an adapter needs: the `CollectionStore` port, its types (`StoredDoc`, `Patch`, `FindQuery`, `Page`, `CountByQuery`, `Groups`, `Group`, `Index`), the parsed filter (`AnyWhere`, with `FieldOps` for each field's operators), and the cursor helpers (`orderOf`, `Order`, `after`, `encodeCursor`). A store receives values Lattice has parsed. Filters follow MongoDB's null and missing rules, and the keyset of `after` is itself an `AnyWhere`, so a store applies it like any filter.
 
 `FindQuery.optional` names the sort fields a document may lack. Pass it to `orderOf(query.sort, query.optional)`: each `Order` key then says whether it is optional, and `after` and `encodeCursor` handle a missing value. The store must order a document with no value for a key, missing or null, after every document with one, in either direction, and tie such documents on that key. A plain sort is enough wherever no ascending key is optional.
 

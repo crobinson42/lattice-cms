@@ -83,6 +83,9 @@ class Recording extends Adapter(CollectionStore) {
   override count(...args: Parameters<MemoryStore['count']>) {
     return this.inner.count(...args);
   }
+  override countBy(...args: Parameters<MemoryStore['countBy']>) {
+    return this.inner.countBy(...args);
+  }
   override get(...args: Parameters<MemoryStore['get']>) {
     return this.inner.get(...args);
   }

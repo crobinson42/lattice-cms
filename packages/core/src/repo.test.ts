@@ -120,6 +120,21 @@ describe('repo writes with a condition', () => {
     ).rejects.toThrow('a repo count on "slots" has an invalid Where');
     expect((await slots.get(slot.id, unscoped))?.version).toBe(1);
   });
+
+  it('throws on a limit that is not a positive integer', async () => {
+    const { slots } = setup();
+    // Each store would act on it differently: Mongo throws, memory slices.
+    for (const limit of [0, -1, 1.5]) {
+      await expect(slots.find({ limit }, unscoped)).rejects.toThrow(
+        `a repo find on "slots": limit must be a positive integer, got ${limit}`,
+      );
+      await expect(
+        slots.countBy({ field: 'status', limit }, unscoped),
+      ).rejects.toThrow(
+        `a repo countBy on "slots": limit must be a positive integer, got ${limit}`,
+      );
+    }
+  });
 });
 
 describe('repo insert with an id', () => {

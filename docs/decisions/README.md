@@ -58,5 +58,6 @@ These are not decided yet. Treat them as context, not rules.
 | [0043](0043-a-unique-index-can-skip-rows-without-a-value.md) | A unique index can skip rows without a value | default | A store cannot express a filter on presence, an app needs an index filtered on a value rather than on presence, or one needs a partial index that is not unique. |
 | [0044](0044-a-tenanted-unique-index-includes-the-tenant-field.md) | A tenanted unique index includes the tenant field | default | A product needs a value to be unique across tenants, such as a public handle, and a global collection cannot hold it. |
 | [0045](0045-lattice-errors-are-final-at-the-client-boundary.md) | Lattice errors are final at the client boundary | default | An app needs a Lattice code to carry data of its own to its clients, and a declared app error cannot carry it. |
+| [0046](0046-a-grouped-count-is-its-own-operation.md) | A grouped count is its own operation | default | ts-pf can type a procedure's output from a scalar input, so `count` could take `groupBy` and still type both outputs exactly. |
 
 2 superseded records are history and not listed. Do not follow them.

@@ -1,9 +1,11 @@
 import {
   type AnyWhere,
   after,
+  type CountByQuery,
   cursorValues,
   encodeCursor,
   type FindQuery,
+  type Groups,
   type Index,
   type Order,
   orderOf,
@@ -248,6 +250,56 @@ export class MongoOperations {
         toFilter(where),
         this.#session,
       );
+    });
+  }
+
+  async countBy(query: CountByQuery): Promise<Groups> {
+    const { collection, field, where, limit } = query;
+    return this.#traced('aggregate', collection, async () => {
+      const groups = await this.#collection(collection)
+        .aggregate<{ _id: Groups['groups'][number]['key']; count: number }>(
+          [
+            { $match: toFilter(where) },
+            // The keys a document counts under: each distinct element of an
+            // array, or the value. Missing, null and [] count under null.
+            {
+              $project: {
+                _id: 0,
+                keys: {
+                  $let: {
+                    vars: { value: `$${mongoField(field)}` },
+                    in: {
+                      $cond: [
+                        { $isArray: '$$value' },
+                        {
+                          $cond: [
+                            { $eq: [{ $size: '$$value' }, 0] },
+                            [null],
+                            { $setUnion: ['$$value', []] },
+                          ],
+                        },
+                        [{ $ifNull: ['$$value', null] }],
+                      ],
+                    },
+                  },
+                },
+              },
+            },
+            { $unwind: '$keys' },
+            { $group: { _id: '$keys', count: { $sum: 1 } } },
+            { $sort: { count: -1, _id: 1 } },
+            // One past the limit says whether there are more.
+            { $limit: limit + 1 },
+          ],
+          this.#session,
+        )
+        .toArray();
+      return {
+        groups: groups
+          .slice(0, limit)
+          .map(({ _id, count }) => ({ key: _id, count })),
+        more: groups.length > limit,
+      };
     });
   }
 

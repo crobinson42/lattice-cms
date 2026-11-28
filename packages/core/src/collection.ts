@@ -1,6 +1,7 @@
 import { Event, type EventCatalog } from 'hexok';
 import { z } from 'zod';
 import { type Label, labelOf } from './describe.js';
+import { countBySchemas } from './group.js';
 import { maskShapes } from './mask.js';
 import {
   type AnyMany,
@@ -19,7 +20,14 @@ import { tenantShapes } from './tenancy.js';
 import { type AnyWhere, innerOf, whereSchema, wrapperOf } from './where.js';
 
 /** The operations Lattice generates for every collection. */
-export type Action = 'find' | 'count' | 'get' | 'create' | 'update' | 'delete';
+export type Action =
+  | 'find'
+  | 'count'
+  | 'countBy'
+  | 'get'
+  | 'create'
+  | 'update'
+  | 'delete';
 
 const systemShape = {
   id: z.string(),
@@ -229,6 +237,7 @@ export function operations<
       input: z.object({ where: whereSchema(output).optional() }),
       output: z.object({ count: z.number().int().nonnegative() }),
     },
+    countBy: countBySchemas(output),
     get: { input: id, output },
     create: { input: schema, output },
     update: {
@@ -806,7 +815,15 @@ function checkPresent(slug: string, index: Index, keys: readonly string[]) {
 }
 
 /** The generated operations, for the relation-name check. */
-const actions = ['find', 'count', 'get', 'create', 'update', 'delete'];
+const actions = [
+  'find',
+  'count',
+  'countBy',
+  'get',
+  'create',
+  'update',
+  'delete',
+];
 
 /**
  * A collection from a checked schema: its output, refs, indexes and events.

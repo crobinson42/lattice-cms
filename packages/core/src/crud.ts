@@ -452,6 +452,30 @@ const operations: Record<
     };
   },
 
+  async countBy(call, raw) {
+    const { field, where, limit } = parse(call.ops.countBy.input, raw);
+    await refuseWithheld(call.access, call.collection, 'countBy', raw);
+    // A caller inside a tenant sees one tenant: its count by the tenant
+    // field is its total, which is not what it asked for (0046).
+    if (field === call.collection.tenant && call.tenantId !== undefined) {
+      throw LatticeError.VALIDATION({
+        issues: [
+          {
+            path: ['field'],
+            message: `"${field}" is the tenant field: only a call that bypasses tenancy counts by it`,
+          },
+        ],
+      });
+    }
+    const scoped = both(where, call.scope);
+    return call.store.countBy({
+      collection: call.collection.slug,
+      field,
+      limit,
+      ...(scoped === undefined ? {} : { where: scoped }),
+    });
+  },
+
   async get(call, raw) {
     const { id } = parse(call.ops.get.input, raw);
     const { populate = [] } = parse(call.populate, raw);
