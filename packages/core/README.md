@@ -1293,6 +1293,43 @@ methods: ({ transaction }) => ({ deals: { closeAndLog: new CloseAndLog({ transac
 - How atomic it is depends on the store (`CollectionStore.transaction`). `MongoStore` needs a replica set. On a standalone server, the writes run in order, with no rollback. `MemoryStore` rolls back, but does not isolate: a rollback also undoes writes that other calls made while `work` ran. It is for tests and development.
 - Do not call `transaction` inside `work`. It starts a separate transaction: on MongoDB its writes commit on their own, and a write to a row the outer one wrote waits on it. Code that runs inside a transaction takes the repos `work` received as arguments.
 
+In the overrides factory, `work` also receives `generated`, bound to the transaction. An override runs the generated operation and its own writes as one unit:
+
+```ts
+// Replaces tickets.update: the generated update and an audit row per field, both or neither.
+class UpdateTicket extends AppUseCase('tickets.update', { collection: Tickets }) {
+  constructor(
+    private readonly deps: {
+      transaction: Transaction<
+        { audits: Repo<typeof Audits> },
+        { tickets: { update: (ctx: AppCtx, input: UpdateInput<typeof Tickets>) => Promise<Doc<typeof Tickets>> } }
+      >;
+    },
+  ) {
+    super();
+  }
+
+  async execute(ctx: AppCtx, input: UpdateInput<typeof Tickets>) {
+    return this.deps.transaction(async ({ audits }, generated) => {
+      const ticket = await generated.tickets.update(ctx, input);
+      for (const field of Object.keys(input).filter((key) => key !== 'id')) {
+        await audits.insert({ ticketId: ticket.id, field }, tenancy.scope(Audits, ticket.organizationId));
+      }
+      return ticket;
+    });
+  }
+}
+
+// the wiring
+overrides: ({ transaction }) => ({ tickets: { update: new UpdateTicket({ transaction }) } }),
+```
+
+- `generated` in `work` holds the same operations as the factory's `generated`. Their writes join the transaction, and a generated delete's `onDelete` writes join it too.
+- Their events are held until the commit, then published in order. A rollback publishes nothing, and a retried `work` publishes only the events of the attempt that commits. A publish failure after the commit reaches the caller, the writes stay, and the events after it are not published, as for a generated delete.
+- On a standalone MongoDB there is no rollback: a throw keeps the writes made before it and drops their events.
+- Hooks run inside `work`, so on MongoDB they may run more than once. They only transform data ([`beforeChange`](#hooks)), so that is safe.
+- `Transaction<R, G>` names the generated operations a use case calls as `G`. `G` defaults to none: `build()`'s `transaction` and the methods factory's give no `generated`.
+
 ### `CollectionStore` and `MemoryStore`
 
 `CollectionStore` is the hexok port every collection uses: `ensure`, `find`, `count`, `get`, `getMany`, `insert`, `update`, `remove` and `transaction`. A `where` on a single-row call limits the rows it can touch; a row outside it acts as missing. `MemoryStore` is the in-memory adapter, for tests and examples. It stores copies and enforces unique indexes.

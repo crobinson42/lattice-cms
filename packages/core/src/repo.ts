@@ -134,10 +134,16 @@ export type WriteOptions<D> = {
  * them join it. Repos publish no events, so publish after it resolves. The
  * store makes it as atomic as it can (`CollectionStore.transaction`).
  *
- * A use case names the repos it needs: `Transaction<{ deals: Repo<typeof
- * Deals> }>`. The one `build()` gives, over every repo, fits it.
+ * In the overrides factory, `work` also receives `generated` bound to the
+ * transaction. Their events are held until the commit, then published.
+ *
+ * A use case names what it needs: `Transaction<{ deals: Repo<typeof
+ * Deals> }>`, and the generated operations it calls as `G`. The one
+ * `build()` gives, over every repo, fits it.
  */
-export type Transaction<R> = <T>(work: (repos: R) => Promise<T>) => Promise<T>;
+export type Transaction<R, G = Record<never, never>> = <T>(
+  work: (repos: R, generated: G) => Promise<T>,
+) => Promise<T>;
 
 /**
  * The filter of a write. A bypass scope has no tenant, so it cannot write a

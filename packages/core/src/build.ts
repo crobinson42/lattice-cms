@@ -738,7 +738,7 @@ type Generated<in out E extends Entries, in Ctx> = {
 type Wiring<E extends Entries, Kind, Ctx> = Kind extends 'overrides'
   ? {
       readonly repos: Repos<E>;
-      readonly transaction: Transaction<Repos<E>>;
+      readonly transaction: Transaction<Repos<E>, Generated<E, Ctx>>;
       readonly generated: Generated<E, Ctx>;
     }
   : {
@@ -960,11 +960,15 @@ type RuntimeWiring = {
   readonly transaction: Transaction<RuntimeWiring['repos']>;
 };
 
+/** Each overridden body, by slug, as the implementation builds them. */
+type RuntimeGenerated = Readonly<
+  Record<string, Readonly<Record<string, unknown>>>
+>;
+
 /** What the overrides factory receives: also each overridden body. */
 type RuntimeOverrideWiring = RuntimeWiring & {
-  readonly generated: Readonly<
-    Record<string, Readonly<Record<string, unknown>>>
-  >;
+  readonly transaction: Transaction<RuntimeWiring['repos'], RuntimeGenerated>;
+  readonly generated: RuntimeGenerated;
 };
 
 /**
@@ -1236,7 +1240,7 @@ export class Framework<
       );
     const repos = reposOf(store);
     const transaction: RuntimeWiring['transaction'] = (work) =>
-      store.transaction((tx) => work(reposOf(tx)));
+      store.transaction((tx) => work(reposOf(tx), {}));
     type Ctx = FamilyContext<Actor>;
     // Every generated operation, with its body and the class that overrides
     // it, if any: a generated use case runs the body, and an override may
@@ -1257,17 +1261,18 @@ export class Framework<
         return {
           action,
           input: ops[action].input.extend(populate.shape),
-          body: operationBody(
-            this.family,
-            store,
-            events,
-            collection,
-            ops,
-            action,
-            populate,
-            referrers,
-            collections,
-          ),
+          bodyOn: (on: CollectionStore, publisher: EventPublisher) =>
+            operationBody(
+              this.family,
+              on,
+              publisher,
+              collection,
+              ops,
+              action,
+              populate,
+              referrers,
+              collections,
+            ),
           override: typeof declared === 'function' ? declared : undefined,
         };
       });
@@ -1283,16 +1288,17 @@ export class Framework<
             relation,
             ops: relationOps.map((op) => ({
               op,
-              body: relationBody(
-                this.family,
-                store,
-                events,
-                collection,
-                name,
-                relation,
-                op,
-                collections,
-              ),
+              bodyOn: (on: CollectionStore, publisher: EventPublisher) =>
+                relationBody(
+                  this.family,
+                  on,
+                  publisher,
+                  collection,
+                  name,
+                  relation,
+                  op,
+                  collections,
+                ),
               override: opOverrides[op],
             })),
           };
@@ -1300,43 +1306,69 @@ export class Framework<
       );
       return [{ entry, ops, operationsOf, relations }];
     });
-    // Only the overridden operations' bodies: what each override may call.
-    const generatedBodies = Object.fromEntries(
-      slices.flatMap(({ entry, operationsOf, relations }) => {
-        const declared = {
-          ...Object.fromEntries(
-            operationsOf
-              .filter(({ override }) => override !== undefined)
-              .map(({ action, body }) => [action, body]),
-          ),
-          ...Object.fromEntries(
-            relations.flatMap(({ name, ops }) => {
-              const overridden = ops.filter(
-                ({ override }) => override !== undefined,
-              );
-              return overridden.length === 0
-                ? []
-                : [
-                    [
-                      name,
-                      Object.fromEntries(
-                        overridden.map(({ op, body }) => [op, body]),
-                      ),
-                    ],
-                  ];
-            }),
-          ),
+    // Only the overridden operations' bodies, on a store and a publisher:
+    // what each override may call.
+    const generatedOn = (
+      on: CollectionStore,
+      publisher: EventPublisher,
+    ): RuntimeGenerated =>
+      Object.fromEntries(
+        slices.flatMap(({ entry, operationsOf, relations }) => {
+          const declared = {
+            ...Object.fromEntries(
+              operationsOf
+                .filter(({ override }) => override !== undefined)
+                .map(({ action, bodyOn }) => [action, bodyOn(on, publisher)]),
+            ),
+            ...Object.fromEntries(
+              relations.flatMap(({ name, ops }) => {
+                const overridden = ops.filter(
+                  ({ override }) => override !== undefined,
+                );
+                return overridden.length === 0
+                  ? []
+                  : [
+                      [
+                        name,
+                        Object.fromEntries(
+                          overridden.map(({ op, bodyOn }) => [
+                            op,
+                            bodyOn(on, publisher),
+                          ]),
+                        ),
+                      ],
+                    ];
+              }),
+            ),
+          };
+          return Object.keys(declared).length === 0
+            ? []
+            : [[entry.collection.slug, declared]];
+        }),
+      );
+    // The generated bodies inside a transaction hold their events until the
+    // commit, as a generated delete does (0028). The store may run `work`
+    // again, so each attempt starts with no events held.
+    const overrideTransaction: RuntimeOverrideWiring['transaction'] = async (
+      work,
+    ) => {
+      const { value, owed } = await store.transaction(async (tx) => {
+        const owed: object[] = [];
+        const held: EventPublisher = {
+          publish: async (event) => {
+            owed.push(event);
+          },
         };
-        return Object.keys(declared).length === 0
-          ? []
-          : [[entry.collection.slug, declared]];
-      }),
-    );
+        return { value: await work(reposOf(tx), generatedOn(tx, held)), owed };
+      });
+      for (const event of owed) await events.publish(event);
+      return value;
+    };
     const methodInstances = options.methods?.({ repos, transaction });
     const overrideInstances = options.overrides?.({
       repos,
-      transaction,
-      generated: generatedBodies,
+      transaction: overrideTransaction,
+      generated: generatedOn(store, events),
     });
     // Each operation and method's use case, and each relation operation's,
     // by slug: the procedures of a slice and its nested relation nodes.
@@ -1352,14 +1384,14 @@ export class Framework<
       const { collection, methods } = entry;
       const { slug } = collection;
       const sliceUseCases: Record<string, Executable<Ctx>> = {};
-      for (const { action, input, body, override } of operationsOf) {
+      for (const { action, input, bodyOn, override } of operationsOf) {
         sliceUseCases[action] =
           override === undefined
             ? generatedUseCase(
                 this.family,
                 `${slug}.${action}`,
                 { collection, input, output: ops[action].output },
-                body,
+                bodyOn(store, events),
               )
             : instanceOf(
                 'override',
@@ -1383,14 +1415,14 @@ export class Framework<
       > = {};
       for (const { name, relation, ops: relationOperations } of relations) {
         const opUseCases: Record<string, Executable<Ctx>> = {};
-        for (const { op, body, override } of relationOperations) {
+        for (const { op, bodyOn, override } of relationOperations) {
           opUseCases[op] =
             override === undefined
               ? generatedUseCase(
                   this.family,
                   `${slug}.${name}.${op}`,
                   { collection, ...relation[op] },
-                  body,
+                  bodyOn(store, events),
                 )
               : instanceOf(
                   'override',
