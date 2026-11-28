@@ -1,7 +1,6 @@
 import { bearerToken } from '@hexok/auth';
 import type { Logger } from '@hexok/logger';
 import { type CallContext, LatticeError, unscoped } from '@latticecms/core';
-import { PFError } from '@ts-pf/protocol';
 import type { Actor } from '../../app/use-cases/context.js';
 import type { HttpDeps } from './handler.js';
 import { organizationHeader } from './headers.js';
@@ -9,23 +8,6 @@ import { organizationHeader } from './headers.js';
 // Who is calling: the session a request's token names, and the actor it
 // acts as. Every edge (/rpc, /mcp, /auth and the API's documents) checks
 // the caller here, with the same log lines and refusals.
-
-/**
- * A refusal at the edge, with Lattice's code, status and message, so a
- * client handles it as it would the same refusal from a procedure. Every
- * reason gets the same body: the reason is logged, never sent.
- */
-export function refusal(code: 'UNAUTHORIZED' | 'FORBIDDEN'): PFError {
-  const error =
-    code === 'UNAUTHORIZED'
-      ? LatticeError.UNAUTHORIZED()
-      : LatticeError.FORBIDDEN();
-  return new PFError({
-    code,
-    status: code === 'UNAUTHORIZED' ? 401 : 403,
-    message: error.message,
-  });
-}
 
 /** The request id a request names, or a new one. */
 export function requestIdOf(request: Request): string {
@@ -100,7 +82,7 @@ export function actorContext(deps: HttpDeps) {
         code: 'FORBIDDEN',
         reason: organizationId === null ? 'no-organization' : 'not-a-member',
       });
-      throw refusal('FORBIDDEN');
+      throw deps.crm.clientError(LatticeError.FORBIDDEN());
     }
     return { actor: { userId, organizationId, role: member.role }, logger };
   };

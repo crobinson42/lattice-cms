@@ -29,12 +29,28 @@ export type AuthRpcCtx = {
 export function createAuthRouter(deps: {
   readonly login: Login;
   readonly sessions: CrmSessions;
-  readonly crm: Pick<CrmApp, 'repos'>;
+  readonly crm: Pick<CrmApp, 'clientError' | 'repos'>;
   /** User ids that act as support, from `CRM_SUPPORT_USER_IDS`. */
   readonly support: ReadonlySet<string>;
 }) {
   const { memberships, organizations } = deps.crm.repos;
-  const impl = createImplementer(authContract).$context<AuthRpcCtx>();
+  // Lattice's errors, such as a repo's, go out as /rpc sends them. A
+  // refusal is logged here, as /rpc logs it: onError logs only INTERNAL.
+  const impl = createImplementer(authContract)
+    .$context<AuthRpcCtx>()
+    .use(async ({ context, next, path }) => {
+      try {
+        return await next();
+      } catch (error) {
+        const sent = deps.crm.clientError(error);
+        if (sent === undefined) throw error;
+        context.logger.info(`auth.${path.join('.')}`, {
+          outcome: 'refused',
+          code: sent.code,
+        });
+        throw sent;
+      }
+    });
   return impl.router({
     login: impl.login.handler(async ({ context, input }) => {
       try {

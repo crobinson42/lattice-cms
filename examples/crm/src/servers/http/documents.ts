@@ -1,6 +1,7 @@
+import { LatticeError } from '@latticecms/core';
 import { catalogDocument } from '../rpc/catalog.js';
 import { openapiDocument } from '../rpc/openapi.js';
-import { refusal, requestIdOf, signedIn } from './caller.js';
+import { requestIdOf, signedIn } from './caller.js';
 import type { HttpDeps } from './handler.js';
 
 /**
@@ -21,7 +22,10 @@ export function signedInDocuments(deps: HttpDeps) {
     if ((await signedIn(deps, request, logger, edge)) === undefined) {
       // The body /rpc sends for the same refusal.
       return Response.json(
-        { ok: false, error: refusal('UNAUTHORIZED').toJSON() },
+        {
+          ok: false,
+          error: deps.crm.clientError(LatticeError.UNAUTHORIZED()).toJSON(),
+        },
         { status: 401 },
       );
     }

@@ -8,7 +8,7 @@ import {
 import { bindTools } from '@ts-pf/mcp';
 import { createMcpFactory } from '@ts-pf/mcp/sdk';
 import { crmTools } from '../mcp/toolset.js';
-import { actorContext, refusal, requestIdOf, signedIn } from './caller.js';
+import { actorContext, requestIdOf, signedIn } from './caller.js';
 import type { HttpDeps } from './handler.js';
 
 /**
@@ -34,7 +34,7 @@ export function mcpEdge(deps: HttpDeps, onError: (error: unknown) => void) {
         typeof requestId !== 'string' ||
         request === undefined
       ) {
-        throw refusal('UNAUTHORIZED');
+        throw deps.crm.clientError(LatticeError.UNAUTHORIZED());
       }
       return contextOf(
         userId,
