@@ -227,7 +227,7 @@ export class MemoryStore extends Adapter(CollectionStore) {
       if (existing !== undefined) {
         if (!sameOptions(existing, index)) {
           throw new Error(
-            `MemoryStore: "${collection}" has an index on ${fields} with other options`,
+            `MemoryStore: "${collection}" has an index on ${fields} with other options than the declared one. Changing an index is a migration: drop it in one, since migrations run before ensure().`,
           );
         }
         continue;

@@ -56,5 +56,7 @@ These are not decided yet. Treat them as context, not rules.
 | [0041](0041-repo-writes-take-a-condition-and-an-id.md) | Repo writes take a condition, and an insert takes an id | default | An app needs a condition on a generated update or delete from a client, or a conditional write that changes many rows at once. |
 | [0042](0042-conflict-names-the-clashing-fields.md) | CONFLICT names the clashing fields | default | A client needs to tell apart two unique indexes over the same fields, or a store cannot say which index clashed. |
 | [0043](0043-a-unique-index-can-skip-rows-without-a-value.md) | A unique index can skip rows without a value | default | A store cannot express a filter on presence, an app needs an index filtered on a value rather than on presence, or one needs a partial index that is not unique. |
+| [0044](0044-a-tenanted-unique-index-includes-the-tenant-field.md) | A tenanted unique index includes the tenant field | default | A product needs a value to be unique across tenants, such as a public handle, and a global collection cannot hold it. |
+| [0045](0045-lattice-errors-are-final-at-the-client-boundary.md) | Lattice errors are final at the client boundary | default | An app needs a Lattice code to carry data of its own to its clients, and a declared app error cannot carry it. |
 
 2 superseded records are history and not listed. Do not follow them.

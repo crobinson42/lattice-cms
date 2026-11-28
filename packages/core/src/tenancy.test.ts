@@ -4,7 +4,7 @@ import { createLocalClient } from '@ts-pf/server';
 import type { UseCase } from 'hexok';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
-import { LatticeError } from './errors.js';
+import { LatticeError, latticeErrors } from './errors.js';
 import { AppUseCase } from './fixtures/context.js';
 import {
   collection,
@@ -470,6 +470,105 @@ describe('a tenantOf that returns no tenant', () => {
       expect((await repos.notes.find({}, unscoped)).docs).toEqual([]);
     },
   );
+});
+
+describe('unique keys', () => {
+  const Tags = collection('tags', {
+    schema: z.object({ name: z.string() }),
+    tenant: 'organizationId',
+    indexes: [{ fields: { organizationId: 1, name: 1 }, unique: true }],
+  });
+
+  it('CONFLICT leaves the tenant field out for a client, and keeps it on the server', async () => {
+    const built = framework({ family: Tenanted })
+      .collection(Tags, { access: open })
+      .build({
+        store: new MemoryStore(),
+        events: { async publish(_event: object) {} },
+      });
+    await built.ensure();
+    const o1 = createLocalClient(built.app, {
+      context: { actor: alice, logger: new MemoryLogger() },
+    });
+    await o1.tags.create({ name: 'vip' });
+
+    const sent = await o1.tags.create({ name: 'vip' }).catch((error) => error);
+    expect(isPFError(sent) && sent.code === 'CONFLICT' && sent.data).toEqual({
+      collection: 'tags',
+      id: expect.any(String),
+      fields: ['name'],
+    });
+    const thrown = await built.repos.tags
+      .insert({ name: 'vip' }, tenancy.scope(Tags, 'o1'))
+      .catch((error) => error);
+    expect(LatticeError.is(thrown) && thrown.data).toMatchObject({
+      fields: ['organizationId', 'name'],
+    });
+    // Another tenant may hold the same name.
+    expect(
+      await codeOf(
+        createLocalClient(built.app, {
+          context: { actor: bob, logger: new MemoryLogger() },
+        }).tags.create({ name: 'vip' }),
+      ),
+    ).toBe('ok');
+  });
+
+  it('clientError gives an app router the error a procedure sends', async () => {
+    const built = framework({ family: Tenanted })
+      .collection(Tags, { access: open })
+      .build({
+        store: new MemoryStore(),
+        events: { async publish(_event: object) {} },
+      });
+    await built.ensure();
+    const o1 = tenancy.scope(Tags, 'o1');
+    await built.repos.tags.insert({ name: 'vip' }, o1);
+    const thrown = await built.repos.tags
+      .insert({ name: 'vip' }, o1)
+      .catch((error) => error);
+
+    const sent = built.clientError(thrown);
+    expect(sent?.status).toBe(409);
+    expect(sent?.toJSON()).toEqual({
+      code: 'CONFLICT',
+      message: 'A document with the same unique key already exists',
+      data: { collection: 'tags', id: expect.any(String), fields: ['name'] },
+    });
+    // A LatticeError always has one, so no undefined to handle.
+    const missing = built.clientError(
+      LatticeError.NOT_FOUND({ collection: 'tags', id: 'x' }),
+    );
+    expect([missing.code, missing.status]).toEqual(['NOT_FOUND', 404]);
+    expect(built.clientError(new Error('boom'))).toBeUndefined();
+    expect(latticeErrors.CONFLICT.status).toBe(409);
+  });
+
+  it('keeps the tenant field when it is the only one', async () => {
+    const Settings = collection('settings', {
+      schema: z.object({ theme: z.string() }),
+      tenant: 'organizationId',
+      indexes: [{ fields: { organizationId: 1 }, unique: true }],
+    });
+    const built = framework({ family: Tenanted })
+      .collection(Settings, { access: open })
+      .build({
+        store: new MemoryStore(),
+        events: { async publish(_event: object) {} },
+      });
+    await built.ensure();
+    const o1 = createLocalClient(built.app, {
+      context: { actor: alice, logger: new MemoryLogger() },
+    });
+    await o1.settings.create({ theme: 'dark' });
+
+    const sent = await o1.settings
+      .create({ theme: 'light' })
+      .catch((error) => error);
+    expect(isPFError(sent) && sent.data).toMatchObject({
+      fields: ['organizationId'],
+    });
+  });
 });
 
 describe('type errors and throws', () => {

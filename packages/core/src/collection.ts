@@ -280,14 +280,26 @@ export type Events<
 /**
  * An index on a collection, by the names of its stored document's fields:
  * the schema's, the system fields and the tenant field. Key order is the
- * index's key order. `present` makes a unique index cover only documents
- * where each listed field has a value, so rows without one never clash.
+ * index's key order. A unique index on a tenanted collection includes the
+ * tenant field, or it would clash across tenants. `present` makes a unique
+ * index cover only documents where each listed field has a value, so rows
+ * without one never clash.
  */
-export type CollectionIndex<Doc> = {
-  readonly fields: { readonly [K in keyof Doc & string]?: 1 | -1 };
-  readonly unique?: boolean;
-  readonly present?: readonly (keyof Doc & string)[];
-};
+export type CollectionIndex<Doc, Tenant extends string = never> =
+  | {
+      readonly fields: IndexFields<Doc>;
+      readonly unique?: false;
+      readonly present?: readonly (keyof Doc & string)[];
+    }
+  | {
+      readonly fields: IndexFields<Doc> & {
+        readonly [K in Tenant]: 1 | -1;
+      };
+      readonly unique: true;
+      readonly present?: readonly (keyof Doc & string)[];
+    };
+
+type IndexFields<Doc> = { readonly [K in keyof Doc & string]?: 1 | -1 };
 
 /** A collection's data without system fields: what create takes. */
 export type Data<Shape extends z.core.$ZodShape> = z.output<Schema<Shape>>;
@@ -675,10 +687,12 @@ export function collection<
     readonly tenant?: Tenant;
     /**
      * Indexes the store creates at startup, through `build().ensure()`. A
-     * tenanted collection's indexes usually lead with the tenant field.
+     * tenanted collection's indexes usually lead with the tenant field, and
+     * its unique ones must include it.
      */
     readonly indexes?: readonly CollectionIndex<
-      z.output<Output<Shape, Tenant>>
+      z.output<Output<Shape, Tenant>>,
+      NoInfer<Tenant>
     >[];
     /**
      * `many()` relations, by name. Each derives a join collection and gets
@@ -830,6 +844,16 @@ function define<
     if (unknown !== undefined) {
       throw new Error(
         `Lattice: an index on "${slug}" names "${unknown}", which is not a field`,
+      );
+    }
+    // Across tenants, a CONFLICT would tell one tenant what another holds.
+    if (
+      tenant !== undefined &&
+      index.unique === true &&
+      !keys.includes(tenant)
+    ) {
+      throw new Error(
+        `Lattice: a unique index on "${slug}" leaves out the tenant field "${tenant}", so it would clash across tenants`,
       );
     }
     checkPresent(slug, index, keys);

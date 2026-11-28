@@ -147,6 +147,35 @@ describe('collection() indexes', () => {
     ).toThrow('names "organizationId", which is not a field');
   });
 
+  it('a unique index on a tenanted collection without the tenant field is a compile error and a throw', () => {
+    expect(() =>
+      collection('deals', {
+        schema,
+        tenant: 'organizationId',
+        // @ts-expect-error organizationId is missing from a unique index
+        indexes: [{ fields: { amount: 1 }, unique: true }],
+      }),
+    ).toThrow(
+      'a unique index on "deals" leaves out the tenant field "organizationId", so it would clash across tenants',
+    );
+    // A non-unique index may leave it out, as a lookup across tenants does.
+    expect(
+      collection('deals', {
+        schema,
+        tenant: 'organizationId',
+        indexes: [{ fields: { amount: 1 } }],
+      }).indexes,
+    ).toEqual([{ fields: { amount: 1 } }]);
+    // A unique index may put the tenant field anywhere.
+    expect(
+      collection('deals', {
+        schema,
+        tenant: 'organizationId',
+        indexes: [{ fields: { amount: 1, organizationId: 1 }, unique: true }],
+      }).indexes,
+    ).toHaveLength(1);
+  });
+
   it('an index with no fields throws', () => {
     expect(() =>
       collection('deals', { schema, indexes: [{ fields: {} }] }),

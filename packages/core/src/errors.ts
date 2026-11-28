@@ -53,17 +53,18 @@ export type LatticeCode = keyof typeof definitions;
 export const latticeCodes: readonly string[] = Object.keys(definitions);
 
 /**
- * The errors every procedure declares, with their statuses. VALIDATION is
- * not declared: it is a ts-pf protocol code, which a contract must not
- * redeclare, and clients already type its `data.issues`.
+ * The errors every procedure declares, with their statuses, for an app's
+ * own contract to declare too. VALIDATION is not declared: it is a ts-pf
+ * protocol code, which a contract must not redeclare, and clients already
+ * type its `data.issues`.
  */
-export const declaredErrors = {
+export const latticeErrors = {
   UNAUTHORIZED: { ...definitions.UNAUTHORIZED, status: 401 },
   FORBIDDEN: { ...definitions.FORBIDDEN, status: 403 },
   NOT_FOUND: { ...definitions.NOT_FOUND, status: 404 },
   CONFLICT: { ...definitions.CONFLICT, status: 409 },
   REFERENCED: { ...definitions.REFERENCED, status: 409 },
-} satisfies ErrorMap;
+} as const satisfies ErrorMap;
 
 export type Issue = z.output<typeof issue>;
 
@@ -124,16 +125,33 @@ export function refusal(
 }
 
 /**
- * The error a client receives. A LatticeError keeps its code, message, data
- * and status. A hexok VALIDATION becomes the protocol VALIDATION. Anything
- * else goes through the app's `map`; what that returns unchanged, ts-pf
- * sends as INTERNAL.
+ * The error a client receives for a LatticeError, or undefined for any
+ * other. It keeps the code, message, data and status. A CONFLICT leaves out
+ * the collection's tenant field, found in `tenants`, since the client cannot
+ * change it, unless it is the only field: `[]` would read as a store that
+ * cannot tell.
  */
-export function toClientError(
+export function latticeClientError(
   error: unknown,
-  map: (error: unknown) => unknown,
-): unknown {
+  tenants: ReadonlyMap<string, string>,
+): PFError | undefined {
   if (LatticeError.is(error)) {
+    if (error.code === 'CONFLICT') {
+      const tenant = tenants.get(error.data.collection);
+      return new PFError({
+        code: error.code,
+        message: error.message,
+        status: latticeErrors.CONFLICT.status,
+        data: {
+          ...error.data,
+          fields:
+            error.data.fields.length > 1
+              ? error.data.fields.filter((field) => field !== tenant)
+              : error.data.fields,
+        },
+        cause: error,
+      });
+    }
     if (error.code === 'VALIDATION') {
       return new PFError({
         code: error.code,
@@ -145,11 +163,27 @@ export function toClientError(
     return new PFError({
       code: error.code,
       message: error.message,
-      status: declaredErrors[error.code].status,
+      status: latticeErrors[error.code].status,
       ...('data' in error ? { data: error.data } : {}),
       cause: error,
     });
   }
+  return undefined;
+}
+
+/**
+ * The error a client receives. A LatticeError's is final: the app's `map`
+ * never sees it, so every app sends the same shape. A hexok VALIDATION
+ * becomes the protocol VALIDATION. Anything else goes through the app's
+ * `map`; what that returns unchanged, ts-pf sends as INTERNAL.
+ */
+export function toClientError(
+  error: unknown,
+  map: (error: unknown) => unknown,
+  tenants: ReadonlyMap<string, string>,
+): unknown {
+  const lattice = latticeClientError(error, tenants);
+  if (lattice !== undefined) return lattice;
   if (isCodedValidation(error)) {
     return new PFError({
       code: 'VALIDATION',
