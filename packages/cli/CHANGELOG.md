@@ -1,5 +1,13 @@
 # @latticecms/cli
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [[`66d2468`](https://github.com/crobinson42/lattice-cms/commit/66d246810820613c55450be4e8ff5129265b69af), [`66d2468`](https://github.com/crobinson42/lattice-cms/commit/66d246810820613c55450be4e8ff5129265b69af)]:
+  - @latticecms/core@0.3.0
+  - @latticecms/store-mongo@0.3.0
+
 ## 0.1.1
 
 ### Patch Changes

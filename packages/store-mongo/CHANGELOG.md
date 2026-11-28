@@ -1,5 +1,18 @@
 # @latticecms/store-mongo
 
+## 0.3.0
+
+### Minor Changes
+
+- [#4](https://github.com/crobinson42/lattice-cms/pull/4) [`66d2468`](https://github.com/crobinson42/lattice-cms/commit/66d246810820613c55450be4e8ff5129265b69af) Thanks [@crobinson42](https://github.com/crobinson42)! - `nhas` translates to `$ne` on the array field, which matches when no element is equal, and matches a missing or null array. Needs `@latticecms/core` with `nhas`.
+
+  Peers on `hexok ^2.2.8`, as core does.
+
+### Patch Changes
+
+- Updated dependencies [[`66d2468`](https://github.com/crobinson42/lattice-cms/commit/66d246810820613c55450be4e8ff5129265b69af)]:
+  - @latticecms/core@0.3.0
+
 ## 0.2.0
 
 ### Minor Changes
