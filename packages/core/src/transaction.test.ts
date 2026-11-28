@@ -2,7 +2,7 @@ import { createLocalClient } from '@ts-pf/server';
 import { Adapter, type UseCase } from 'hexok';
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { z } from 'zod';
-import { AppUseCase, callContext } from './fixtures/context.js';
+import { AppUseCase, allowAll, callContext } from './fixtures/context.js';
 import {
   CollectionStore,
   collection,
@@ -11,6 +11,7 @@ import {
   MemoryStore,
   type Repo,
   type Transaction,
+  type UpdateInput,
   unscoped,
 } from './index.js';
 
@@ -189,5 +190,178 @@ describe('transaction', () => {
     expectTypeOf<Built['transaction']>().toEqualTypeOf<
       Transaction<{ accounts: Repo<typeof Accounts> }>
     >();
+  });
+});
+
+const Tickets = collection('tickets', {
+  schema: z.object({ title: z.string(), status: z.string() }),
+});
+
+const Audits = collection('audits', {
+  schema: z.object({ ticketId: z.string(), field: z.string() }),
+});
+
+type AppCtx = UseCase.Ctx<typeof AppUseCase>;
+
+/** Replaces tickets.update: the generated update and one audit row per changed field, as one unit. */
+class UpdateTicket extends AppUseCase('tickets.update', {
+  collection: Tickets,
+}) {
+  constructor(
+    private readonly deps: {
+      // Only what it uses: the transaction the overrides factory gets fits it.
+      transaction: Transaction<
+        { tickets: Repo<typeof Tickets>; audits: Repo<typeof Audits> },
+        {
+          tickets: {
+            update: (
+              ctx: AppCtx,
+              input: UpdateInput<typeof Tickets>,
+            ) => Promise<Doc<typeof Tickets>>;
+          };
+        }
+      >;
+    },
+  ) {
+    super();
+  }
+
+  async execute(
+    ctx: AppCtx,
+    input: UpdateInput<typeof Tickets>,
+  ): Promise<Doc<typeof Tickets>> {
+    return this.deps.transaction(async (repos, generated) => {
+      const ticket = await generated.tickets.update(ctx, input);
+      for (const field of Object.keys(input).filter((key) => key !== 'id')) {
+        if (field === 'status' && ticket.status === 'refused') {
+          throw new Error('refused');
+        }
+        await repos.audits.insert({ ticketId: ticket.id, field }, unscoped);
+      }
+      return ticket;
+    });
+  }
+}
+
+/**
+ * A store whose transactions fail once after `work` and run it again, as
+ * MongoDB may. A nested transaction would retry too, so use it only for work
+ * that opens none.
+ */
+class RetryingOnce extends MemoryStore {
+  override async transaction<T>(
+    work: (store: CollectionStore) => Promise<T>,
+  ): Promise<T> {
+    await super
+      .transaction(async (tx) => {
+        await work(tx);
+        throw new Error('transient');
+      })
+      .catch(() => {});
+    return super.transaction(work);
+  }
+}
+
+function overridden(store: CollectionStore = new MemoryStore()) {
+  const published: object[] = [];
+  const built = framework({ family: AppUseCase })
+    .collection(Tickets, {
+      access: allowAll,
+      overrides: { update: UpdateTicket },
+    })
+    .collection(Audits, { access: allowAll })
+    .build({
+      store,
+      events: {
+        publish: async (event: object) => {
+          published.push(event);
+        },
+      },
+      overrides: ({ transaction }) => ({
+        tickets: { update: new UpdateTicket({ transaction }) },
+      }),
+    });
+  return {
+    ...built,
+    published,
+    local: createLocalClient(built.app, { context: callContext() }),
+  };
+}
+
+describe('transaction in an override', () => {
+  it('runs the generated operation and repo writes as one unit, and publishes after the commit', async () => {
+    const { local, repos, published } = overridden();
+    const ticket = await repos.tickets.insert(
+      { title: 't', status: 'open' },
+      unscoped,
+    );
+
+    const updated = await local.tickets.update({
+      id: ticket.id,
+      title: 'u',
+      status: 'closed',
+    });
+
+    expect(updated).toMatchObject({ title: 'u', status: 'closed' });
+    expect(
+      (await repos.audits.find({}, unscoped)).docs
+        .map(({ field }) => field)
+        .sort(),
+    ).toEqual(['status', 'title']);
+    expect(published).toHaveLength(1);
+    expect(published[0]).toBeInstanceOf(Tickets.events.updated);
+  });
+
+  // MemoryStore's transaction hands work the store itself, so this cannot tell
+  // the transaction's store from the root one: store-mongo's transaction test does.
+  it('rolls back the generated write too, and publishes nothing, when the work throws', async () => {
+    const { local, repos, published } = overridden();
+    const ticket = await repos.tickets.insert(
+      { title: 't', status: 'open' },
+      unscoped,
+    );
+
+    // The generated update and the title's audit row are written before
+    // the status check throws.
+    await expect(
+      local.tickets.update({ id: ticket.id, title: 'u', status: 'refused' }),
+    ).rejects.toThrow('refused');
+
+    expect(await repos.tickets.get(ticket.id, unscoped)).toMatchObject({
+      title: 't',
+      status: 'open',
+    });
+    expect((await repos.audits.find({}, unscoped)).docs).toEqual([]);
+    expect(published).toEqual([]);
+  });
+
+  it('publishes only the events of the attempt that commits', async () => {
+    const { local, repos, published } = overridden(new RetryingOnce());
+    const ticket = await repos.tickets.insert(
+      { title: 't', status: 'open' },
+      unscoped,
+    );
+
+    await local.tickets.update({ id: ticket.id, title: 'u' });
+
+    expect(published).toHaveLength(1);
+    expect((await repos.audits.find({}, unscoped)).docs).toHaveLength(1);
+  });
+
+  it('gives the overrides factory generated in the work, and build() repos only', () => {
+    const lattice = framework({ family: AppUseCase }).collection(Tickets, {
+      access: allowAll,
+      overrides: { update: UpdateTicket },
+    });
+    type Options = Parameters<typeof lattice.build>[0];
+    type Wiring = Parameters<NonNullable<Options['overrides']>>[0];
+    expectTypeOf<
+      Parameters<Parameters<Wiring['transaction']>[0]>[1]
+    >().toEqualTypeOf<Wiring['generated']>();
+    expectTypeOf<
+      Parameters<
+        Parameters<ReturnType<typeof lattice.build>['transaction']>[0]
+      >[1]
+    >().toEqualTypeOf<Record<never, never>>();
   });
 });

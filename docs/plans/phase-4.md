@@ -33,6 +33,7 @@ Each step ends with its tests passing, an independent review, a changeset and a 
 ### 2. Repos in a transaction
 
 - [x] `transaction(async (repos) => …)` beside `repos` in the methods and overrides factories, and on `build()`. It runs `CollectionStore.transaction` and hands the work repos bound to the transaction's store. Repos publish no events, so the app publishes after the commit. Record: [0040](../decisions/0040-repos-join-a-transaction-through-transaction.md).
+- [x] In the overrides factory, `work` also receives `generated`, bound to the transaction, with its events held until the commit. StaffDuty's update override writes audit rows beside the generated update.
 
 ### 3. Conditional writes and a given id
 
@@ -69,7 +70,7 @@ Recorded, not scheduled:
 
 - The CLI in a split monorepo: config paths that point at sibling workspace packages, so `lattice collection` can scaffold when collections and composition live in different packages.
 - A definition-time error when a slug collides with a reserved top-level router key.
-- An upsert on repos, if insert-then-update on `CONFLICT` proves awkward.
+- An upsert on repos, if insert-then-update on `CONFLICT` proves awkward. Inside a MongoDB transaction, insert-then-update does not work: a duplicate key aborts the transaction.
 
 ## Discoveries
 
