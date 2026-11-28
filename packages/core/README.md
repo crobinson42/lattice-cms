@@ -1363,4 +1363,4 @@ These are not built. [docs/architecture.md](../../docs/architecture.md#known-lim
 - An `@hexok/authz` adapter for `Access`. It waits for hexok to release `@hexok/authz`.
 - `entity`: a collection backed by a hexok `Entity` instead of a schema.
 - A store per collection. One `build({ store })` serves every collection.
-- File uploads: a file field, its blob storage and downloads.
+- File uploads: a file field. An app stores files through its own storage port, and keeps their metadata in a collection.
