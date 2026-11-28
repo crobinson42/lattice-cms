@@ -20,14 +20,16 @@ export class MongoStoreError extends Errors('store-mongo', {
 }) {}
 
 /** A duplicate key on a write: an id clash or a unique index. */
-export function isDuplicateKey(error: unknown): boolean {
+export function isDuplicateKey(error: unknown): error is MongoServerError {
   return error instanceof MongoServerError && error.code === 11000;
 }
 
 /**
  * Runs a write of the document `id`, turning a duplicate key into Lattice's
  * CONFLICT for that document. `id` is the document being written, which
- * the caller always knows, so the driver's message is never parsed.
+ * the caller always knows. `fields` come from the error's `keyPattern`, the
+ * clashing index's keys, with `_id` as `id`. The driver's message, which
+ * quotes the values, is never read.
  */
 export async function writing<T>(
   collection: string,
@@ -37,7 +39,13 @@ export async function writing<T>(
   try {
     return await write();
   } catch (error) {
-    if (isDuplicateKey(error)) throw LatticeError.CONFLICT({ collection, id });
+    if (isDuplicateKey(error)) {
+      const pattern: unknown = error.keyPattern;
+      const fields = Object.keys(
+        typeof pattern === 'object' && pattern !== null ? pattern : {},
+      ).map((field) => (field === '_id' ? 'id' : field));
+      throw LatticeError.CONFLICT({ collection, id, fields });
+    }
     throw error;
   }
 }

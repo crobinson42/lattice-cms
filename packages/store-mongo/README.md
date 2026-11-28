@@ -70,7 +70,7 @@ Lattice uses `store.transaction(work)` for a delete that cascades or nullifies r
 - `where` translates operator by operator: `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt` and `lte` become their `$` operators. `contains` is a case-insensitive regex with every metacharacter escaped. `exists: true` is `{ $ne: null }` and `exists: false` is `{ $eq: null }`, because in Lattice null does not exist. `and` and `or` become `$and` and `$or`.
 - Filters are combined with `$and`, never merged into one object, so a filter on `id` cannot replace the call's own id match.
 - `find` sorts by the sort keys and then `_id`, and applies the cursor as one more filter. A document with no value for a sort field comes last in either direction. Mongo already sorts a missing or null value last on a descending key, so a sort with no ascending optional key is a plain, index-served sort. When the first key is the one ascending optional key, `find` runs two queries: documents with a value, which an index on the field serves, then, only when that page is not full, documents without one. Any other ascending optional key sorts through an aggregate with a computed key, which cannot use an index for the sort.
-- A duplicate key on `insert` or `update`, from the id or a unique index, is Lattice's `CONFLICT` with `{ collection, id }` of the document being written.
+- A duplicate key on `insert` or `update`, from the id or a unique index, is Lattice's `CONFLICT` with `{ collection, id, fields }`: `id` is the document being written, and `fields` are the clashing index's keys from the error's `keyPattern`, with `_id` as `id`. A server that leaves `keyPattern` out, as some MongoDB-compatible services do, gives `fields: []`.
 - `ensure(collection, indexes)` creates each index with `createIndex` and never drops one. `build().ensure()` calls it for every collection that declares indexes. An index with the same keys and other options rejects, and so does a unique index over existing duplicates: changing an index is a migration.
 - `count` is `countDocuments`.
 - `has` is equality on the array field, which Mongo matches against any element. `nhas` is `$ne`, which matches when no element is equal, and matches a missing or null array.
@@ -153,7 +153,7 @@ Each store call is one OpenTelemetry client span, a child of the active span, th
 
 | Error | Code | When |
 | --- | --- | --- |
-| `LatticeError` | `CONFLICT` | A duplicate key on `insert` or `update`, from the id or a unique index. `data` is `{ collection, id }` of the document being written; the driver's message is never parsed or sent |
+| `LatticeError` | `CONFLICT` | A duplicate key on `insert` or `update`, from the id or a unique index. `data` is `{ collection, id, fields }`: the document being written and the clashing index's fields, or `[]` when the error has no `keyPattern`. The driver's message is never parsed or sent |
 | `MongoStoreError` | `NotStarted`, `Starting`, `Stopped` | A call before `start()`, during it, or after `stop()`. Fix the call order; do not retry |
 | `MigrationError` | `Gap`, `Duplicate`, `Unknown`, `Renamed` | The migration list does not match itself or what ran. Thrown before any migration runs |
 | `MigrationError` | `NoTransactions` | A migration asks for a transaction on a deployment without them. Thrown before any migration runs |
