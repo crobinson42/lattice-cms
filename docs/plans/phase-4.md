@@ -47,7 +47,7 @@ Each step ends with its tests passing, an independent review, a changeset and a 
 - [x] MemoryStore keys an array field per element, as MongoDB's multikey index does, with conformance cases: `['a','b']` and `['b','c']` clash.
 - [x] Record: [0042](../decisions/0042-conflict-names-the-clashing-fields.md).
 - [x] MemoryStore hands `work` a store of its own and runs transactions one at a time. A rollback undoes only that store's writes and indexes. A `CONFLICT` inside a transaction aborts it, as on MongoDB. An index refuses two array fields. Conformance cases for each that MongoDB shares.
-- [ ] `Index` gains `present: [field]`: the index covers only rows where each field has a value, and an array has at least one element. Core compiles it from the schema, and MongoStore maps it to a `partialFilterExpression`. Conformance cases. Record 0043.
+- [x] `Index` gains `present: [field]` on a unique index: the index covers only rows where each field has a value, and an array has an element that is neither null nor an array. MongoStore maps it to a `partialFilterExpression` of `$type`s, so no schema kinds are needed. Conformance cases. Record: [0043](../decisions/0043-a-unique-index-can-skip-rows-without-a-value.md).
 
 ### 4. Tenancy by field, and no tenant
 
@@ -91,3 +91,6 @@ Recorded, not scheduled:
 - A unique index keys a missing field as null and an empty array as one value, so two rows without a value clash on MongoDB. And `MemoryStore` compared an array key whole, where MongoDB compares each element.
 - `MemoryStore` joined any call made in `work`'s async context, so a timer that fired after the commit joined a finished transaction, and a root-store call inside `work` joined where MongoDB's would not. `work` now gets its own store, as a MongoDB session binds calls. Async context remains only to let a root `transaction` inside `work` run beside the outer one instead of deadlocking.
 - MongoDB refuses an index over two array fields in one document, even empty ones (code 171). `MemoryStore` accepted it.
+- A partial filter cannot say `$ne: null`, but a `$type` list of every type except null, undefined and array can. On an array, `$type` matches by element, so `[]`, `[null]` and `[[1]]` are left out. A row a partial index leaves out is not checked for parallel arrays.
+- A declared index stood in for a ref's lookup index when its keys led with the ref. A partial one cannot: MongoDB 8.0 collection-scans `{ ref: id }` beside a `$type` partial index. With the same keys, MongoDB refuses the plain lookup index (code 86), so that lookup index adds `id`.
+- MongoDB compares partial filters as documents, ignoring field order, so `present: ['a','b']` and `['b','a']` are the same index.

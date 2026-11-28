@@ -210,6 +210,47 @@ describe('ref()', () => {
     expect(Declared.indexes).toEqual([
       { fields: { ownerId: 1 }, unique: true },
     ]);
+    // MongoDB does not use a partial index for the lookup, and refuses two
+    // indexes with the same keys, so the lookup's adds id.
+    const Partial = collection('partial', {
+      schema: z.object({ ownerId: ref('users').optional() }),
+      indexes: [{ fields: { ownerId: 1 }, unique: true, present: ['ownerId'] }],
+    });
+    expect(Partial.indexes).toEqual([
+      { fields: { ownerId: 1 }, unique: true, present: ['ownerId'] },
+      { fields: { ownerId: 1, id: 1 } },
+    ]);
+    const Longer = collection('longer', {
+      schema: z.object({ ownerId: ref('users').optional(), at: z.string() }),
+      indexes: [
+        { fields: { ownerId: 1, at: 1 }, unique: true, present: ['ownerId'] },
+      ],
+    });
+    expect(Longer.indexes).toEqual([
+      { fields: { ownerId: 1, at: 1 }, unique: true, present: ['ownerId'] },
+      { fields: { ownerId: 1 } },
+    ]);
+  });
+
+  it('ensures a unique index with present on a ref beside its lookup index', async () => {
+    const Tenanted = collection('tenanted', {
+      schema: z.object({ ownerId: ref('users').optional() }),
+      tenant: 'organizationId',
+      indexes: [
+        {
+          fields: { organizationId: 1, ownerId: 1 },
+          unique: true,
+          present: ['ownerId'],
+        },
+      ],
+    });
+    const store = new MemoryStore();
+    await expect(
+      store.ensure('tenanted', Tenanted.indexes),
+    ).resolves.toBeUndefined();
+    expect(Tenanted.indexes[1]).toEqual({
+      fields: { organizationId: 1, ownerId: 1, id: 1 },
+    });
   });
 
   it('a list of ids takes has and nhas in Where', () => {
@@ -372,6 +413,22 @@ describe('onDelete', () => {
       n2,
     ]);
     expect(published).toEqual([]);
+  });
+
+  it('nullifies refs under a unique index with present, which skips null', async () => {
+    const { a, repos, store, A, acme, p2, note } = await seeded();
+    await store.ensure('notes', [
+      { fields: { projectId: 1 }, unique: true, present: ['projectId'] },
+    ]);
+    const n2 = await repos.notes.insert(
+      { text: 'n2', projectId: p2.id },
+      A.notes,
+    );
+
+    expect(await codeOf(a.companies.delete({ id: acme.id }))).toBe('ok');
+
+    const notes = await repos.notes.getMany([note.id, n2.id], unscoped);
+    expect(notes.map((row) => row.projectId)).toEqual([null, null]);
   });
 
   it('stays in the parent’s tenant: another tenant’s row with this id neither blocks nor is cascaded', async () => {

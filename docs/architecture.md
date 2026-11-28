@@ -224,13 +224,13 @@ abstract class CollectionStore extends Port('CollectionStore') {
   abstract transaction<T>(work: (store: CollectionStore) => Promise<T>): Promise<T> // as atomic as the store can be
 }
 
-type Index = { fields: Record<string, 1 | -1>; unique?: boolean } // key order is the index's order
+type Index = { fields: Record<string, 1 | -1>; unique?: boolean; present?: readonly string[] } // key order is the index's order
 ```
 
 - `where` on `get`, `update` and `remove` carries the access and tenant filter, so a write never touches a row the caller cannot see.
 - `getMany` exists for relation population. It is one query per collection per request.
 - Adapters use a hexok `Mapper` when the stored shape differs. `MongoStore` maps `id` to a string `_id`.
-- A collection declares `indexes: [{ fields: { stage: 1, createdAt: -1 }, unique? }]`. Fields are the stored document's, including the system and tenant fields, and an unknown one is a compile error. `build().ensure()` passes them to `store.ensure()`. A tenanted collection's indexes usually lead with the tenant field; Lattice does not add it.
+- A collection declares `indexes: [{ fields: { stage: 1, createdAt: -1 }, unique?, present? }]`. Fields are the stored document's, including the system and tenant fields, and an unknown one is a compile error. `present` lists fields of a unique index; the index covers only rows where each has a value ([0043](decisions/0043-a-unique-index-can-skip-rows-without-a-value.md)). A ref gets its own lookup index unless a declared one without `present` starts with the same keys. When a `present` index has exactly the lookup's keys, the lookup index adds `id`, since MongoDB refuses two indexes with the same keys. `build().ensure()` passes them to `store.ensure()`. A tenanted collection's indexes usually lead with the tenant field; Lattice does not add it.
 - Field names cannot contain `.`, start with `$`, or be `_id`. Mongo would read them as paths, operators or the id. `collection()` rejects them at compile time and at runtime.
 
 ### MongoStore
@@ -246,12 +246,12 @@ await store.stop()  // closes the client
 
 - A call before `start()`, during it, or after `stop()` rejects with `MongoStoreError` (`NotStarted`, `Starting`, `Stopped`), using ioredis-lifecycle's names.
 - Each collection is a Mongo collection of the same name. `Where` translates one to one; `exists` follows Lattice's null rule, not Mongo's `$exists`, and `contains` is an escaped, case-insensitive regex. Filters are combined with `$and`, never spread, so a filter on `id` cannot replace the id lookup.
-- A duplicate key (11000) on a write is `CONFLICT` with `{ collection, id, fields }`, `fields` from the error's `keyPattern`, or `[]` without one. `ensure` runs `createIndex`, and an options conflict or a unique index over duplicates passes through.
+- A duplicate key (11000) on a write is `CONFLICT` with `{ collection, id, fields }`, `fields` from the error's `keyPattern`, or `[]` without one. `ensure` runs `createIndex`, with `present` as a `partialFilterExpression` of every `$type` but null, undefined and array, and an options conflict or a unique index over duplicates passes through.
 - Sorts follow three plans. With no ascending optional key, it uses a plain sort, served by an index, because Mongo already puts null last on a descending key. When the first key is the only ascending optional one, it runs two queries: rows with a value (index-served), then rows without, only when the page is short, and never once the cursor is past the values. Any other ascending optional key uses an aggregate with a computed missing flag, which sorts in memory.
 - Two known differences from `MemoryStore`. Mongo orders strings by UTF-8 bytes, which differs from JavaScript only for U+E000–U+FFFF against astral characters. `contains` folds case differently outside ASCII.
 - Tests run on `mongodb-memory-server`: one single-node replica set per run, pinned to mongod 8.0.14, with a database per test.
 - A `Patch` sets each key it has; a key set to `undefined` removes the field (Mongo `$unset`). It can never change `id`.
-- `MemoryStore` ships in `@latticecms/core` for tests and examples, the way `@hexok/logger` ships `MemoryLogger`. It enforces indexes as Mongo does: a missing field keys as null, an array keys each element, two array fields in one index throw, `ensure` rejects a unique index over existing duplicates, and it rejects an index whose keys exist with other options. Each transaction hands `work` a store of its own, as a Mongo session binds calls, and undoes that store's writes on a throw. Transactions run one at a time. One started on the root store from inside `work`, found by async context, runs beside it, as Mongo's separate one does. A CONFLICT aborts a transaction: Mongo then retries `work` until it times out, and `MemoryStore` throws at once.
+- `MemoryStore` ships in `@latticecms/core` for tests and examples, the way `@hexok/logger` ships `MemoryLogger`. It enforces indexes as Mongo does: a missing field keys as null, an array keys each element, two array fields in one index throw, a row that `present` leaves out has no keys, `ensure` rejects a unique index over existing duplicates, and it rejects an index whose keys exist with other options. Each transaction hands `work` a store of its own, as a Mongo session binds calls, and undoes that store's writes on a throw. Transactions run one at a time. One started on the root store from inside `work`, found by async context, runs beside it, as Mongo's separate one does. A CONFLICT aborts a transaction: Mongo then retries `work` until it times out, and `MemoryStore` throws at once.
 - A store receives a parsed `AnyWhere`, not the typed `Where<Doc>`: validation happened before it.
 
 ### Writing a store adapter

@@ -152,4 +152,58 @@ describe('collection() indexes', () => {
       collection('deals', { schema, indexes: [{ fields: {} }] }),
     ).toThrow('an index on "deals" names no fields');
   });
+
+  it('present lists fields of a unique index', () => {
+    const Contacts = collection('contacts', {
+      schema: z.object({ emails: z.array(z.string()) }),
+      tenant: 'organizationId',
+      indexes: [
+        {
+          fields: { organizationId: 1, emails: 1 },
+          unique: true,
+          present: ['emails'],
+        },
+      ],
+    });
+    expect(Contacts.indexes).toEqual([
+      {
+        fields: { organizationId: 1, emails: 1 },
+        unique: true,
+        present: ['emails'],
+      },
+    ]);
+    expect(() =>
+      collection('deals', {
+        schema,
+        // @ts-expect-error 'stages' does not exist on the deals document
+        indexes: [{ fields: { stage: 1 }, unique: true, present: ['stages'] }],
+      }),
+    ).toThrow('has present "stages", which is not one of its fields');
+    expect(() =>
+      collection('deals', {
+        schema,
+        indexes: [{ fields: { stage: 1 }, unique: true, present: ['amount'] }],
+      }),
+    ).toThrow('has present "amount", which is not one of its fields');
+    expect(() =>
+      collection('deals', {
+        schema,
+        indexes: [
+          { fields: { stage: 1 }, unique: true, present: ['stage', 'stage'] },
+        ],
+      }),
+    ).toThrow('or is named twice');
+    expect(() =>
+      collection('deals', {
+        schema,
+        indexes: [{ fields: { stage: 1 }, present: ['stage'] }],
+      }),
+    ).toThrow('an index on "deals" has present but is not unique');
+    expect(() =>
+      collection('deals', {
+        schema,
+        indexes: [{ fields: { stage: 1 }, unique: true, present: [] }],
+      }),
+    ).toThrow('an index on "deals" has an empty present');
+  });
 });
