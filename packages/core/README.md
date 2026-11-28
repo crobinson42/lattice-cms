@@ -373,7 +373,7 @@ export type CrmApp = ReturnType<typeof createApp>;
 | Output | What it is |
 | --- | --- |
 | `app` | The implemented ts-pf router, for `FetchHandler` and `createLocalClient` |
-| `useCases` | The hexok instance that serves each procedure: generated, override or method, each typed precisely |
+| `useCases` | The hexok instance that serves each procedure: generated, override or method, each typed precisely. Server code: it returns whole documents, unmasked. A second gateway that serves clients from it must call through `createLocalClient(app)`, or withhold maskable fields itself |
 | `repos` | A `Repo<C>` per collection: the objects the factories received |
 | `onError` | `onError(logger)` for `FetchHandler` |
 | `context` | `context({ actor, logger })`: the context for a direct `useCases.*.execute` call |
@@ -1160,12 +1160,12 @@ Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `out
 | string | `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `contains`, `exists` |
 | number | `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `exists` |
 | boolean, enum | `eq`, `ne`, `in`, `nin`, `exists` |
-| array of strings, numbers or enum values | `has`, `exists` |
+| array of strings, numbers or enum values | `has`, `nhas`, `exists` |
 | array of anything else, object, anything else | `exists` |
 
 - Several fields or operators must all match. `and` and `or` nest. Null and missing follow MongoDB's semantics.
 - `contains` is a case-insensitive substring, never a regex.
-- `has` matches an array with an element equal to its value. A missing or null array has none.
+- `has` matches an array with an element equal to its value. `nhas` matches an array with no such element. A missing or null array has none, so `nhas` matches it; add `exists: true` to require the array.
 - `sort` is an array such as `['-createdAt', 'title']`. String, number and enum fields sort, optional and nullable ones too. The default is `['-createdAt']`, and `id` is always the last tiebreak. Its JSON Schema lists every key it accepts, so a client sees the valid keys.
 - A document with no value for a sort field, missing or null, comes after every document with one, ascending or descending. Documents with no value order by the remaining keys, then `id`. The cursor records that its document had no value, so pages stay stable across that boundary.
 - `limit` is 1 to 100, default 20. `next` is an opaque cursor for `after`, or null on the last page.

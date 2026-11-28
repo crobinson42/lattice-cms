@@ -84,6 +84,13 @@ describe('toFilter', () => {
     });
   });
 
+  it('maps nhas to $ne, which matches no equal element and a missing array', () => {
+    expect(toFilter({ tags: { nhas: 'x' } })).toEqual({ tags: { $ne: 'x' } });
+    expect(toFilter({ tags: { nhas: 'x', exists: true } })).toEqual({
+      $and: [{ tags: { $ne: 'x' } }, { tags: { $ne: null } }],
+    });
+  });
+
   it('maps and and or, nested, beside fields', () => {
     expect(
       toFilter({

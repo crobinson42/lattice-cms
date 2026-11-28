@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
-import { cp, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { type Step, stepsOf } from './readme.js';
 
@@ -26,9 +26,10 @@ function environment(): NodeJS.ProcessEnv {
 }
 
 /**
- * Each published package as a tarball, by name, packed from a copy whose
- * version is 0.1.0: the first release's, so its internal peer ranges
- * resolve as they will on the registry.
+ * Each published package as a tarball, by name, packed from a copy at its
+ * own version. The Version Packages pull request keeps the versions and the
+ * internal peer ranges in step, so they resolve as they will on the
+ * registry.
  */
 export async function pack(
   repo: string,
@@ -41,15 +42,6 @@ export async function pack(
       recursive: true,
       filter: (path) => !/[/\\](node_modules|fixtures)$/.test(path),
     });
-    const manifestPath = join(copy, 'package.json');
-    const manifest: unknown = JSON.parse(await readFile(manifestPath, 'utf8'));
-    if (typeof manifest !== 'object' || manifest === null) {
-      throw new Error(`${manifestPath} is not an object`);
-    }
-    await writeFile(
-      manifestPath,
-      JSON.stringify({ ...manifest, version: '0.1.0' }, null, 2),
-    );
     const packed = spawnSync(
       'npm',
       ['pack', '--silent', '--pack-destination', out],

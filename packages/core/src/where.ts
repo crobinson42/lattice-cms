@@ -19,8 +19,10 @@ const operators = {
   lt: ordered,
   lte: ordered,
   contains: ['string'],
-  // An array of strings, numbers or enum values: has one equal element.
+  // An array of strings, numbers or enum values: has one equal element, or
+  // has none.
   has: ['array'],
+  nhas: ['array'],
   exists: ['string', 'number', 'boolean', 'enum', 'array', 'other'],
 } as const satisfies Record<string, readonly Kind[]>;
 
@@ -70,7 +72,7 @@ type Operand<Op extends Operator, B> = Op extends 'eq' | 'ne'
       ? string
       : Op extends 'exists'
         ? boolean
-        : Op extends 'has'
+        : Op extends 'has' | 'nhas'
           ? B extends readonly (infer E)[]
             ? Exclude<E, null | undefined>
             : never
@@ -263,8 +265,29 @@ function valueSchema(kind: Kind, leaf: z.core.$ZodType): z.core.$ZodType {
   }
 }
 
+/**
+ * `schema` refusing null: a clone with one more check, so its JSON Schema is
+ * unchanged.
+ */
+function notNull(schema: z.core.$ZodType): z.core.$ZodType {
+  const { def } = schema._zod;
+  return z.core.util.clone(schema, {
+    ...def,
+    checks: [
+      ...(def.checks ?? []),
+      z.refine((operand) => operand !== null, 'Expected a value, not null'),
+    ],
+  });
+}
+
 function operandSchema(op: string, value: z.core.$ZodType): z.core.$ZodType {
   switch (op) {
+    case 'has':
+    case 'nhas':
+      // An element schema may allow null inside a union, which unwrap leaves.
+      // Mongo matches a missing array with `$eq: null` and not with
+      // `$ne: null`, the reverse of "no elements", so null is refused.
+      return notNull(value);
     case 'eq':
     case 'ne':
       return z.nullable(value);
@@ -352,6 +375,7 @@ export type FieldOps = {
   readonly lte?: unknown;
   readonly contains?: string;
   readonly has?: unknown;
+  readonly nhas?: unknown;
   readonly exists?: boolean;
 };
 
@@ -406,6 +430,12 @@ function compares(
   return order !== undefined && test(order);
 }
 
+function hasElement(value: unknown, target: unknown): boolean {
+  return (
+    Array.isArray(value) && value.some((element) => equals(element, target))
+  );
+}
+
 function matchesField(value: unknown, ops: FieldOps): boolean {
   if (ops.eq !== undefined && !equals(value, ops.eq)) return false;
   if (ops.ne !== undefined && equals(value, ops.ne)) return false;
@@ -424,13 +454,10 @@ function matchesField(value: unknown, ops: FieldOps): boolean {
       return false;
     }
   }
-  // An element equal to the operand. A missing or null array has none.
-  if (
-    ops.has !== undefined &&
-    !(Array.isArray(value) && value.some((element) => equals(element, ops.has)))
-  ) {
-    return false;
-  }
+  // An element equal to the operand. A missing or null array has none, so
+  // `nhas` matches it, as Mongo's `$ne` on an array does.
+  if (ops.has !== undefined && !hasElement(value, ops.has)) return false;
+  if (ops.nhas !== undefined && hasElement(value, ops.nhas)) return false;
   if (ops.exists !== undefined && present(value) !== ops.exists) return false;
   return true;
 }

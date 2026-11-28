@@ -4,7 +4,7 @@ Collections that compile into [hexok](https://github.com/crobinson42/hexok) use 
 
 Docs: [crobinson42.github.io/lattice-cms](https://crobinson42.github.io/lattice-cms/)
 
-Status: before 1.0. 0.1.0 is published to npm. File uploads are not built yet.
+Status: before 1.0, and published to npm. File uploads are not built yet.
 
 | Package | What it is |
 | --- | --- |

@@ -282,11 +282,11 @@ describe('MongoStore conformance', () => {
 | string | `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `contains`, `exists` |
 | number | `eq`, `ne`, `in`, `nin`, `gt`, `gte`, `lt`, `lte`, `exists` |
 | boolean, enum (string or number literals) | `eq`, `ne`, `in`, `nin`, `exists` |
-| array of strings, numbers or enums | `has` (an element equals the value), `exists` |
+| array of strings, numbers or enums | `has` (an element equals the value), `nhas` (no element does), `exists` |
 | object, other arrays, anything else | `exists` |
 
 - Several fields, or several operators on one field, all have to match. `and` and `or` take one or more filters and nest.
-- Null and missing follow MongoDB's query semantics: `eq: null` matches null or missing, `ne` and `nin` match missing, and a comparison with null or missing is false. `exists` asks whether a field has a value, so null does not exist.
+- Null and missing follow MongoDB's query semantics: `eq: null` matches null or missing, `ne` and `nin` match missing, and a comparison with null or missing is false. A missing or null array has no elements: `has` does not match it, and `nhas` does. `has` and `nhas` refuse a null operand. `exists` asks whether a field has a value, so null does not exist.
 - Strings compare by code unit, so ISO timestamps order correctly. `contains` is a case-insensitive literal substring, never a regex.
 - One operator table drives the type and the validator. A field's kind is decided from the values it accepts, the same way on both sides, and a table test checks every Zod field form.
 - The generated `find` takes `where`, and ts-pf validates it with the same schema.

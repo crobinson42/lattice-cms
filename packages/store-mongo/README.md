@@ -73,7 +73,7 @@ Lattice uses `store.transaction(work)` for a delete that cascades or nullifies r
 - A duplicate key on `insert` or `update`, from the id or a unique index, is Lattice's `CONFLICT` with `{ collection, id }` of the document being written.
 - `ensure(collection, indexes)` creates each index with `createIndex` and never drops one. `build().ensure()` calls it for every collection that declares indexes. An index with the same keys and other options rejects, and so does a unique index over existing duplicates: changing an index is a migration.
 - `count` is `countDocuments`.
-- `has` is equality on the array field, which Mongo matches against any element.
+- `has` is equality on the array field, which Mongo matches against any element. `nhas` is `$ne`, which matches when no element is equal, and matches a missing or null array.
 
 ## Migrations
 

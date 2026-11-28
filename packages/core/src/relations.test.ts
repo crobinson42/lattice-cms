@@ -212,9 +212,14 @@ describe('ref()', () => {
     ]);
   });
 
-  it('a list of ids takes has in Where', () => {
+  it('a list of ids takes has and nhas in Where', () => {
     expectTypeOf<Where<Doc<typeof Labels>>['companyIds']>().toEqualTypeOf<
-      { readonly has?: string; readonly exists?: boolean } | undefined
+      | {
+          readonly has?: string;
+          readonly nhas?: string;
+          readonly exists?: boolean;
+        }
+      | undefined
     >();
   });
 });

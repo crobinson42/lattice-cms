@@ -559,7 +559,7 @@ export const storeCases: readonly StoreCase[] = [
     [{ at: { lt: '2027-01-01T00:00:00.000Z' } }, ['t1', 't2', 't3']],
   ]),
   {
-    name: 'where: has matches an array with an equal element; a missing or null array has none',
+    name: 'where: has matches an array with an equal element, nhas one without; a missing or null array has none',
     async run(store) {
       await seed(store, 'where_has', [
         { id: 'h1', tags: ['a', 'b'], nums: [1, 2] },
@@ -576,6 +576,18 @@ export const storeCases: readonly StoreCase[] = [
           [{ nums: { has: 2 } }, ['h1']],
           [{ nums: { has: 3 } }, []],
           [{ or: [{ tags: { has: 'a' } }, { nums: { has: 9 } }] }, ['h1']],
+          [{ tags: { nhas: 'a' } }, ['h2', 'h3', 'h4', 'h5']],
+          [{ tags: { nhas: 'b' } }, ['h3', 'h4', 'h5']],
+          [{ nums: { nhas: 2 } }, ['h2', 'h3', 'h4', 'h5']],
+          [{ tags: { has: 'b', nhas: 'a' } }, ['h2']],
+          [{ tags: { has: 'a', nhas: 'a' } }, []],
+          [{ tags: { nhas: 'a', exists: false } }, ['h4', 'h5']],
+          [
+            { or: [{ tags: { nhas: 'b' } }, { nums: { has: 1 } }] },
+            ['h1', 'h3', 'h4', 'h5'],
+          ],
+          // `nhas` and `exists: true` are both `$ne` in Mongo.
+          [{ tags: { nhas: 'a', exists: true } }, ['h2', 'h3']],
         ];
       for (const [where, ids] of expectations) {
         same(
@@ -588,6 +600,11 @@ export const storeCases: readonly StoreCase[] = [
         await store.count('where_has', { tags: { has: 'b' } }),
         2,
         'count with has',
+      );
+      same(
+        await store.count('where_has', { tags: { nhas: 'a' } }),
+        4,
+        'count with nhas',
       );
     },
   },

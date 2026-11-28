@@ -55,7 +55,7 @@
     "@hexok/logger": "^0.2.0",
     "@latticecms/core": "^0.2.0",
     "@opentelemetry/api": "^1.3.0",
-    "hexok": "^2.2.7",
+    "hexok": "^2.2.8",
     "zod": "^4.1.0"
   },
   "devDependencies": {

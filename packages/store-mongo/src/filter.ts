@@ -53,6 +53,11 @@ function conditions(ops: FieldOps): [string, unknown][] {
         // On an array field, Mongo's equality matches any element.
         out.push(['$eq', value]);
         break;
+      case 'nhas':
+        // `$ne` on an array field matches when no element is equal, and
+        // matches a missing or null array, as Lattice's `nhas` does.
+        out.push(['$ne', value]);
+        break;
       case 'exists':
         // Lattice's exists asks whether a field has a value, so null does
         // not exist. Mongo's $exists would count null as present.
@@ -67,8 +72,8 @@ function conditions(ops: FieldOps): [string, unknown][] {
 
 /**
  * The filter for one field. Its operators share one object, unless two map
- * to the same Mongo operator (`ne` with `exists: true`), when each gets its
- * own clause.
+ * to the same Mongo operator (`ne` or `nhas` with `exists: true`, `has` with
+ * `exists: false`), when each gets its own clause.
  */
 function fieldFilter(field: string, ops: FieldOps): Document {
   const name = mongoField(field);
