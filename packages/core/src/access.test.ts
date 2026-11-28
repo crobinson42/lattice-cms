@@ -336,6 +336,114 @@ describe('access: a Where', () => {
   });
 });
 
+describe('access: a bad Where fails closed', () => {
+  /** An app whose every access answer is `answer`, with one note of u1's. */
+  async function answering(answer: AnyWhere) {
+    class Fixed extends Adapter(Access) {
+      override async check() {
+        return answer;
+      }
+
+      override async readable(): Promise<readonly string[]> {
+        return [];
+      }
+    }
+    const built = framework({ family: AppUseCase })
+      .collection(Notes, { access: {} })
+      .build({
+        store: new MemoryStore(),
+        events: noEvents,
+        access: new Fixed(),
+      });
+    await notesOf(built.repos, 'u1', [1]);
+    return built;
+  }
+
+  it.each([
+    ['an undefined operand', { ownerId: { eq: undefined } }, 'ownerId.eq'],
+    ['an undefined field', { ownerId: undefined }, 'ownerId'],
+    [
+      'an undefined element of in',
+      { ownerId: { in: ['u2', undefined] } },
+      'ownerId.in.1',
+    ],
+    [
+      'an undefined operand in a nested clause',
+      { or: [{ ownerId: { eq: undefined } }] },
+      'or.0.ownerId.eq',
+    ],
+    [
+      'an unknown field',
+      { owner: { eq: 'u2' } },
+      '(root): "owner" is not a field',
+    ],
+    [
+      'an unknown operator',
+      { ownerId: { equals: 'u2' } },
+      'ownerId: "equals" is not an operator of this field',
+    ],
+    // What { eq: undefined } becomes after JSON, from a remote policy.
+    [
+      'a field with no operator',
+      { ownerId: {} },
+      'ownerId: a field needs at least one operator',
+    ],
+    ['an operand of the wrong type', { rank: { eq: 'one' } }, 'rank.eq'],
+  ])('throws on %s, on every path', async (_, answer, path) => {
+    const { useCases, context, app, repos } = await answering(
+      answer as AnyWhere,
+    );
+    const ctx = context(callContext());
+
+    const find = useCases.notes.find.execute(ctx, {});
+    await expect(find).rejects.toThrow(
+      /Lattice: the "find" access of "notes" has an invalid Where/,
+    );
+    await expect(find).rejects.toThrow(path);
+    await expect(
+      useCases.notes.count.execute(context(callContext()), {}),
+    ).rejects.toThrow(/invalid Where/);
+    // A client gets the error, never the rows.
+    const local = createLocalClient(app, { context: callContext() });
+    await expect(local.notes.find({})).rejects.toThrow(/invalid Where/);
+    const [note] = (await repos.notes.find({}, unscoped)).docs;
+    const id = note?.id ?? '';
+    await expect(local.notes.get({ id })).rejects.toThrow(/invalid Where/);
+    await expect(local.notes.update({ id, rank: 2 })).rejects.toThrow(
+      /invalid Where/,
+    );
+    await expect(local.notes.delete({ id })).rejects.toThrow(/invalid Where/);
+    expect((await repos.notes.get(id, unscoped))?.rank).toBe(1);
+  });
+
+  it('allows an empty or, which matches nothing, and an empty and', async () => {
+    const none = await answering({ or: [] });
+    const local = createLocalClient(none.app, { context: callContext() });
+    expect((await local.notes.find({})).docs).toEqual([]);
+
+    const all = await answering({ and: [] });
+    const everyone = createLocalClient(all.app, { context: callContext() });
+    expect((await everyone.notes.find({})).docs).toHaveLength(1);
+  });
+
+  it('checks a function given at .collection(), whatever its types said', async () => {
+    const loose: { orgId?: string } = {};
+    const { app, repos } = framework({ family: AppUseCase })
+      .collection(Notes, {
+        // A JS caller, a cast or an untyped actor field: the types cannot
+        // see that the operand is undefined.
+        access: { read: () => ({ ownerId: { eq: loose.orgId as string } }) },
+      })
+      .build({ store: new MemoryStore(), events: noEvents });
+    await notesOf(repos, 'u1', [1]);
+    const local = createLocalClient(app, { context: callContext() });
+
+    await expect(local.notes.find({})).rejects.toThrow(
+      'ownerId.eq: Invalid input: expected string, received undefined',
+    );
+  });
+});
+
 describe('access per action', () => {
   it('update uses only update’s function', async () => {
     const { app, repos } = framework({ family: AppUseCase })

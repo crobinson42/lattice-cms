@@ -482,6 +482,7 @@ Access decides what a call may see and change. It is a filter in the query: Latt
 - A missing function denies. `access: {}` denies everything. An override uses the function of the action it replaces.
 - A `Where` on a field `C` lacks, a key that is not an action or a method, and a method with no function are compile errors.
 - An access `Where` is ANDed with the caller's `where`, so a caller can only narrow it.
+- Lattice checks every access `Where` at runtime, from a function or from a `build({ access })` adapter, before the query runs. An undefined value, a field with no operator, an unknown field or operator, or an operand of the wrong type throws an `Error` that names the path. The call fails, and the filter is never widened. So `{ organizationId: { eq: actor.orgId } }` with no `orgId` fails closed, whatever the types said. An empty `or` is allowed, and matches nothing.
 
 A family guard checks access before every `execute`: generated operations, overrides and methods. The refusal is logged once. Each function runs once per call. Create's function receives the parsed data, and runs again only when an override hands create's body different data.
 
@@ -526,7 +527,7 @@ const Notes = collection('notes', {
 - It is read-only on tenanted collections: generated create, update and delete are `FORBIDDEN`, and so is a repo write through its scope.
 - Its log line carries `tenancy: 'bypass'`, and each bypassed scope writes one `tenancy.bypass` line with the actor, collection and action.
 
-Server code says which tenant it works in. An event handler uses `tenancy.scope(C, tenantId)`: the tenant clause and no access. An insert through it is stamped with that tenant. `tenancy.scope` takes only a tenanted collection.
+Server code says which tenant it works in. An event handler uses `tenancy.scope(C, tenantId)`: the tenant clause and no access. An insert through it is stamped with that tenant. `tenancy.scope` takes only a tenanted collection, and throws on a `tenantId` that is not a non-empty string.
 
 ```ts
 await repos.notes.update(id, patch, tenancy.scope(Notes, event.payload.tenantId));
