@@ -31,17 +31,19 @@ export class CloseDeal extends AppUseCase('deals.close', {
     input: { id: string; outcome: 'won' | 'lost' },
   ): Promise<Doc<typeof Deals>> {
     const scope = await ctx.access.scope(Deals, 'close');
-    const deal = await this.deps.deals.get(input.id, scope);
-    if (deal === null) throw notFound(input.id);
-    if (deal.closedAt !== undefined) {
-      throw DomainError.AlreadyClosed({ id: input.id });
-    }
+    // The condition is checked in the same write, so two closes cannot both
+    // win: the second finds the deal closed and gets null.
     const closed = await this.deps.deals.update(
       input.id,
       { stage: input.outcome, closedAt: new Date().toISOString() },
       scope,
+      { if: { closedAt: { exists: false } } },
     );
-    if (closed === null) throw notFound(input.id);
+    if (closed === null) {
+      const deal = await this.deps.deals.get(input.id, scope);
+      if (deal === null) throw notFound(input.id);
+      throw DomainError.AlreadyClosed({ id: input.id });
+    }
     await this.deps.events.publish(
       new DealClosedEvent({
         dealId: closed.id,
