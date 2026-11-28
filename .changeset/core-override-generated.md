@@ -1,5 +1,0 @@
----
-'@latticecms/core': minor
----
-
-An override can call the generated operation it replaces. `build()`'s overrides factory receives `generated` beside `repos`, holding only the overridden operations: `generated.<slug>.<operation>(ctx, input)`, and `generated.<slug>.<relation>.<op>` for a relation, runs that operation's body: the input parse, the access scope, hooks, the store write and its events. It runs no guards, logging or spans, which the override's own use case has run, so each runs once. Each body checks what its own action needs (create's access, withheld fields, populate keys), so calling one from another operation's override skips nothing. An override that adds a rule checks the input, then returns `generated`. Core exports `CreateInput<C>` and `UpdateInput<C>`, the inputs of create and update, for the override's `execute`. An override of create now hands its access function the create-parsed data, with defaults applied, as the generated create does; before, it received the override's raw input.
