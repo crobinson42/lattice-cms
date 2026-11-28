@@ -126,8 +126,15 @@ type Output<
   z.core.$strip
 >;
 
+/**
+ * The stored document's schema: the schema's fields plus the system and
+ * tenant fields. Built from the shape, so an output never carries the
+ * schema's object-level refinements: they check input, and Zod 4 refuses to
+ * overwrite a key of a refined object, which a populated read and a masked
+ * field both do.
+ */
 function outputOf<Shape extends z.core.$ZodShape, Tenant extends string>(
-  schema: Schema<Shape>,
+  shape: Shape,
   tenant: Tenant | undefined,
 ): Output<Shape, Tenant> {
   // Typed, so `extend` infers `Stamped<Tenant>` itself: an anonymous spread
@@ -136,7 +143,7 @@ function outputOf<Shape extends z.core.$ZodShape, Tenant extends string>(
     ...systemShape,
     ...tenantShapes(tenant).field,
   };
-  return schema.extend(stamped);
+  return z.object(shape).extend(stamped);
 }
 
 /**
@@ -188,13 +195,13 @@ function outputsOf(
   maskable: readonly string[],
 ): { readonly output: z.ZodObject; readonly clientOutput: z.ZodObject } {
   if (maskable.length === 0) {
-    const output = outputOf(schema, tenant);
+    const output = outputOf(schema.shape, tenant);
     return { output, clientOutput: output };
   }
   const { stored, client } = maskShapes(slug, schema.shape, maskable);
   return {
-    output: outputOf(schema.extend(stored), tenant),
-    clientOutput: outputOf(schema.extend(client), tenant),
+    output: outputOf({ ...schema.shape, ...stored }, tenant),
+    clientOutput: outputOf({ ...schema.shape, ...client }, tenant),
   };
 }
 

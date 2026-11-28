@@ -85,6 +85,13 @@ describe.each(backends)('MCP at /mcp on $name', (backend) => {
         ),
         'deals_contacts_list',
         'deals_contacts_set',
+        // An activity is created only through log.
+        ...['find', 'count', 'get', 'update', 'delete', 'log'].map(
+          (action) => `activities_${action}`,
+        ),
+        ...['find', 'count', 'get', 'create', 'update', 'delete'].map(
+          (action) => `tasks_${action}`,
+        ),
         // Memberships' and organizations' writes are refused for every
         // caller, so not tools.
         ...['memberships', 'organizations'].flatMap((slug) =>
@@ -92,7 +99,7 @@ describe.each(backends)('MCP at /mcp on $name', (backend) => {
         ),
       ].sort(),
     );
-    expect(tools).toHaveLength(27);
+    expect(tools).toHaveLength(39);
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
     expect(
       Object.fromEntries(
@@ -274,12 +281,12 @@ describe('the crm’s toolset', () => {
     const findings = audit([crmTools]);
 
     expect(findings.filter((finding) => finding.level === 'error')).toEqual([]);
-    // What is left: 27 flat tools (ts-pf suggests 15 or fewer), and the
+    // What is left: 39 flat tools (ts-pf suggests 15 or fewer), and the
     // recursive where of each find and count.
     expect(
       [...new Set(findings.map((finding) => finding.message))].sort(),
     ).toEqual([
-      'lists 27 tools (more than 15); split it or put a large group behind a $host',
+      'lists 39 tools (more than 15); split it or put a large group behind a $host',
       'schema is recursive; references stay as $ref',
     ]);
   });

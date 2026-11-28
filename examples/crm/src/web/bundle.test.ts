@@ -1,37 +1,186 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { expect, it } from 'vitest';
 import { builtPage } from '../test/web.js';
 
-// Gzipped bytes, from the first build (2026-11-23) plus 5%:
-// - everything the page loads, JS and CSS: 132,286 measured;
-// - the JS but React's chunk, so the admin's own share: 55,564 measured.
-// React 19's production build was 67,530 of the total.
-const budget = { total: 138_901, withoutReact: 58_343 };
+// The built page, as the browser gets it, read from Vite's manifest. What
+// the app loads at startup is index.html's entry: its script, its
+// stylesheet and the chunks it imports. Each page is a chunk that loads
+// when it first opens, with what it imports beyond startup: that is what
+// opening it costs. The admin is one of them, with its own stylesheet.
 
-it('keeps the built admin page within its gzipped budget', async () => {
-  const assets = new URL('assets/', builtPage);
-  const names = await readdir(assets).catch(() => {
-    throw new Error('The admin page is not built: run npm run build.');
+/**
+ * Gzipped bytes: the measurement of 2026-11-26, plus 5%.
+ * - Startup holds React, the shell, sign-in, the session and the API, and
+ *   Base UI's shared chunk, which the sidebar's sheet and the menus use.
+ *   Without React it was raised to 120,000 for the dashboard and the team
+ *   page: two routes, their sidebar icons and the dashboard's skeleton.
+ *   Both were raised again for search: the button, its shortcut and Kbd,
+ *   and the chunks shared with the lazy palette, such as the sections'
+ *   icons and the search hooks, now each a small chunk of their own.
+ * - The largest page is a deal's: its contacts, and two sections a
+ *   company's and a contact's pages also carry. Activity has its timeline,
+ *   form and kinds; Tasks its list, item, Base UI's checkbox, quick add and
+ *   edit form. The Tasks page and the deals page, with the board, follow.
+ *   The search hooks, shared with the palette, are chunks of their own.
+ * - The admin loads the alert dialog and the table with it, now that no
+ *   page at startup does.
+ */
+const budget = {
+  startup: 191_500,
+  startupWithoutReact: 123_900,
+  page: 47_000,
+  admin: 26_800,
+};
+
+type Chunk = {
+  readonly file: string;
+  readonly isEntry?: boolean;
+  readonly isDynamicEntry?: boolean;
+  readonly imports?: readonly string[];
+  readonly css?: readonly string[];
+};
+
+async function manifest(): Promise<Record<string, Chunk>> {
+  const text = await readFile(
+    new URL('.vite/manifest.json', builtPage),
+    'utf8',
+  ).catch(() => {
+    throw new Error('The web page is not built: run npm run build.');
   });
+  return JSON.parse(text);
+}
+
+/** The files a chunk loads: its own, its stylesheets and its imports'. */
+function filesOf(chunks: Record<string, Chunk>, key: string): Set<string> {
+  const files = new Set<string>();
+  const visit = (at: string) => {
+    const chunk = chunks[at];
+    if (chunk === undefined || files.has(chunk.file)) return;
+    files.add(chunk.file);
+    for (const css of chunk.css ?? []) files.add(css);
+    for (const next of chunk.imports ?? []) visit(next);
+  };
+  visit(key);
+  return files;
+}
+
+const cache = new Map<string, { text: string; gzipped: number }>();
+async function read(file: string) {
+  const known = cache.get(file);
+  if (known !== undefined) return known;
+  const text = await readFile(new URL(file, builtPage), 'utf8');
+  const read = { text, gzipped: gzipSync(text).length };
+  cache.set(file, read);
+  return read;
+}
+
+async function size(files: Iterable<string>): Promise<number> {
+  let total = 0;
+  for (const file of files) total += (await read(file)).gzipped;
+  return total;
+}
+
+/** Startup's files, and each page's files beyond startup, by its source. */
+async function built() {
+  const chunks = await manifest();
+  const entry = Object.entries(chunks).find(([, chunk]) => chunk.isEntry);
+  if (entry === undefined) throw new Error('The manifest has no entry.');
+  const startup = filesOf(chunks, entry[0]);
+  const pages = Object.entries(chunks)
+    .filter(([, chunk]) => chunk.isDynamicEntry)
+    .map(([source]) => ({
+      source,
+      files: [...filesOf(chunks, source)].filter((file) => !startup.has(file)),
+    }));
+  return { startup, pages };
+}
+
+it('keeps startup, each page and the admin within budget', async () => {
+  const { startup, pages } = await built();
+  // What index.html names is what startup loads, and nothing else.
+  const html = await readFile(new URL('index.html', builtPage), 'utf8');
+  const named = [...html.matchAll(/(?:src|href)="\/(assets\/[^"]+)"/g)].map(
+    ([, file]) => file,
+  );
+  expect(new Set(named)).toEqual(startup);
+
   const sizes = await Promise.all(
-    names
-      .filter((name) => /\.(js|css)$/.test(name))
-      .map(async (name) => ({
-        name,
-        gzipped: gzipSync(await readFile(new URL(name, assets))).length,
-      })),
+    pages.map(async ({ source, files }) => ({
+      source,
+      gzipped: await size(files),
+    })),
   );
-  const sum = (list: readonly { gzipped: number }[]) =>
-    list.reduce((total, { gzipped }) => total + gzipped, 0);
-  const total = sum(sizes);
-  const withoutReact = sum(
-    sizes.filter(
-      ({ name }) => name.endsWith('.js') && !name.startsWith('react-'),
-    ),
+  const admin = sizes.find(({ source }) => source.endsWith('admin-page.tsx'));
+  if (admin === undefined) throw new Error('The admin is not a page chunk.');
+  const others = sizes.filter((page) => page !== admin);
+  const all = await size(startup);
+  const withoutReact = await size(
+    [...startup].filter((file) => !file.startsWith('assets/react-')),
   );
-  expect(total, 'gzipped bytes in all').toBeLessThanOrEqual(budget.total);
-  expect(withoutReact, 'gzipped bytes without React').toBeLessThanOrEqual(
-    budget.withoutReact,
+  console.log(
+    [
+      `web page, gzipped: startup ${all} B (without React ${withoutReact} B), admin ${admin.gzipped} B`,
+      ...others.map(({ source, gzipped }) => `  ${source} ${gzipped} B`),
+    ].join('\n'),
   );
+  expect(all).toBeLessThanOrEqual(budget.startup);
+  expect(withoutReact).toBeLessThanOrEqual(budget.startupWithoutReact);
+  expect(admin.gzipped).toBeLessThanOrEqual(budget.admin);
+  for (const { source, gzipped } of others) {
+    expect(gzipped, source).toBeLessThanOrEqual(budget.page);
+  }
+});
+
+it('loads the admin and its stylesheet only when it opens', async () => {
+  const { startup, pages } = await built();
+  // Text only the admin's own components hold.
+  const text = 'Apply filters';
+  const source = await readFile(
+    new URL('../../../../packages/admin/src/filters.tsx', import.meta.url),
+    'utf8',
+  );
+  expect(source, 'the admin still says it').toContain(text);
+  const admin = pages.find(({ source }) => source.endsWith('admin-page.tsx'));
+  if (admin === undefined) throw new Error('The admin is not a page chunk.');
+  const holds = async (files: Iterable<string>) => {
+    for (const file of files) {
+      if ((await read(file)).text.includes(text)) return true;
+    }
+    return false;
+  };
+  expect(await holds(admin.files)).toBe(true);
+  expect(await holds(startup)).toBe(false);
+  expect(admin.files.some((file) => file.endsWith('.css'))).toBe(true);
+});
+
+it('carries no server code', async () => {
+  // Strings only server modules hold: the session store's key prefix, the
+  // store's missing-setting message, a domain error, and a method's summary.
+  // The page imports the contracts by type only, and headers.ts, which
+  // holds only a header's name, so none should appear.
+  const server = {
+    'crm:session:': '../infra/auth/sessions.ts',
+    'Set MONGODB_URL': '../infra/store.ts',
+    'The deal is already closed': '../domain/errors/domain.ts',
+    // The whole sentence: the composer's button starts the same way.
+    'on a company, contact or deal. The caller is its author.':
+      '../app/use-cases/activities/log-activity.ts',
+  };
+  for (const [needle, file] of Object.entries(server)) {
+    const source = await readFile(new URL(file, import.meta.url), 'utf8');
+    expect(source, `${file} still holds it`).toContain(needle);
+  }
+  const chunks = await manifest();
+  const files = new Set(
+    Object.values(chunks).flatMap(({ file, css }) => [file, ...(css ?? [])]),
+  );
+  for (const file of files) {
+    const { text } = await read(file);
+    for (const found of Object.keys(server).filter((needle) =>
+      text.includes(needle),
+    )) {
+      throw new Error(`${file} holds server code: "${found}"`);
+    }
+  }
 });

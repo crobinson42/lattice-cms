@@ -6,10 +6,12 @@ export {
 } from './access.js';
 export {
   type Contract,
+  type CreateInput,
   type Framework,
   framework,
   type ReadUseCase,
   reservedNames,
+  type UpdateInput,
 } from './build.js';
 export {
   type Collection,

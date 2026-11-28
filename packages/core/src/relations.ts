@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AnyCollection } from './collection.js';
+import { labelOf } from './describe.js';
 import { innerOf } from './where.js';
 
 /**
@@ -32,11 +33,23 @@ function isMarker(check: unknown): check is RefMarker {
 }
 
 /**
+ * What a ref says to an empty id, in words from its slug's label: "Choose
+ * the company". "The", not "a" or "an": the article depends on how the
+ * label sounds. A slug whose singular labelOf cannot find, such as
+ * `people`, says "Choose one".
+ */
+function emptyRef(slug: string): string {
+  const { singular, plural } = labelOf(slug);
+  return singular === plural ? 'Choose one' : `Choose the ${singular}`;
+}
+
+/**
  * Marks a string field as the id of a document in collection `slug`. The
  * slug, not the collection, so collections can refer to each other.
  * `z.array(ref(slug))` is a list of ids. The marker is what Lattice reads;
  * `x-lattice-ref` is what the field's JSON Schema says, so a client such as
- * the admin knows where an id points. Both come from `slug`, here.
+ * the admin knows where an id points. Both come from `slug`, here. No
+ * document has an empty id, so a ref refuses ''.
  */
 export function ref<
   const Slug extends string,
@@ -47,7 +60,11 @@ export function ref<
     z.check<string>(() => {}),
     { '~lattice': info },
   );
-  return z.string().check(marker).meta({ 'x-lattice-ref': slug });
+  return z
+    .string()
+    .min(1, emptyRef(slug))
+    .check(marker)
+    .meta({ 'x-lattice-ref': slug });
 }
 
 // ---------------------------------------------------------------- many

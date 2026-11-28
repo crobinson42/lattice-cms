@@ -167,6 +167,37 @@ describe('ref()', () => {
     expect(() => Items.schema.parse({ tagIds: [''], plain: 'p' })).toThrow();
   });
 
+  it('refuses an empty id at its path, in words from its label', async () => {
+    const { a } = setup();
+    const refused = await a.contacts
+      .create({ name: 'Ana', companyId: '' })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(refused).toMatchObject({
+      code: 'VALIDATION',
+      data: {
+        issues: [{ path: ['companyId'], message: 'Choose the company' }],
+      },
+    });
+    // An optional ref may still be left out.
+    await expect(codeOf(a.companies.create({ name: 'Acme' }))).resolves.toBe(
+      'ok',
+    );
+  });
+
+  it('says "Choose one" when the label has no singular it can find', () => {
+    const issues = (slug: string) =>
+      z
+        .object({ id: ref(slug) })
+        .safeParse({ id: '' })
+        .error?.issues.map(({ message }) => message);
+    expect(issues('activities')).toEqual(['Choose the activity']);
+    expect(issues('deal_stages')).toEqual(['Choose the deal stage']);
+    expect(issues('people')).toEqual(['Choose one']);
+  });
+
   it('gives each ref an index, led by the tenant field, unless one is declared', () => {
     expect(Projects.indexes).toEqual([
       { fields: { organizationId: 1, companyId: 1 } },

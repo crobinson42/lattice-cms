@@ -7,7 +7,9 @@ const tk = createToolkit(contract).$context<CallContext<Actor>>();
 
 // No access rule allows these, so every call is FORBIDDEN: as tools they
 // would only cost a model context and wrong turns. They stay on /rpc.
+// activities.log is how an activity is created.
 const alwaysDenied = [
+  tk.activities.create,
   tk.memberships.create,
   tk.memberships.update,
   tk.memberships.delete,

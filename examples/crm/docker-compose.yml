@@ -1,0 +1,46 @@
+# The crm's local services: MongoDB as a one-node replica set (Lattice uses
+# transactions) and Redis (sessions and event queues). `docker compose up -d`
+# starts both; `docker compose down -v` deletes their data. Both publish
+# ports one above the defaults, 27018 and 6380, so they run beside another
+# project's MongoDB and Redis.
+name: lattice-crm
+
+services:
+  mongo:
+    image: mongo:8
+    command: [--replSet, rs0, --bind_ip_all, --port, "27018"]
+    ports:
+      - 27018:27018
+    volumes:
+      - mongo-data:/data/db
+      - mongo-config:/data/configdb
+    # The healthcheck also initiates the replica set, once: rs.status()
+    # throws until it exists. The member is localhost:27018, which is the
+    # container to itself and the published port to the host, so the host
+    # connects with replicaSet=rs0 and no directConnection.
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --port
+        - "27018"
+        - --quiet
+        - --eval
+        - "try { rs.status().ok } catch { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27018' }] }).ok }"
+      interval: 10s
+      start_period: 30s
+      start_interval: 1s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7
+    ports:
+      - 6380:6379
+    volumes:
+      - redis-data:/data
+
+volumes:
+  mongo-data:
+  mongo-config:
+  redis-data:

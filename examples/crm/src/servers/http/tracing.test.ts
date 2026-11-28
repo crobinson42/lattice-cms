@@ -102,7 +102,7 @@ describe('tracing through the server, on MongoStore', () => {
     const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
     const token = await openDevSession(
       { crm, sessions },
-      { userId: 'ann', organization: 'Org A' },
+      { userId: 'ann', name: 'Ann', organization: 'Org A' },
     );
     const org = await organizationNamed(crm, 'Org A');
     exporter.reset();
@@ -151,7 +151,7 @@ describe('tracing through the server, on MongoStore', () => {
     const crm = createApp({ store, events: new MemoryDomainEventPublisher() });
     const token = await openDevSession(
       { crm, sessions },
-      { userId: 'ann', organization: 'Org A' },
+      { userId: 'ann', name: 'Ann', organization: 'Org A' },
     );
     const client = await mcpClient(
       (request) => fetch(request),

@@ -80,7 +80,7 @@ It links `.agents/skills/lattice` to `node_modules/@latticecms/core/skills/latti
 
 ## Concepts
 
-The examples come from [`examples/crm`](../../examples/crm): a CRM with tenanted companies, contacts and deals on MongoDB, served to signed-in members of an organization.
+The examples come from [`examples/crm`](../../examples/crm): a CRM with tenanted companies, contacts, deals, activities and tasks on MongoDB, served to signed-in members of an organization.
 
 ### Collections
 
@@ -93,9 +93,14 @@ import { z } from 'zod';
 
 export const Contacts = collection('contacts', {
   schema: z.object({
-    name: z.string().min(1),
-    email: z.email(),
+    // The messages are what a form shows at the field.
+    name: z.string().min(1, 'Enter a name'),
+    email: z.email('Enter an email address, like ana@example.com'),
+    phone: z.string().optional(),
+    // The contact's job title.
+    title: z.string().optional(),
     // A company with contacts cannot be deleted: restrict, the default.
+    // Like every ref, it refuses '': "Choose the company".
     companyId: ref('companies'),
   }),
   tenant: 'organizationId',
@@ -197,14 +202,19 @@ export class CloseDeal extends AppUseCase('deals.close', {
 ```ts
 // examples/crm/src/servers/rpc/contract.ts
 import { framework } from '@latticecms/core';
+import { LogActivity } from '../../app/use-cases/activities/log-activity.js';
 import { AppUseCase } from '../../app/use-cases/context.js';
 import { ArchiveDeal } from '../../app/use-cases/deals/archive-deal.js';
 import { CloseDeal } from '../../app/use-cases/deals/close-deal.js';
+import { CreateDeal } from '../../app/use-cases/deals/create-deal.js';
+import { UpdateDeal } from '../../app/use-cases/deals/update-deal.js';
+import { Activities } from '../../domain/collections/activities.js';
 import { Companies } from '../../domain/collections/companies.js';
 import { Contacts } from '../../domain/collections/contacts.js';
 import { Deals } from '../../domain/collections/deals.js';
 import { Memberships } from '../../domain/collections/memberships.js';
 import { Organizations } from '../../domain/collections/organizations.js';
+import { Tasks } from '../../domain/collections/tasks.js';
 import { clientErrors, toRpcError } from './errors.js';
 
 /** Any signed-in caller may do this. The edge has already checked the actor. */
@@ -213,7 +223,15 @@ const anyone = () => true;
 // An archived deal is hidden from every read and can no longer change.
 const live = () => ({ archived: { eq: false } });
 
-/** The CRM's API: five collections, one override and one method. No ports. */
+// A closed deal can no longer change either. Like an archived one, it
+// answers update with NOT_FOUND. It closes through deals.close, which
+// refuses a second close as AlreadyClosed.
+const editable = () => ({
+  archived: { eq: false },
+  closedAt: { exists: false },
+});
+
+/** The CRM's API: seven collections, three overrides and two methods. No ports. */
 export const crm = framework({
   family: AppUseCase,
   errors: { declared: clientErrors, map: toRpcError },
@@ -228,7 +246,7 @@ export const crm = framework({
     access: {
       read: live,
       create: anyone,
-      update: live,
+      update: editable,
       delete: live,
       close: live,
     },
@@ -239,14 +257,36 @@ export const crm = framework({
       },
     },
     methods: { close: CloseDeal },
-    overrides: { delete: ArchiveDeal },
+    // A deal closes only through deals.close: create and update refuse to.
+    overrides: { create: CreateDeal, update: UpdateDeal, delete: ArchiveDeal },
+  })
+  .collection(Activities, {
+    // Any member reads the timeline. Only the author changes or removes an
+    // activity, as a filter: another member's is NOT_FOUND. No create: log
+    // is the only way in, so the author is always the caller.
+    access: {
+      read: anyone,
+      update: ({ actor }) => ({ authorId: { eq: actor.userId } }),
+      delete: ({ actor }) => ({ authorId: { eq: actor.userId } }),
+      log: anyone,
+    },
+    methods: { log: LogActivity },
+  })
+  .collection(Tasks, {
+    access: { read: anyone, create: anyone, update: anyone, delete: anyone },
   })
   .collection(Memberships, {
-    // A caller lists its own memberships, in every organization. An
-    // organization switcher uses /auth organizations instead, since /rpc
+    // A member reads the memberships of the organization it acts in: its
+    // team, for a team list or an owner picker. Support reads every one.
+    // An organization switcher uses /auth organizations instead, since /rpc
     // needs an organization first. No create, update or delete: only
     // trusted code writes them.
-    access: { read: ({ actor }) => ({ userId: { eq: actor.userId } }) },
+    access: {
+      read: ({ actor }) =>
+        'support' in actor
+          ? true
+          : { organizationId: { eq: actor.organizationId } },
+    },
   })
   .collection(Organizations, {
     // A member reads the organization it acts in, and support every one.
@@ -260,7 +300,16 @@ export const crm = framework({
 /** What clients and codegen import. */
 export const contract = crm.contract;
 
-export { AppUseCase, Companies, Contacts, Deals, Memberships, Organizations };
+export {
+  Activities,
+  AppUseCase,
+  Companies,
+  Contacts,
+  Deals,
+  Memberships,
+  Organizations,
+  Tasks,
+};
 ```
 
 `framework({ family, errors? })` starts a definition. `errors` is the app's `{ declared, map }`; an app with no domain errors leaves it out.
@@ -277,14 +326,17 @@ export { AppUseCase, Companies, Contacts, Deals, Memberships, Organizations };
 
 ### `build()`
 
-`build()` wires the definition to a store and a publisher. The method and override instances get the typed repos.
+`build()` wires the definition to a store and a publisher. The method and override instances get the typed repos, and the overrides the generated operations they replace.
 
 ```ts
 // examples/crm/src/servers/app.ts
 import type { CollectionStore } from '@latticecms/core';
 import type { DomainEventPublisher } from '../app/ports/events/domain-event-publisher.js';
+import { LogActivity } from '../app/use-cases/activities/log-activity.js';
 import { ArchiveDeal } from '../app/use-cases/deals/archive-deal.js';
 import { CloseDeal } from '../app/use-cases/deals/close-deal.js';
+import { CreateDeal } from '../app/use-cases/deals/create-deal.js';
+import { UpdateDeal } from '../app/use-cases/deals/update-deal.js';
 import { crm } from './rpc/contract.js';
 
 export type AppPorts = {
@@ -299,9 +351,16 @@ export function createApp({ store, events }: AppPorts) {
     events,
     methods: ({ repos }) => ({
       deals: { close: new CloseDeal({ deals: repos.deals, events }) },
+      activities: {
+        log: new LogActivity({ activities: repos.activities, events }),
+      },
     }),
-    overrides: ({ repos }) => ({
-      deals: { delete: new ArchiveDeal({ deals: repos.deals }) },
+    overrides: ({ repos, generated }) => ({
+      deals: {
+        create: new CreateDeal({ create: generated.deals.create }),
+        update: new UpdateDeal({ update: generated.deals.update }),
+        delete: new ArchiveDeal({ deals: repos.deals }),
+      },
     }),
   });
 }
@@ -320,12 +379,59 @@ export type CrmApp = ReturnType<typeof createApp>;
 | `context` | `context({ actor, logger })`: the context for a direct `useCases.*.execute` call |
 | `ensure` | `ensure()`: creates each collection's declared indexes, in definition order, and never drops one |
 
-- `methods` and `overrides` are factories, `({ repos }) => instances`, keyed by slug and then name. Each is required exactly when a collection declared one.
+- `methods` and `overrides` are factories, `({ repos }) => instances`, keyed by slug and then name. Each is required exactly when a collection declared one. `overrides` also receives `generated`; see [An override that adds a rule](#an-override-that-adds-a-rule).
 - `access` replaces the functions given at `.collection()` with another `Access` adapter.
 - `app` adds a fresh `access` to each call's context. A direct caller gets one from `context()`. Access answers are kept on the context, so make one per call or per job.
 - `events` must take every collection's events. One that cannot is a compile error that names each refused token.
 - Await `ensure()` after the store has started and before serving, as the CRM's [`server.ts`](#build) does.
 - `Framework<Actor, D, E, Tenanted>` is the definition's type.
+
+#### An override that adds a rule
+
+An override that only adds a rule checks the input, then returns the generated operation through `generated`. The crm's deals close only through `deals.close`, so its create and update refuse a won or lost stage, and any `closedAt`, then do what the generated ones do:
+
+```ts
+// examples/crm/src/app/use-cases/deals/update-deal.ts
+export class UpdateDeal extends AppUseCase('deals.update', {
+  collection: Deals,
+}) {
+  constructor(
+    private readonly deps: {
+      update: (
+        ctx: AppCtx,
+        input: UpdateInput<typeof Deals>,
+      ) => Promise<Doc<typeof Deals>>;
+    },
+  ) {
+    super();
+  }
+
+  async execute(
+    ctx: AppCtx,
+    input: UpdateInput<typeof Deals>,
+  ): Promise<Doc<typeof Deals>> {
+    refuseClosing(input);
+    return this.deps.update(ctx, input);
+  }
+}
+```
+
+```ts
+// examples/crm/src/servers/app.ts
+    overrides: ({ repos, generated }) => ({
+      deals: {
+        create: new CreateDeal({ create: generated.deals.create }),
+        update: new UpdateDeal({ update: generated.deals.update }),
+        delete: new ArchiveDeal({ deals: repos.deals }),
+      },
+    }),
+```
+
+- `generated.<slug>.<operation>(ctx, input)` runs that generated operation: it parses the input, takes the call's access scope, runs the hooks, writes, and publishes the event. A relation's is `generated.<slug>.<relation>.<op>`. It holds only the operations the app overrides: `generated.deals.update` exists because deals overrides update, and `generated.companies.create` does not.
+- Each body checks what its own action needs: create's access, with the data it writes; a field withheld from the caller in an update patch, or in a find's or count's `where` or `sort`; and a read's `populate` keys. So a call from another override, such as a create override that calls `generated.deals.update`, skips nothing.
+- It runs no guards, logging or spans. The override's own use case has run them, so they run once, and the access function runs once.
+- It is typed as a direct caller sees the generated use case: it takes the schema's input type and returns the stored document. The router masks the override's result, as it masks every result.
+- An override that changes what the operation does, such as `ArchiveDeal`, writes through `repos` instead, and publishes its own events.
 
 The server starts the store, runs the migrations, creates the indexes, then serves:
 
@@ -377,7 +483,7 @@ Access decides what a call may see and change. It is a filter in the query: Latt
 - A `Where` on a field `C` lacks, a key that is not an action or a method, and a method with no function are compile errors.
 - An access `Where` is ANDed with the caller's `where`, so a caller can only narrow it.
 
-A family guard checks access before every `execute`: generated operations, overrides and methods. The refusal is logged once. Each function runs once per call.
+A family guard checks access before every `execute`: generated operations, overrides and methods. The refusal is logged once. Each function runs once per call. Create's function receives the parsed data, and runs again only when an override hands create's body different data.
 
 A hand-written use case gets its filter with `ctx.access.scope(C, action)`, and passes the `Scope` to its repo calls. It may ask for another collection's scope too, such as `ctx.access.scope(Posts, 'find')`.
 
@@ -445,7 +551,8 @@ const Projects = collection('projects', {
 });
 ```
 
-- A ref is a string: Zod's methods work on it, and `ref('users').min(1).optional()` is still a ref.
+- A ref is a string: Zod's methods work on it, and `ref('users').max(64).optional()` is still a ref.
+- A ref refuses an empty id with `VALIDATION` at its path: no document has one. The message is "Choose the company", from the slug's label, or "Choose one" when the label has no singular core can find, such as `people`. An optional ref may still be left out.
 - A slug that is not a collection of the framework is a compile error and a throw at `build()`, and on `.contract`. Collections may be added in any order.
 - A write does not check that the referenced document exists. Deleting it is where refs are kept whole.
 - Each ref gets an index in `ensure()`, led by the tenant field, unless the collection declares one with the same keys.
@@ -533,14 +640,20 @@ A collection names the fields a caller's rules may withhold, with `maskable`. Co
 // examples/crm/src/domain/collections/deals.ts
 export const Deals = collection('deals', {
   schema: z.object({
-    title: z.string().min(1),
+    // The messages are what a form shows at the field.
+    title: z.string().min(1, 'Enter a title'),
     // An archived deal still refers to its company, so it restricts too.
     companyId: ref('companies'),
-    amount: z.number().nonnegative(),
+    amount: z
+      .number({ error: 'Enter an amount' })
+      .nonnegative('An amount cannot be negative'),
     stage: z.enum(dealStages).default('lead'),
     // deals.delete archives: the row stays, with archived set.
     archived: z.boolean().default(false),
     closedAt: z.iso.datetime().optional(),
+    // The user who works the deal. A deal may be unassigned.
+    ownerId: z.string().min(1).optional(),
+    expectedCloseDate: z.iso.date().optional(),
   }),
   tenant: 'organizationId',
   // The people on a deal, and what each is to it. A contact on a deal
@@ -553,9 +666,6 @@ export const Deals = collection('deals', {
   },
   // Only managers and support see amounts: the contract's fields rule.
   maskable: ['amount'],
-  // The pipeline view: one organization's deals in a stage, newest first.
-  indexes: [{ fields: { organizationId: 1, stage: 1, createdAt: -1 } }],
-});
 ```
 
 - A withheld field is left out of what a client receives: `get`, `find`, `create`, `update` and `delete`, a relation's `list`, and documents populated into another collection's read, under the caller's rule for that collection. It is masked where every procedure returns to a client (HTTP, `createLocalClient`, MCP), so overrides and methods are masked too.
@@ -590,6 +700,12 @@ export class DomainEvents extends EventCatalog('domain-events', {
   dealsCreated: Deals.events.created,
   dealsUpdated: Deals.events.updated,
   dealsDeleted: Deals.events.deleted,
+  activitiesCreated: Activities.events.created,
+  activitiesUpdated: Activities.events.updated,
+  activitiesDeleted: Activities.events.deleted,
+  tasksCreated: Tasks.events.created,
+  tasksUpdated: Tasks.events.updated,
+  tasksDeleted: Tasks.events.deleted,
   membershipsCreated: Memberships.events.created,
   membershipsUpdated: Memberships.events.updated,
   membershipsDeleted: Memberships.events.deleted,
@@ -603,7 +719,7 @@ export class DomainEvents extends EventCatalog('domain-events', {
 }) {}
 ```
 
-- Generated writes publish through `build({ events })` after the store write succeeds. A publish failure reaches the caller, and the write stays. Reads publish nothing. Overrides and methods publish their own events.
+- Generated writes publish through `build({ events })` after the store write succeeds. A publish failure reaches the caller, and the write stays. Reads publish nothing. An override that calls `generated` publishes what the generated operation does. Other overrides and methods publish their own events.
 - Collection events stay inside the product. Another product or a customer gets a mapping of its own: an integration event or a webhook. See [A worker](#a-worker-webhooks-and-integration-events).
 
 ### Tracing
@@ -658,8 +774,8 @@ The root README's [Getting started](../../README.md#4-the-server) has the smalle
 Lattice never imports auth. The edge decides who the actor is, and passes it in the call context. In the crm, a `@hexok/auth` session proves the user, and a membership lookup checks the organization the request names, on every request:
 
 ```ts
-// examples/crm/src/servers/http/handler.ts
-async function signedIn(
+// examples/crm/src/servers/http/caller.ts
+export async function signedIn(
   deps: HttpDeps,
   request: Request,
   logger: Logger,
@@ -679,8 +795,8 @@ async function signedIn(
 ```
 
 ```ts
-// examples/crm/src/servers/http/handler.ts
-function actorContext(deps: HttpDeps) {
+// examples/crm/src/servers/http/caller.ts
+export function actorContext(deps: HttpDeps) {
   const memberships = deps.crm.repos.memberships;
   return async (
     userId: string,
@@ -756,7 +872,8 @@ Sign-in is not a Lattice procedure: every Lattice procedure has an actor, and a 
 export const authContract = router({
   login: procedure
     .input(loginInput)
-    .output(z.object({ token: z.string().min(1) }))
+    // The user's id too, so a client can find its own membership and tasks.
+    .output(z.object({ token: z.string().min(1), userId: z.string().min(1) }))
     .errors({
       UNAUTHORIZED: { status: 401, message: 'The credentials are not valid' },
     }),
@@ -783,7 +900,7 @@ export const authContract = router({
           { logger: context.logger },
           input,
         );
-        return { token: await deps.sessions.open({ userId }) };
+        return { token: await deps.sessions.open({ userId }), userId };
       } catch (error) {
         if (!LoginError.is(error)) throw error;
         throw new PFError({
@@ -895,7 +1012,9 @@ const tk = createToolkit(contract).$context<CallContext<Actor>>();
 
 // No access rule allows these, so every call is FORBIDDEN: as tools they
 // would only cost a model context and wrong turns. They stay on /rpc.
+// activities.log is how an activity is created.
 const alwaysDenied = [
+  tk.activities.create,
   tk.memberships.create,
   tk.memberships.update,
   tk.memberships.delete,
@@ -921,7 +1040,7 @@ tk.$coverage({ toolsets: [crmTools], exclude: alwaysDenied });
 The tools run in process through the implemented router, so access, tenancy, masking, errors and spans are the same as on `/rpc`. The edge checks the session before the MCP SDK reads the request, and the tool context reuses the auth edge's `actorContext`:
 
 ```ts
-// examples/crm/src/servers/http/handler.ts
+// examples/crm/src/servers/http/mcp-edge.ts
   const tools = bindTools(crmTools, {
     app: deps.crm.app,
     onError,
@@ -966,36 +1085,36 @@ The crm serves it at `GET /openapi.json`, and the catalog itself at `GET /catalo
 [`@latticecms/admin`](../admin) renders the app from the catalog it serves. The crm's page signs in through `/auth`, lists the user's organizations for a switcher from `/auth organizations`, which needs no organization header, and calls the API with the picked one:
 
 ```tsx
-// examples/crm/src/web/app.tsx
-  const auth = useMemo(
-    () => authClient(sessionFetch(token, undefined, onSignedOut)),
-    [token, onSignedOut],
-  );
-  // A 401 signs out through the session's fetch. Anything else, such as a
-  // dropped connection, can be tried again.
-  const load = useCallback(() => {
-    setFailed(false);
-    auth.organizations({}).then(setOrganizations, () => setFailed(true));
-  }, [auth]);
-  useEffect(load, [load]);
-  const current =
-    organizations?.find(({ id }) => id === picked) ?? organizations?.[0];
-  const fetch = useMemo(
-    () => sessionFetch(token, current?.id, onSignedOut),
-    [token, current, onSignedOut],
-  );
+// examples/crm/src/web/signed-in.tsx
+const auth = useMemo(
+  () => authClient(sessionFetch(signed.token, undefined, onSignedOut)),
+  [signed.token, onSignedOut],
+);
+// A 401 signs out through the session's fetch. Anything else, such as a
+// dropped connection, can be tried again.
+const load = useCallback(() => {
+  setFailed(false);
+  auth.organizations({}).then(setOrganizations, () => setFailed(true));
+}, [auth]);
+useEffect(load, [load]);
+const organization =
+  organizations?.find(({ id }) => id === picked) ?? organizations?.[0];
+const fetch = useMemo(
+  () => sessionFetch(signed.token, organization?.id, onSignedOut),
+  [signed.token, organization, onSignedOut],
+);
 ```
 
-`<Admin>` is keyed by the organization, so a switch starts with an empty cache and never shows another organization's rows:
+Every page, `<Admin>` among them, sits under a cache keyed by the organization, so a switch remounts them with an empty cache and never shows another organization's rows:
 
 ```tsx
-// examples/crm/src/web/app.tsx
-    <Admin
-      // A new organization is a new admin, with an empty cache.
-      key={current?.id ?? 'support'}
-      fetch={fetch}
-      catalogUrl="/catalog.json"
-      basePath="/admin"
+// examples/crm/src/web/api.tsx
+<SWRConfig
+  key={organizationId ?? 'support'}
+  value={{ provider: () => new Map(), shouldRetryOnError: retryable }}
+>
+  <ListsProvider>{children}</ListsProvider>
+</SWRConfig>
 ```
 
 The edge checks the organization header on every call, as in [The auth edge](#the-auth-edge). The admin's README has its props, the catalog route and what it renders. The smallest page, a token form, is in the root README's [Getting started](../../README.md#5-the-admin-page).
@@ -1047,7 +1166,8 @@ Returns a `Collection` with `slug`, `label`, `schema`, `tenant`, `indexes`, `out
 - Several fields or operators must all match. `and` and `or` nest. Null and missing follow MongoDB's semantics.
 - `contains` is a case-insensitive substring, never a regex.
 - `has` matches an array with an element equal to its value. A missing or null array has none.
-- `sort` is an array such as `['-createdAt', 'title']`. Only required, non-null string, number and enum fields sort. The default is `['-createdAt']`, and `id` is always the last tiebreak. Its JSON Schema lists every key it accepts, so a client sees the valid keys.
+- `sort` is an array such as `['-createdAt', 'title']`. String, number and enum fields sort, optional and nullable ones too. The default is `['-createdAt']`, and `id` is always the last tiebreak. Its JSON Schema lists every key it accepts, so a client sees the valid keys.
+- A document with no value for a sort field, missing or null, comes after every document with one, ascending or descending. Documents with no value order by the remaining keys, then `id`. The cursor records that its document had no value, so pages stay stable across that boundary.
 - `limit` is 1 to 100, default 20. `next` is an opaque cursor for `after`, or null on the last page.
 - A field or operator the schema does not allow is a type error and `VALIDATION`.
 
@@ -1119,6 +1239,8 @@ export class ArchiveDeal extends AppUseCase('deals.delete', {
 
 `@latticecms/core/store` has what an adapter needs: the `CollectionStore` port, its types (`StoredDoc`, `Patch`, `FindQuery`, `Page`, `Index`), the parsed filter (`AnyWhere`, with `FieldOps` for each field's operators), and the cursor helpers (`orderOf`, `Order`, `after`, `encodeCursor`). A store receives values Lattice has parsed. Filters follow MongoDB's null and missing rules, and the keyset of `after` is itself an `AnyWhere`, so a store applies it like any filter.
 
+`FindQuery.optional` names the sort fields a document may lack. Pass it to `orderOf(query.sort, query.optional)`: each `Order` key then says whether it is optional, and `after` and `encodeCursor` handle a missing value. The store must order a document with no value for a key, missing or null, after every document with one, in either direction, and tie such documents on that key. A plain sort is enough wherever no ascending key is optional.
+
 `@latticecms/core/store/conformance` has `storeCases`: the cases every store passes, asserted with `node:assert`, so any test runner runs them. Give each case a fresh store:
 
 ```ts
@@ -1146,6 +1268,7 @@ it.each(storeCases.filter((c) => !c.needs?.includes('transactions')))('$name', (
 - `Withheld` is `{ id: string }`: a populated document the caller may not read.
 - `LatticeMeta` is the `lattice` key of each procedure's meta; see [MCP and OpenAPI](#mcp-and-openapi).
 - `ClientDoc<C>` is a collection's document as a client receives it, each maskable field optional.
+- `CreateInput<C>` is what create takes: the schema's input, so a defaulted field may be left out. `UpdateInput<C>` is what update takes: the `id`, and each field to change, with `null` on each field it clears. An override of create or update declares them as its input. Neither has the tenant field.
 - `ReadUseCase<Proc, Ctx>` is the type of a populating read in `useCases`: its `execute` is generic in the `populate` list.
 - `Ref<Slug, OnDelete>`, `Many<Target, Through, Fields, OnDelete>`, `RelationsOf` and `JoinShape` are the types of refs, relations and join collections. `OnDelete` and `ManyOnDelete` are their `onDelete` values. An app names them only when it exports its collections from a package with declarations.
 - `CallAccess` is the type of `ctx.access`. `AccessRequest<Actor>` is what `Access.check` receives.

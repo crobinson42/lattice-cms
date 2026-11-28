@@ -96,6 +96,7 @@ async function found(
     collection,
     where,
     sort: ['id'],
+    optional: [],
     limit: 100,
   });
   return idsOf(page.docs);
@@ -108,6 +109,7 @@ async function pages(
   sort: readonly string[],
   limit: number,
   where?: AnyWhere,
+  optional: readonly string[] = [],
 ): Promise<string[][]> {
   const seen: string[][] = [];
   let after: string | undefined;
@@ -115,6 +117,7 @@ async function pages(
     const page = await store.find({
       collection,
       sort,
+      optional,
       limit,
       ...(where === undefined ? {} : { where }),
       ...(after === undefined ? {} : { after }),
@@ -243,6 +246,75 @@ function checkPages(
     `${what}: pages of ${limit}, a shorter one only last (got ${show(seen.map((page) => page.length))})`,
   );
 }
+
+/**
+ * Eleven documents for sorts on optional fields: `due` is a date, null,
+ * missing or explicitly undefined, and `note` a string, null or missing,
+ * with ties on each; `rank` is a required number that ties.
+ */
+const dated: readonly StoredDoc[] = [
+  { id: 'e00', due: '2026-01-03', rank: 1, note: 'b' },
+  { id: 'e01', rank: 2, note: 'a' },
+  { id: 'e02', due: '2026-01-01', rank: 1 },
+  { id: 'e03', due: null, rank: 1, note: 'a' },
+  { id: 'e04', due: '2026-01-03', rank: 2, note: null },
+  { id: 'e05', rank: 1, note: 'b' },
+  { id: 'e06', due: '2026-01-02', rank: 2 },
+  { id: 'e07', due: '2026-01-01', rank: 2, note: 'a' },
+  { id: 'e08', due: null, rank: 2, note: 'b' },
+  { id: 'e09', rank: 1, note: null },
+  { id: 'e10', due: undefined, rank: 2, note: 'a' },
+];
+
+/** The optional fields of `dated`. */
+const datedOptional = ['due', 'note'];
+
+/**
+ * The order of `docs` under `sort`, with a missing or null value after
+ * every value in either direction, written without any store's code.
+ */
+function expectedMissingLast(
+  docs: readonly StoredDoc[],
+  sort: readonly string[],
+): string[] {
+  const keys = sort.map((key) =>
+    key.startsWith('-')
+      ? { field: key.slice(1), dir: -1 }
+      : { field: key, dir: 1 },
+  );
+  keys.push({ field: 'id', dir: 1 });
+  return [...docs]
+    .sort((x, y) => {
+      for (const { field, dir } of keys) {
+        const [p, q] = [x[field] ?? null, y[field] ?? null];
+        if (p === q) continue;
+        if (p === null) return 1;
+        if (q === null) return -1;
+        return String(p) < String(q) ? -dir : dir;
+      }
+      return 0;
+    })
+    .map((doc) => doc.id);
+}
+
+/**
+ * Sorts on `dated`, each with the plan MongoStore takes for it: a plain
+ * sort when no ascending key is optional, two phases when only the first
+ * key is, and a computed key otherwise.
+ */
+const optionalSorts: readonly (readonly string[])[] = [
+  ['due'], // two phases
+  ['-due'], // plain
+  ['due', '-rank'], // two phases
+  ['-due', 'rank'], // plain
+  ['rank', 'due'], // computed
+  ['-rank', '-due'], // plain
+  ['due', 'note'], // computed, two flags
+  ['-due', '-note'], // plain: a nested or after an exists: false prefix
+  ['due', '-note'], // two phases, then a descending optional key
+  ['-due', 'note'], // computed
+  ['note', '-due'], // two phases on note
+];
 
 export const storeCases: readonly StoreCase[] = [
   // ---------------------------------------------------------------- methods
@@ -434,7 +506,12 @@ export const storeCases: readonly StoreCase[] = [
     name: 'find on an empty or unknown collection is an empty last page',
     async run(store) {
       same(
-        await store.find({ collection: 'm_none', sort: [], limit: 10 }),
+        await store.find({
+          collection: 'm_none',
+          sort: [],
+          optional: [],
+          limit: 10,
+        }),
         { docs: [], next: null },
         'find on an unknown collection',
       );
@@ -574,7 +651,12 @@ export const storeCases: readonly StoreCase[] = [
       const [many] = await store.getMany('c_copies', ['p1']);
       Object.assign(many ?? {}, { title: 'changed' });
       const [first] = (
-        await store.find({ collection: 'c_copies', sort: [], limit: 1 })
+        await store.find({
+          collection: 'c_copies',
+          sort: [],
+          optional: [],
+          limit: 1,
+        })
       ).docs;
       Object.assign(first ?? {}, { title: 'changed' });
       const patch = { meta: { tags: ['b'] } };
@@ -664,6 +746,7 @@ export const storeCases: readonly StoreCase[] = [
       const first = await store.find({
         collection: 'k_insert',
         sort: ['a'],
+        optional: [],
         limit: 4,
       });
       same(idsOf(first.docs), ['d00', 'd03', 'd06', 'd09'], 'page one');
@@ -676,6 +759,7 @@ export const storeCases: readonly StoreCase[] = [
         const page = await store.find({
           collection: 'k_insert',
           sort: ['a'],
+          optional: [],
           limit: 4,
           after,
         });
@@ -696,6 +780,7 @@ export const storeCases: readonly StoreCase[] = [
       const first = await store.find({
         collection: 'k_bad',
         sort: ['a'],
+        optional: [],
         limit: 2,
       });
       const next = first.next ?? '';
@@ -711,7 +796,13 @@ export const storeCases: readonly StoreCase[] = [
       ];
       for (const [sort, after] of bad) {
         const error = await rejection(
-          store.find({ collection: 'k_bad', sort, limit: 2, after }),
+          store.find({
+            collection: 'k_bad',
+            sort,
+            optional: [],
+            limit: 2,
+            after,
+          }),
           `find with sort ${show(sort)} and cursor ${after}`,
         );
         same(
@@ -727,12 +818,91 @@ export const storeCases: readonly StoreCase[] = [
           await store.find({
             collection: 'k_bad',
             sort: ['a'],
+            optional: [],
             limit: 2,
             after: next,
           })
         ).docs.length,
         2,
         'the good cursor still pages',
+      );
+    },
+  },
+
+  {
+    name: 'an optional field sorts with missing and null values last, in either direction, paging across the boundary',
+    async run(store) {
+      await seed(store, 'o_dated', dated);
+      for (const sort of optionalSorts) {
+        const expected = expectedMissingLast(dated, sort);
+        for (const limit of [1, 2, 3, 4, 10]) {
+          checkPages(
+            await pages(
+              store,
+              'o_dated',
+              sort,
+              limit,
+              undefined,
+              datedOptional,
+            ),
+            expected,
+            limit,
+            `sort ${show(sort)} by ${limit}`,
+          );
+        }
+      }
+    },
+  },
+  {
+    name: 'an optional sort pages under a where, and the where on the field is unchanged',
+    async run(store) {
+      await seed(store, 'o_where', dated);
+      const ranked = dated.filter((doc) => doc.rank === 2);
+      // One sort per plan, under a where.
+      for (const sort of [['-due'], ['due', '-note'], ['due', 'note']]) {
+        checkPages(
+          await pages(
+            store,
+            'o_where',
+            sort,
+            2,
+            { rank: { eq: 2 } },
+            datedOptional,
+          ),
+          expectedMissingLast(ranked, sort),
+          2,
+          `sort ${show(sort)} under rank 2`,
+        );
+      }
+      same(
+        await found(store, 'o_where', { due: { exists: false } }),
+        ['e01', 'e03', 'e05', 'e08', 'e09', 'e10'],
+        'the rows without a due date',
+      );
+    },
+  },
+  {
+    name: 'a cursor with no value for a required key is VALIDATION on after',
+    async run(store) {
+      await seed(store, 'o_bad', dated);
+      const encode = (value: unknown) =>
+        Buffer.from(JSON.stringify(value)).toString('base64url');
+      const error = await rejection(
+        store.find({
+          collection: 'o_bad',
+          sort: ['rank'],
+          optional: [],
+          limit: 2,
+          after: encode({ sort: ['rank', 'id'], values: [null, 'e00'] }),
+        }),
+        'find after a null on a required key',
+      );
+      same(
+        LatticeError.is(error) && error.code === 'VALIDATION'
+          ? error.data.issues.map((issue) => issue.path)
+          : error,
+        [['after']],
+        'the error',
       );
     },
   },
@@ -761,6 +931,7 @@ export const storeCases: readonly StoreCase[] = [
             await store.find({
               collection: 'x_commit',
               sort: ['id'],
+              optional: [],
               limit: 10,
             })
           ).docs,
@@ -801,6 +972,7 @@ export const storeCases: readonly StoreCase[] = [
           await store.find({
             collection: 'x_rollback',
             sort: ['id'],
+            optional: [],
             limit: 10,
           })
         ).docs,

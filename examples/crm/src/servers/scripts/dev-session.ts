@@ -11,15 +11,14 @@ import { createApp } from '../app.js';
  * creating the organization and adding the membership if needed. Local
  * development only: it checks no password.
  *
- * npm run dev:session -w @latticecms/example-crm -- <userId> <organization> [member|manager]
+ * npm run dev:session -w @latticecms/example-crm -- <userId> <name> <organization> [member|manager]
  */
-const [userId = '', organization = '', given = 'member'] = process.argv
-  .slice(2)
-  .map((arg) => arg.trim());
+const [userId = '', name = '', organization = '', given = 'member'] =
+  process.argv.slice(2).map((arg) => arg.trim());
 const parsed = role.safeParse(given);
-if (userId === '' || organization === '' || !parsed.success) {
+if (userId === '' || name === '' || organization === '' || !parsed.success) {
   console.error(
-    'usage: npm run dev:session -- <userId> <organization> [member|manager]',
+    'usage: npm run dev:session -- <userId> <name> <organization> [member|manager]',
   );
   process.exit(1);
 }
@@ -47,7 +46,7 @@ try {
   console.log(
     await openDevSession(
       { crm, sessions },
-      { userId, organization, role: parsed.data },
+      { userId, name, organization, role: parsed.data },
     ),
   );
 } finally {

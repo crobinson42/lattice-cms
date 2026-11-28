@@ -5,9 +5,9 @@ import { markOf } from './marker.js';
 import {
   type AnyWhere,
   compare,
+  type FieldOps,
   type KindOf,
   kindOf,
-  nullish,
 } from './where.js';
 
 /** The generated find's sort when the caller gives none. */
@@ -20,21 +20,17 @@ export const maxLimit = 100;
 const sortableKinds = ['string', 'number', 'enum'] as const;
 
 /**
- * Whether a field can be sorted: never null or missing, so a cursor
- * predicate never meets null, and of an ordered kind. Mirrors `sortable`.
+ * Whether a field can be sorted: of an ordered kind. An optional or
+ * nullable one sorts too, with its missing values last (0037). Mirrors
+ * `sortable`.
  */
-export type IsSortable<V> = null extends V
-  ? false
-  : undefined extends V
-    ? false
-    : KindOf<V> extends (typeof sortableKinds)[number]
-      ? true
-      : false;
+export type IsSortable<V> =
+  KindOf<V> extends (typeof sortableKinds)[number] ? true : false;
 
 /** Whether a field can be sorted, from its schema. Mirrors `IsSortable`. */
 export function sortable(schema: z.core.$ZodType): boolean {
   const kind = kindOf(schema);
-  return !nullish(schema) && sortableKinds.some((k) => k === kind);
+  return sortableKinds.some((k) => k === kind);
 }
 
 type SortableField<Doc> = {
@@ -80,7 +76,7 @@ export function sortSchema(schema: z.ZodObject): z.ZodType {
       if (typeof input !== 'string') return undefined;
       const { field } = keyOf(input);
       return fields.some(([name]) => name === field)
-        ? `"${field}" cannot be sorted: it is optional, nullable, or not a string, number or enum`
+        ? `"${field}" cannot be sorted: it is not a string, number or enum`
         : `"${field}" is not a field`;
     },
   });
@@ -115,23 +111,38 @@ export function parseSort<S extends z.ZodObject>(
   throw invalid(result.error.issues);
 }
 
-type OrderKey = { readonly field: string; readonly direction: 1 | -1 };
+type OrderKey = {
+  readonly field: string;
+  readonly direction: 1 | -1;
+  /** Whether a document may have no value here: it then sorts last. */
+  readonly optional: boolean;
+};
 
 /** A sort as stores apply it: keys in priority order, ending with `id`. */
 export type Order = readonly OrderKey[];
 
-function keyOf(key: string): OrderKey {
+/** The field a sort key names, and its direction. */
+export function keyOf(key: string): { field: string; direction: 1 | -1 } {
   return key.startsWith('-')
     ? { field: key.slice(1), direction: -1 }
     : { field: key, direction: 1 };
 }
 
-/** The order a sort means. `id` is the last tiebreak unless the sort has it. */
-export function orderOf(sort: readonly string[]): Order {
-  const keys = sort.map(keyOf);
+/**
+ * The order a sort means. `id` is the last tiebreak unless the sort has
+ * it. `optional` names the sort fields a document may lack.
+ */
+export function orderOf(
+  sort: readonly string[],
+  optional: readonly string[],
+): Order {
+  const keys = sort.map((key) => {
+    const { field, direction } = keyOf(key);
+    return { field, direction, optional: optional.includes(field) };
+  });
   return keys.some((key) => key.field === 'id')
     ? keys
-    : [...keys, { field: 'id', direction: 1 }];
+    : [...keys, { field: 'id', direction: 1, optional: false }];
 }
 
 function keysOf(order: Order): string[] {
@@ -140,23 +151,43 @@ function keysOf(order: Order): string[] {
   );
 }
 
-/** Orders documents by `order`. Values compare as `Where` comparisons do. */
+/** The value of `field` in `doc`, null when it has none. */
+function sortValue(
+  doc: Readonly<Record<string, unknown>>,
+  field: string,
+): unknown {
+  return doc[field] ?? null;
+}
+
+/**
+ * Orders documents by `order`. Values compare as `Where` comparisons do. On
+ * an optional key, a missing value comes after every value, in either
+ * direction, and two missing values tie, so the next key decides (0037). A
+ * required key compares as before, so an old row that lacks it ties.
+ */
 export function compareDocs(order: Order) {
   return (
     a: Readonly<Record<string, unknown>>,
     b: Readonly<Record<string, unknown>>,
   ): number => {
     for (const key of order) {
-      const result = compare(a[key.field], b[key.field]) ?? 0;
+      const x = sortValue(a, key.field);
+      const y = sortValue(b, key.field);
+      if (key.optional && (x === null || y === null)) {
+        if (x === y) continue;
+        return x === null ? 1 : -1;
+      }
+      const result = compare(x, y) ?? 0;
       if (result !== 0) return result * key.direction;
     }
     return 0;
   };
 }
 
+// A missing value is null: JSON has no undefined.
 const cursorSchema = z.object({
   sort: z.array(z.string()),
-  values: z.array(z.union([z.string(), z.number()])),
+  values: z.array(z.union([z.string(), z.number(), z.null()])),
 });
 
 /** An opaque cursor that starts the next page after `doc`. */
@@ -166,7 +197,7 @@ export function encodeCursor(
 ): string {
   const cursor = {
     sort: keysOf(order),
-    values: order.map((key) => doc[key.field]),
+    values: order.map((key) => sortValue(doc, key.field)),
   };
   return Buffer.from(JSON.stringify(cursor)).toString('base64url');
 }
@@ -184,31 +215,57 @@ function readCursor(cursor: string): unknown {
 }
 
 /**
- * The keyset filter for the documents after `cursor` under `order`: the
- * tuple of sort values comes after the cursor's, key by key, in each key's
- * direction. It is a `Where`, so every store applies it as it applies any
- * filter, and sort fields are never null, so no key meets a missing value.
+ * The sort values `cursor` holds under `order`, one per key, null where its
+ * document had none. Throws VALIDATION at `after` for a malformed cursor,
+ * one from another sort, or a null on a required key.
  */
-export function after(order: Order, cursor: string): AnyWhere {
+export function cursorValues(
+  order: Order,
+  cursor: string,
+): readonly (string | number | null)[] {
   const parsed = cursorSchema.safeParse(readCursor(cursor));
   if (!parsed.success) throw badCursor('The cursor is malformed');
   const { sort, values } = parsed.data;
   if (sort.join(',') !== keysOf(order).join(',')) {
     throw badCursor('The cursor is for a different sort');
   }
-  if (values.length !== order.length) {
+  if (
+    values.length !== order.length ||
+    order.some((key, index) => values[index] === null && !key.optional)
+  ) {
     throw badCursor('The cursor is malformed');
   }
+  return values;
+}
+
+/**
+ * The keyset filter for the documents after `cursor` under `order`: the
+ * tuple of sort values comes after the cursor's, key by key, in each key's
+ * direction. It is a `Where`, so every store applies it as it applies any
+ * filter. A missing value comes after every value (0037): after a value, an
+ * optional key also takes the rows that have none, and nothing comes after
+ * a missing one but the rows that tie on it. A required key's filter is a
+ * plain comparison.
+ */
+export function after(order: Order, cursor: string): AnyWhere {
+  const values = cursorValues(order, cursor);
   const clauses: AnyWhere[] = [];
-  const equal: Record<string, { readonly eq: string | number }> = {};
-  order.forEach(({ field, direction }, index) => {
+  const equal: Record<string, FieldOps> = {};
+  order.forEach(({ field, direction, optional }, index) => {
     const value = values[index];
     if (value === undefined) throw badCursor('The cursor is malformed');
-    clauses.push({
-      ...equal,
-      [field]: direction === 1 ? { gt: value } : { lt: value },
-    });
-    equal[field] = { eq: value };
+    if (value !== null) {
+      const beyond = direction === 1 ? { gt: value } : { lt: value };
+      clauses.push(
+        optional
+          ? {
+              ...equal,
+              or: [{ [field]: beyond }, { [field]: { exists: false } }],
+            }
+          : { ...equal, [field]: beyond },
+      );
+    }
+    equal[field] = value === null ? { exists: false } : { eq: value };
   });
   return { or: clauses };
 }

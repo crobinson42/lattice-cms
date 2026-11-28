@@ -59,6 +59,9 @@ jobs:
 
       - run: npm run lint
       - run: npm run type-check
+      # How a procedure's type cost grows with the number of collections.
+      # type-check has built core, which this measures.
+      - run: npm run type-cost -w @latticecms/core
       - run: npm run test
       - run: npm run build
 

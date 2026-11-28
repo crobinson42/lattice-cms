@@ -140,7 +140,11 @@ describe('GET /openapi.json', () => {
       'scrypt',
       'session',
     ]) {
-      expect(text.toLowerCase()).not.toContain(word);
+      // Each word as written and capitalized, as names and schema names
+      // spell it: activities.log's ActivitiesLogInput is not a login.
+      const capitalized = word.charAt(0).toUpperCase() + word.slice(1);
+      expect(text).not.toContain(word);
+      expect(text).not.toContain(capitalized);
     }
   });
 });

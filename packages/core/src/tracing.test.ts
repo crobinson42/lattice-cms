@@ -8,14 +8,17 @@ import {
   SimpleSpanProcessor,
 } from '@opentelemetry/sdk-trace-base';
 import { createLocalClient } from '@ts-pf/server';
+import type { UseCase } from 'hexok';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import {
   collection,
+  type Doc,
   family,
   framework,
   MemoryStore,
   ref,
+  type UpdateInput,
   unscoped,
 } from './index.js';
 
@@ -218,6 +221,58 @@ describe('spans', () => {
         children: [{ name: 'deals.create', children: [] }],
       },
       { name: 'deals/get', children: [{ name: 'deals.get', children: [] }] },
+    ]);
+  });
+
+  it('trace an override that calls the generated operation as one use case span', async () => {
+    class RenameCompany extends Family('companies.update', {
+      collection: Companies,
+    }) {
+      constructor(
+        private readonly deps: {
+          update: (
+            ctx: UseCase.Ctx<typeof Family>,
+            input: UpdateInput<typeof Companies>,
+          ) => Promise<Doc<typeof Companies>>;
+        },
+      ) {
+        super();
+      }
+      async execute(
+        ctx: UseCase.Ctx<typeof Family>,
+        input: UpdateInput<typeof Companies>,
+      ): Promise<Doc<typeof Companies>> {
+        return this.deps.update(ctx, input);
+      }
+    }
+    const built = framework({ family: Family })
+      .collection(Companies, {
+        access: { read: () => true, update: () => true },
+        overrides: { update: RenameCompany },
+      })
+      .build({
+        store: new MemoryStore(),
+        events: { async publish(_event: object) {} },
+        overrides: ({ generated }) => ({
+          companies: {
+            update: new RenameCompany({ update: generated.companies.update }),
+          },
+        }),
+      });
+    const acme = await built.repos.companies.insert({ name: 'Acme' }, unscoped);
+
+    await createLocalClient(built.app, {
+      context: {
+        actor: { userId: 'u1', role: 'member' },
+        logger: new NoopLogger(),
+      },
+    }).companies.update({ id: acme.id, name: 'Acme Inc' });
+
+    expect(tree()).toEqual([
+      {
+        name: 'companies/update',
+        children: [{ name: 'companies.update', children: [] }],
+      },
     ]);
   });
 

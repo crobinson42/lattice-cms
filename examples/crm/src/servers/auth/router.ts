@@ -42,7 +42,7 @@ export function createAuthRouter(deps: {
           { logger: context.logger },
           input,
         );
-        return { token: await deps.sessions.open({ userId }) };
+        return { token: await deps.sessions.open({ userId }), userId };
       } catch (error) {
         if (!LoginError.is(error)) throw error;
         throw new PFError({

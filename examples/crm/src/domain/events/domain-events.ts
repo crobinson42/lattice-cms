@@ -1,9 +1,11 @@
 import { EventCatalog } from 'hexok';
+import { Activities } from '../collections/activities.js';
 import { Companies } from '../collections/companies.js';
 import { Contacts } from '../collections/contacts.js';
 import { Deals } from '../collections/deals.js';
 import { Memberships } from '../collections/memberships.js';
 import { Organizations } from '../collections/organizations.js';
+import { Tasks } from '../collections/tasks.js';
 import { DealClosedEvent } from './deal-closed.js';
 
 /** Facts the API records and a worker would handle: the app's one catalog. */
@@ -17,6 +19,12 @@ export class DomainEvents extends EventCatalog('domain-events', {
   dealsCreated: Deals.events.created,
   dealsUpdated: Deals.events.updated,
   dealsDeleted: Deals.events.deleted,
+  activitiesCreated: Activities.events.created,
+  activitiesUpdated: Activities.events.updated,
+  activitiesDeleted: Activities.events.deleted,
+  tasksCreated: Tasks.events.created,
+  tasksUpdated: Tasks.events.updated,
+  tasksDeleted: Tasks.events.deleted,
   membershipsCreated: Memberships.events.created,
   membershipsUpdated: Memberships.events.updated,
   membershipsDeleted: Memberships.events.deleted,

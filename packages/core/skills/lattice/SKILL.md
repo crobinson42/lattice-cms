@@ -17,7 +17,7 @@ Import from `@latticecms/core`. A collection is a slug and a Zod schema. `framew
 
 The app owns authentication, HTTP, the store's lifecycle, migrations' timing and the worker. Lattice owns the collection's procedures, its access and tenant filters, masking, population and its events.
 
-The running shape is `examples/crm`. Companies, contacts and deals belong to organizations. A deal refers to a company, links contacts through a relation, and hides its amount from members. A deal closes once through a method, and its delete is an override that archives it. Use the app's real story. The crm is only the shape.
+The running shape is `examples/crm`. Companies, contacts and deals belong to organizations. A deal refers to a company, links contacts through a relation, and hides its amount from members. A deal closes once through a method, and its delete is an override that archives it. An activity is logged through a method that stamps its author. Use the app's real story. The crm is only the shape.
 
 ## Concepts
 
@@ -68,7 +68,7 @@ A field some callers may not read, such as a deal's amount, is `maskable`, with 
 
 ### 6. Overrides and methods
 
-When a generated operation is wrong for the story, override it: a delete that archives. When the story is an action of its own, add a method: closing a deal. Both are hand-written use cases in the app's family. Read [references/override.md](references/override.md) and [references/method.md](references/method.md).
+When a generated operation is wrong for the story, override it: a delete that archives, or an update that refuses to close a deal and then runs the generated update. When the story is an action of its own, add a method: closing a deal. Both are hand-written use cases in the app's family. Read [references/override.md](references/override.md) and [references/method.md](references/method.md).
 
 ### 7. Events and handlers
 

@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises';
+import { readdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MongoClient } from 'mongodb';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
@@ -148,6 +148,23 @@ describe('lattice migrate', () => {
 
   it('refuses a migration in the crm until it is written, then runs it', async () => {
     const crm = await crmCopy();
+    // The crm's own migrations, read from the copy before the scaffold, so a
+    // new crm migration does not break this test. A file is named
+    // `<id>-<name>.ts`, as the scaffold names it.
+    const migrations = join(crm, 'src/infra/migrations');
+    const existing = (await readdir(migrations))
+      .flatMap((file) => {
+        const [, id, name] = /^(\d{4})-(.+)\.ts$/.exec(file) ?? [];
+        return id === undefined || name === undefined
+          ? []
+          : [{ id: Number(id), name }];
+      })
+      .sort((a, b) => a.id - b.id);
+    const ids = existing.map(({ id }) => id);
+    // At least one, numbered 1, 2, 3 …, so the scaffold's id is the next.
+    expect(ids).toEqual(existing.map((_, index) => index + 1));
+    expect(ids).not.toEqual([]);
+    const next = ids.length + 1;
     expect(lattice(crm, 'migration', 'add-notes-index').code).toBe(0);
     const build = () => {
       const built = run(crm, [tsc, '-p', 'tsconfig.json']);
@@ -157,35 +174,43 @@ describe('lattice migrate', () => {
     build();
     const env = fresh();
     const database = env.MONGODB_DATABASE ?? '';
-    const message =
-      'Migration 2 add-notes-index is not written yet: write up\\(\\) before running it\\.';
+    const message = `Migration ${next} add-notes-index is not written yet: write up\\(\\) before running it\\.`;
 
-    // The stub throws, so it is not recorded as done.
+    // The stub throws, so it is not recorded as done. Each earlier migration
+    // runs first, in order: its own info lines, then migrate()'s line.
     const stub = migrate(crm, env);
     expect(stub.stdout).toMatch(
       new RegExp(
-        `^${at('info')} deals backfilled \\{"id":1,"name":"backfill-deal-archived","modifiedCount":0\\}\\n${ranLine(1, 'backfill-deal-archived')}$`,
+        `^${existing
+          .map(
+            ({ id, name }) =>
+              `(?:${at('info')} (?!migration ).*\\n)*${ranLine(id, name)}`,
+          )
+          .join('')}$`,
       ),
     );
     expect(stub.stderr).toMatch(
       new RegExp(
-        `^${at('error')} ${message} \\{"id":2,"name":"add-notes-index",.*"outcome":"failed".*\\}\\nlattice: ${message}\\n$`,
+        `^${at('error')} ${message} \\{"id":${next},"name":"add-notes-index",.*"outcome":"failed".*\\}\\nlattice: ${message}\\n$`,
       ),
     );
     expect(stub.code).toBe(1);
-    expect(await recorded(database)).toEqual([1]);
+    expect(await recorded(database)).toEqual(ids);
 
     // Written, as a developer would, then built: it runs.
-    await edit(crm, 'src/infra/migrations/0002-add-notes-index.ts', (text) =>
-      text.replace(/async up\(\) \{[\s\S]*?\n {2}\},/, 'async up() {},'),
+    await edit(
+      crm,
+      `src/infra/migrations/${String(next).padStart(4, '0')}-add-notes-index.ts`,
+      (text) =>
+        text.replace(/async up\(\) \{[\s\S]*?\n {2}\},/, 'async up() {},'),
     );
     build();
     const written = migrate(crm, env);
     expect(written.stderr).toBe('');
     expect(written.stdout).toMatch(
-      new RegExp(`^${ranLine(2, 'add-notes-index')}$`),
+      new RegExp(`^${ranLine(next, 'add-notes-index')}$`),
     );
     expect(written.code).toBe(0);
-    expect(await recorded(database)).toEqual([1, 2]);
+    expect(await recorded(database)).toEqual([...ids, next]);
   });
 });

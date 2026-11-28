@@ -1,128 +1,113 @@
-import { Admin } from '@latticecms/admin';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { authClient } from './auth.js';
-import { session, sessionFetch } from './session.js';
-import { SignIn } from './sign-in.js';
+import { Toaster } from '@shadalaya/react/toast';
+import { lazy } from 'react';
+import { Redirect, Route, Switch } from 'wouter';
+import { SignInPage } from './pages/sign-in-page.js';
+import { SessionProvider } from './session.js';
+import { SignedIn } from './signed-in.js';
+import { LazyPage } from './ui/lazy-page.js';
+import {
+  DashboardPageSkeleton,
+  DetailPageSkeleton,
+  ListPageSkeleton,
+} from './ui/page-skeleton.js';
+import { Loading } from './ui/states.js';
+import { Workspace } from './workspace/workspace.js';
 
-type Organization = { readonly id: string; readonly name: string };
+// Each page is a chunk of its own, loaded when it first opens, so startup
+// does not grow with each resource. Sign-in stays in the startup bundle: it
+// is the first page a signed-out user sees. The admin brings its own
+// stylesheet with its chunk.
+const AdminPage = lazy(() => import('./pages/admin-page.js'));
+const CompaniesPage = lazy(() => import('./pages/companies-page.js'));
+const CompanyPage = lazy(() => import('./pages/company-page.js'));
+const ContactsPage = lazy(() => import('./pages/contacts-page.js'));
+const ContactPage = lazy(() => import('./pages/contact-page.js'));
+const DealsPage = lazy(() => import('./pages/deals-page.js'));
+const DealPage = lazy(() => import('./pages/deal-page.js'));
+const TasksPage = lazy(() => import('./pages/tasks-page.js'));
+const TeamPage = lazy(() => import('./pages/team-page.js'));
+const HomePage = lazy(() => import('./pages/home-page.js'));
 
-/** The organization switcher and sign-out, in the admin's top bar. */
-function Header({
-  organizations,
-  picked,
-  onPick,
-  onSignOut,
-}: {
-  readonly organizations: readonly Organization[];
-  readonly picked: string;
-  readonly onPick: (id: string) => void;
-  readonly onSignOut: () => void;
-}) {
-  return (
-    <div className="crm-header">
-      <select
-        aria-label="Organization"
-        value={picked}
-        onChange={(event) => onPick(event.target.value)}
-      >
-        {organizations.map(({ id, name }) => (
-          <option key={id} value={id}>
-            {name}
-          </option>
-        ))}
-      </select>
-      <button type="button" onClick={onSignOut}>
-        Sign out
-      </button>
-    </div>
-  );
-}
-
-/**
- * The admin for a signed-in user, in the organization they pick. Support
- * acts in none, so it gets the admin with no switcher.
- */
-function SignedIn({
-  token,
-  onSignedOut,
-}: {
-  readonly token: string;
-  readonly onSignedOut: () => void;
-}) {
-  const [organizations, setOrganizations] = useState<readonly Organization[]>();
-  const [failed, setFailed] = useState(false);
-  const [picked, setPicked] = useState(session.organization());
-  const auth = useMemo(
-    () => authClient(sessionFetch(token, undefined, onSignedOut)),
-    [token, onSignedOut],
-  );
-  // A 401 signs out through the session's fetch. Anything else, such as a
-  // dropped connection, can be tried again.
-  const load = useCallback(() => {
-    setFailed(false);
-    auth.organizations({}).then(setOrganizations, () => setFailed(true));
-  }, [auth]);
-  useEffect(load, [load]);
-  const current =
-    organizations?.find(({ id }) => id === picked) ?? organizations?.[0];
-  const fetch = useMemo(
-    () => sessionFetch(token, current?.id, onSignedOut),
-    [token, current, onSignedOut],
-  );
-  if (failed) {
-    return (
-      <p role="alert" className="crm-error">
-        Your organizations could not be loaded.{' '}
-        <button type="button" onClick={load}>
-          Try again
-        </button>
-      </p>
-    );
-  }
-  if (organizations === undefined) return null;
-  const signOut = () => {
-    void auth.logout({}).finally(onSignedOut);
-  };
-  return (
-    <Admin
-      // A new organization is a new admin, with an empty cache.
-      key={current?.id ?? 'support'}
-      fetch={fetch}
-      catalogUrl="/catalog.json"
-      basePath="/admin"
-      header={
-        current === undefined ? undefined : (
-          <Header
-            organizations={organizations}
-            picked={current.id}
-            onPick={(id) => {
-              session.pick(id);
-              setPicked(id);
-            }}
-            onSignOut={signOut}
-          />
-        )
-      }
-    />
-  );
-}
-
-/** The crm's admin page: sign-in, then the admin. */
+/** Every route of the app, in one table. */
 export function App() {
-  const [token, setToken] = useState(session.token());
-  const signedOut = useCallback(() => {
-    session.clear();
-    setToken(null);
-  }, []);
-  if (token === null) {
-    return (
-      <SignIn
-        onSignedIn={(next) => {
-          session.signIn(next);
-          setToken(next);
-        }}
-      />
-    );
-  }
-  return <SignedIn token={token} onSignedOut={signedOut} />;
+  return (
+    <Toaster>
+      <SessionProvider>
+        <Switch>
+          <Route path="/sign-in" component={SignInPage} />
+          <Route>
+            <SignedIn>
+              <Switch>
+                <Route path="/admin" nest>
+                  <LazyPage fallback={<Loading />}>
+                    <AdminPage />
+                  </LazyPage>
+                </Route>
+                <Route>
+                  <Workspace>
+                    <Switch>
+                      <Route path="/">
+                        <LazyPage fallback={<DashboardPageSkeleton />}>
+                          <HomePage />
+                        </LazyPage>
+                      </Route>
+                      <Route path="/companies">
+                        <LazyPage fallback={<ListPageSkeleton />}>
+                          <CompaniesPage />
+                        </LazyPage>
+                      </Route>
+                      <Route path="/companies/:id">
+                        {({ id }) => (
+                          <LazyPage fallback={<DetailPageSkeleton />}>
+                            <CompanyPage key={id} id={id} />
+                          </LazyPage>
+                        )}
+                      </Route>
+                      <Route path="/contacts">
+                        <LazyPage fallback={<ListPageSkeleton />}>
+                          <ContactsPage />
+                        </LazyPage>
+                      </Route>
+                      <Route path="/contacts/:id">
+                        {({ id }) => (
+                          <LazyPage fallback={<DetailPageSkeleton />}>
+                            <ContactPage key={id} id={id} />
+                          </LazyPage>
+                        )}
+                      </Route>
+                      <Route path="/deals">
+                        <LazyPage fallback={<ListPageSkeleton />}>
+                          <DealsPage />
+                        </LazyPage>
+                      </Route>
+                      <Route path="/deals/:id">
+                        {({ id }) => (
+                          <LazyPage fallback={<DetailPageSkeleton />}>
+                            <DealPage key={id} id={id} />
+                          </LazyPage>
+                        )}
+                      </Route>
+                      <Route path="/team">
+                        <LazyPage fallback={<ListPageSkeleton />}>
+                          <TeamPage />
+                        </LazyPage>
+                      </Route>
+                      <Route path="/tasks">
+                        <LazyPage fallback={<ListPageSkeleton />}>
+                          <TasksPage />
+                        </LazyPage>
+                      </Route>
+                      <Route>
+                        <Redirect to="/" replace />
+                      </Route>
+                    </Switch>
+                  </Workspace>
+                </Route>
+              </Switch>
+            </SignedIn>
+          </Route>
+        </Switch>
+      </SessionProvider>
+    </Toaster>
+  );
 }

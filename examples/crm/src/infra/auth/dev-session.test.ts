@@ -19,7 +19,7 @@ describe.each(backends)('openDevSession on $name', (backend) => {
     });
     await crm.ensure();
     const sessions = testSessions();
-    const member = { userId: 'ada', organization: 'Org A' };
+    const member = { userId: 'ada', name: 'Ada', organization: 'Org A' };
 
     const token = await openDevSession({ crm, sessions }, member);
     await openDevSession({ crm, sessions }, member);
@@ -33,13 +33,15 @@ describe.each(backends)('openDevSession on $name', (backend) => {
     expect(organizations).toMatchObject([{ name: 'Org A' }]);
     const [organization] = organizations;
     if (organization === undefined) throw new Error('no organization');
-    // The membership refers to the organization the script made.
-    expect(
-      await crm.repos.memberships.count(
-        { userId: { eq: 'ada' }, organizationId: { eq: organization.id } },
-        unscoped,
-      ),
-    ).toBe(1);
+    // One membership, under the member's name, in the organization the
+    // script made.
+    const { docs: memberships } = await crm.repos.memberships.find(
+      { where: { userId: { eq: 'ada' } } },
+      unscoped,
+    );
+    expect(memberships).toMatchObject([
+      { name: 'Ada', organizationId: organization.id },
+    ]);
   });
 
   it('provisionDevUser sets the password, adds the membership, and opens a session', async () => {
@@ -53,6 +55,7 @@ describe.each(backends)('openDevSession on $name', (backend) => {
     await credentials.ensure();
     const user = {
       userId: 'ann',
+      name: 'Ann',
       email: 'ann@x.com',
       password: 'correct horse battery',
       organization: 'Org A',

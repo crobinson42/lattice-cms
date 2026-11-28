@@ -391,6 +391,7 @@ describe('generated writes', () => {
     const { docs } = await store.find({
       collection: 'posts',
       sort: [],
+      optional: [],
       limit: 10,
     });
     expect(docs).toMatchObject([{ title: 't' }]);

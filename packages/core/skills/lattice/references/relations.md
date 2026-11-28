@@ -2,13 +2,14 @@
 
 Lattice has no joins. A relation is an id in one document, and population reads the other collection once per call.
 
-- `ref(slug)` marks a string field as another document's id. `z.array(ref(slug))` is a list of ids.
+- `ref(slug)` marks a string field as another document's id. `z.array(ref(slug))` is a list of ids. A ref refuses an empty id, "Choose the company", so a required ref needs no `.min(1)`.
 - `many(target, { through, fields? })` links each document to many of another collection, through a join collection Lattice derives.
 
 ```ts
 // examples/crm/src/domain/collections/deals.ts
   schema: z.object({
-    title: z.string().min(1),
+    // The messages are what a form shows at the field.
+    title: z.string().min(1, 'Enter a title'),
     // An archived deal still refers to its company, so it restricts too.
     companyId: ref('companies'),
 ```

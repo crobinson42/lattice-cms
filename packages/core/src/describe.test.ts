@@ -398,7 +398,8 @@ function outputOf(key: string): Record<string, unknown> {
 
 describe('a ref', () => {
   it('names its target collection as x-lattice-ref, wherever it appears', () => {
-    const ref = { type: 'string', 'x-lattice-ref': 'deals' };
+    // A ref refuses an empty id, so its schema says minLength 1.
+    const ref = { type: 'string', minLength: 1, 'x-lattice-ref': 'deals' };
     expect(at(inputOf('tasks/create'), ['properties', 'dealId'])).toEqual(ref);
     expect(
       at(inputOf('tasks/create'), ['properties', 'relatedIds', 'items']),
@@ -417,7 +418,7 @@ describe('a ref', () => {
         'properties',
         'postsId',
       ]),
-    ).toEqual({ type: 'string', 'x-lattice-ref': 'posts' });
+    ).toEqual({ type: 'string', minLength: 1, 'x-lattice-ref': 'posts' });
   });
 });
 
@@ -493,7 +494,7 @@ describe('a maskable field', () => {
 
 describe('sort', () => {
   it('lists every key it accepts, ascending and descending', () => {
-    // note is optional, so it cannot be sorted by anyone.
+    // note is optional: it sorts, with missing values last (0037).
     expect(at(inputOf('deals/find'), ['properties', 'sort', 'items'])).toEqual({
       type: 'string',
       enum: [
@@ -501,6 +502,8 @@ describe('sort', () => {
         '-title',
         'amount',
         '-amount',
+        'note',
+        '-note',
         'id',
         '-id',
         'createdAt',
@@ -536,11 +539,10 @@ describe('a maskable field in a query', () => {
   });
 
   it('says so in sort, for the fields that can be sorted', () => {
-    // note is optional, so it cannot be sorted by anyone.
     expect(
       at(inputOf('deals/find'), ['properties', 'sort', 'description']),
     ).toBe(
-      'Field names, "-" first for descending. Sorting on amount is refused (VALIDATION) when the caller may not read it.',
+      'Field names, "-" first for descending. Sorting on amount, note is refused (VALIDATION) when the caller may not read it.',
     );
     expect(
       at(inputOf('tasks/find'), ['properties', 'sort', 'description']),

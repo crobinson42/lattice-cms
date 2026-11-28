@@ -62,7 +62,7 @@ describe('the admin in a browser', () => {
       sessions: testSessions(),
       credentials: storeLogin(store).credentials,
     };
-    const max = { userId: 'max', email: 'max@crm.test', password };
+    const max = { userId: 'max', name: 'Max', email: 'max@crm.test', password };
     await provisionDevUser(deps, {
       ...max,
       organization: 'Org A',
@@ -75,6 +75,7 @@ describe('the admin in a browser', () => {
     });
     await provisionDevUser(deps, {
       userId: 'ann',
+      name: 'Ann',
       email: 'ann@crm.test',
       password,
       organization: 'Org A',

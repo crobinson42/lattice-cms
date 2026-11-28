@@ -4,7 +4,13 @@
  * The conformance suite is `@latticecms/core/store/conformance`.
  */
 
-export { after, encodeCursor, type Order, orderOf } from '../sort.js';
+export {
+  after,
+  cursorValues,
+  encodeCursor,
+  type Order,
+  orderOf,
+} from '../sort.js';
 export {
   CollectionStore,
   type FindQuery,

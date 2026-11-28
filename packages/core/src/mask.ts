@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { CallAccess } from './access.js';
+import { LatticeError } from './errors.js';
 import { type Masked, marked, markOf } from './marker.js';
 import { innerOf } from './where.js';
 
@@ -256,10 +258,37 @@ export function applyMask(
 }
 
 /**
+ * Refuses, as VALIDATION, a `where` or `sort` on find or count, or an
+ * update patch, that names a field withheld from the caller (0031, 0035).
+ * A query would reveal it through which rows match or their order, and an
+ * update would change a value the caller cannot see. The family guard runs
+ * it on every use case, and the generated bodies run it again (0036), so a
+ * body called from an override skips nothing.
+ */
+export async function refuseWithheld(
+  access: CallAccess,
+  collection: {
+    readonly slug: string;
+    readonly maskable: readonly string[];
+  },
+  action: string,
+  input: unknown,
+): Promise<void> {
+  if (action !== 'find' && action !== 'count' && action !== 'update') return;
+  const withheld = await CallAccess.withheld(access, collection);
+  if (withheld.size === 0) return;
+  const issues =
+    action === 'update'
+      ? withheldWrites(input, withheld)
+      : withheldPaths(input, withheld);
+  if (issues.length > 0) throw LatticeError.VALIDATION({ issues });
+}
+
+/**
  * The keys of an update's patch that name a withheld field, for VALIDATION
  * issues (0035): a caller cannot change, or clear, what it cannot read.
  */
-export function withheldWrites(
+function withheldWrites(
   input: unknown,
   withheld: ReadonlySet<string>,
 ): { path: (string | number)[]; message: string }[] {
@@ -273,7 +302,7 @@ export function withheldWrites(
 }
 
 /** The where and sort paths that name a withheld field, for VALIDATION issues. */
-export function withheldPaths(
+function withheldPaths(
   input: unknown,
   withheld: ReadonlySet<string>,
 ): { path: (string | number)[]; message: string }[] {

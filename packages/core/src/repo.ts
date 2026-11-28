@@ -2,10 +2,10 @@ import type { z } from 'zod';
 import { unscoped, whereOf } from './access.js';
 import type { AnyCollection } from './collection.js';
 import { LatticeError, parse } from './errors.js';
-import { defaultLimit, defaultSort, type Sort } from './sort.js';
+import { defaultLimit, defaultSort, keyOf, type Sort } from './sort.js';
 import type { CollectionStore, FindQuery, Patch, StoredDoc } from './store.js';
 import { type Scope, type TenantField, withoutTenant } from './tenancy.js';
-import { type AnyWhere, both, type Where } from './where.js';
+import { type AnyWhere, both, nullish, type Where } from './where.js';
 
 /** A collection's stored document: its schema plus `id`, `createdAt` and `updatedAt`. */
 export type Doc<C extends { readonly output: z.ZodType }> = z.output<
@@ -122,7 +122,7 @@ export function touched<P extends Patch>(patch: P) {
 
 /** A store query with find's default sort and limit. */
 export function findQuery(
-  collection: string,
+  collection: AnyCollection,
   query: {
     readonly where?: AnyWhere | undefined;
     readonly sort?: readonly string[] | undefined;
@@ -130,10 +130,19 @@ export function findQuery(
     readonly after?: string | undefined;
   },
 ): FindQuery {
-  const { where, sort, limit, after } = query;
+  const { where, limit, after } = query;
+  const sort = query.sort ?? defaultSort;
+  const { shape } = collection.output;
   return {
-    collection,
-    sort: sort ?? defaultSort,
+    collection: collection.slug,
+    sort,
+    // The sort fields the schema lets a document lack.
+    optional: sort
+      .map((key) => keyOf(key).field)
+      .filter((field) => {
+        const schema = shape[field];
+        return schema !== undefined && nullish(schema);
+      }),
     limit: limit ?? defaultLimit,
     ...(where === undefined ? {} : { where }),
     ...(after === undefined ? {} : { after }),
@@ -172,7 +181,7 @@ export function repo(
     },
     async find(query, scope) {
       const where = both(query.where, whereOf(slug, scope));
-      return store.find(findQuery(slug, { ...query, where }));
+      return store.find(findQuery(collection, { ...query, where }));
     },
     async count(where, scope) {
       return store.count(slug, both(where, whereOf(slug, scope)));

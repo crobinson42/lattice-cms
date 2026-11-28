@@ -65,6 +65,9 @@ Register it with its access, and build it from the repos:
 // examples/crm/src/servers/app.ts
     methods: ({ repos }) => ({
       deals: { close: new CloseDeal({ deals: repos.deals, events }) },
+      activities: {
+        log: new LogActivity({ activities: repos.activities, events }),
+      },
     }),
 ```
 

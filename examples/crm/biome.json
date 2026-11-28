@@ -5,9 +5,20 @@
   "overrides": [
     {
       "includes": ["src/test/client/contract.d.ts"],
-      "linter": { "enabled": false },
-      "formatter": { "enabled": false },
-      "assist": { "enabled": false }
+      "linter": {
+        "enabled": false
+      },
+      "formatter": {
+        "enabled": false
+      },
+      "assist": {
+        "enabled": false
+      }
     }
-  ]
+  ],
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  }
 }

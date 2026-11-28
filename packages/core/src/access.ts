@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { Adapter, Port, validate } from 'hexok';
 import type { z } from 'zod';
 import type { Action, AnyCollection } from './collection.js';
@@ -222,6 +223,11 @@ export class CallAccess {
   readonly #logged = new Set<string>();
   /** The maskable fields withheld from the caller, by collection slug. */
   readonly #withheld = new Map<string, Promise<ReadonlySet<string>>>();
+  /** The last create answer by collection slug, with the data it was asked for. */
+  readonly #created = new Map<
+    string,
+    { readonly data: unknown; readonly answer: Promise<boolean | AnyWhere> }
+  >();
 
   /**
    * @param actor The call's actor as the family's schema parsed it, or a
@@ -310,9 +316,8 @@ export class CallAccess {
   }
 
   /**
-   * The tenant id a generated create stamps on `collection`, without asking
-   * access again: the guard did, with the create's data. Undefined for a
-   * global collection.
+   * The tenant id a generated create stamps on `collection`. Undefined for
+   * a global collection.
    */
   static stampOf(
     access: CallAccess,
@@ -355,7 +360,22 @@ export class CallAccess {
     action: string,
     data: unknown,
   ): Promise<boolean | AnyWhere> {
-    if (action === 'create') return this.caller.check(slug, action, data);
+    if (action === 'create') {
+      // Create's answer depends on its data. The family guard and the
+      // create body both ask (0036): with equal data, the function runs
+      // once; an override that changed the data is asked again. So is a
+      // create whose schema has a default that differs per parse, such as a
+      // generated id or a timestamp: the two parses are unequal, which costs
+      // a second run and nothing else. The key is a copy, because the body
+      // hands its data to beforeChange, which may change it in place.
+      const kept = this.#created.get(slug);
+      if (kept !== undefined && isDeepStrictEqual(kept.data, data)) {
+        return kept.answer;
+      }
+      const answer = this.caller.check(slug, action, data);
+      this.#created.set(slug, { data: structuredClone(data), answer });
+      return answer;
+    }
     let answers = this.#answers.get(slug);
     if (answers === undefined) {
       answers = new Map();

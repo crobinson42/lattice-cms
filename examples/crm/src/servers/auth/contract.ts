@@ -10,7 +10,8 @@ import { loginInput } from '../../app/use-cases/auth/login.js';
 export const authContract = router({
   login: procedure
     .input(loginInput)
-    .output(z.object({ token: z.string().min(1) }))
+    // The user's id too, so a client can find its own membership and tasks.
+    .output(z.object({ token: z.string().min(1), userId: z.string().min(1) }))
     .errors({
       UNAUTHORIZED: { status: 401, message: 'The credentials are not valid' },
     }),

@@ -105,6 +105,7 @@ describe('MongoStore spans', () => {
       collection: 'deals',
       where: { amount: { gt: 4000.5 } },
       sort: ['-createdAt'],
+      optional: [],
       limit: 10,
     });
     await store.count('deals', { title: { eq: 'hunter2' } });
