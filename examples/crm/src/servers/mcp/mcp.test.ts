@@ -76,30 +76,45 @@ describe.each(backends)('MCP at /mcp on $name', (backend) => {
     expect(tools.map((tool) => tool.name).sort()).toEqual(
       [
         ...['companies', 'contacts'].flatMap((slug) =>
-          ['find', 'count', 'get', 'create', 'update', 'delete'].map(
+          ['find', 'count', 'countBy', 'get', 'create', 'update', 'delete'].map(
             (action) => `${slug}_${action}`,
           ),
         ),
-        ...['find', 'count', 'get', 'create', 'update', 'delete', 'close'].map(
-          (action) => `deals_${action}`,
-        ),
+        ...[
+          'find',
+          'count',
+          'countBy',
+          'get',
+          'create',
+          'update',
+          'delete',
+          'close',
+        ].map((action) => `deals_${action}`),
         'deals_contacts_list',
         'deals_contacts_set',
         // An activity is created only through log.
-        ...['find', 'count', 'get', 'update', 'delete', 'log'].map(
+        ...['find', 'count', 'countBy', 'get', 'update', 'delete', 'log'].map(
           (action) => `activities_${action}`,
         ),
-        ...['find', 'count', 'get', 'create', 'update', 'delete'].map(
-          (action) => `tasks_${action}`,
-        ),
+        ...[
+          'find',
+          'count',
+          'countBy',
+          'get',
+          'create',
+          'update',
+          'delete',
+        ].map((action) => `tasks_${action}`),
         // Memberships' and organizations' writes are refused for every
         // caller, so not tools.
         ...['memberships', 'organizations'].flatMap((slug) =>
-          ['find', 'count', 'get'].map((action) => `${slug}_${action}`),
+          ['find', 'count', 'countBy', 'get'].map(
+            (action) => `${slug}_${action}`,
+          ),
         ),
       ].sort(),
     );
-    expect(tools).toHaveLength(39);
+    expect(tools).toHaveLength(46);
     const byName = new Map(tools.map((tool) => [tool.name, tool]));
     expect(
       Object.fromEntries(
@@ -281,12 +296,12 @@ describe('the crm’s toolset', () => {
     const findings = audit([crmTools]);
 
     expect(findings.filter((finding) => finding.level === 'error')).toEqual([]);
-    // What is left: 39 flat tools (ts-pf suggests 15 or fewer), and the
-    // recursive where of each find and count.
+    // What is left: 46 flat tools (ts-pf suggests 15 or fewer), and the
+    // recursive where of each find, count and countBy.
     expect(
       [...new Set(findings.map((finding) => finding.message))].sort(),
     ).toEqual([
-      'lists 39 tools (more than 15); split it or put a large group behind a $host',
+      'lists 46 tools (more than 15); split it or put a large group behind a $host',
       'schema is recursive; references stay as $ref',
     ]);
   });

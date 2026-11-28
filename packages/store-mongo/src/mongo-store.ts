@@ -1,7 +1,9 @@
 import {
   type AnyWhere,
   CollectionStore,
+  type CountByQuery,
   type FindQuery,
+  type Groups,
   type Index,
   type Page,
   type Patch,
@@ -172,6 +174,10 @@ export class MongoStore extends Adapter(CollectionStore) {
     return this.#operations().count(collection, where);
   }
 
+  override async countBy(query: CountByQuery): Promise<Groups> {
+    return this.#operations().countBy(query);
+  }
+
   override async get(
     collection: string,
     id: string,
@@ -256,6 +262,10 @@ class TransactionStore extends Adapter(CollectionStore) {
 
   override count(collection: string, where?: AnyWhere): Promise<number> {
     return this.operations.count(collection, where);
+  }
+
+  override countBy(query: CountByQuery): Promise<Groups> {
+    return this.operations.countBy(query);
   }
 
   override get(

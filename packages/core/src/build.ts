@@ -92,6 +92,7 @@ import { failed, tracer } from './tracing.js';
 const actions = [
   'find',
   'count',
+  'countBy',
   'get',
   'create',
   'update',
@@ -194,8 +195,10 @@ export type UpdateInput<C extends AnyCollection> = z.input<
  * What a client receives from operation `A` of `Col`: its documents as
  * `clientOutput`, each maskable field optional.
  */
-type ClientOut<Col extends AnyCollection, A extends Action> = A extends 'count'
-  ? Ops<Col>['count']['output']
+type ClientOut<Col extends AnyCollection, A extends Action> = A extends
+  | 'count'
+  | 'countBy'
+  ? Ops<Col>[A]['output']
   : A extends 'find'
     ? z.ZodObject<{
         docs: z.ZodArray<Col['clientOutput']>;
@@ -1625,8 +1628,8 @@ function contractOf(
     const { slug, label } = collection;
     for (const action of actions) {
       const output =
-        action === 'count'
-          ? ops.count.output
+        action === 'count' || action === 'countBy'
+          ? ops[action].output
           : action === 'find'
             ? page(doc)
             : doc;

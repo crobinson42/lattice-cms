@@ -67,7 +67,7 @@ type ReadRule = {
 /** The `fields` rules given at `.collection()`, by field. */
 export type FieldsMap = Readonly<Record<string, { readonly read: ReadRule }>>;
 
-/** The keys of `access` besides method names. `read` serves find, count and get. */
+/** The keys of `access` besides method names. `read` serves find, count, countBy and get. */
 type AccessAction = 'read' | 'create' | 'update' | 'delete';
 
 /** What an access function may return for `A`. Create has no row to filter. */
@@ -145,7 +145,7 @@ export type AccessCheck<R, M, C extends AnyCollection, K> = [
 
 /**
  * The default adapter: the functions given at `.collection(C, { access })`.
- * `find`, `count` and `get` run `read`. A missing function denies.
+ * `find`, `count`, `countBy` and `get` run `read`. A missing function denies.
  */
 export class CollectionAccess extends Adapter(Access) {
   constructor(
@@ -178,7 +178,10 @@ export class CollectionAccess extends Adapter(Access) {
     const { actor, collection, action, data } = request;
     const map = this.maps.get(collection);
     const name =
-      action === 'find' || action === 'get' || action === 'count'
+      action === 'find' ||
+      action === 'get' ||
+      action === 'count' ||
+      action === 'countBy'
         ? 'read'
         : action;
     // Own keys only: an action named `toString` must not reach the prototype.
