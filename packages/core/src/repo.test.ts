@@ -143,7 +143,7 @@ describe('repo insert with an id', () => {
       slots.insert({ status: 'booked', version: 9 }, unscoped, { id: 's1' }),
     ).rejects.toMatchObject({
       code: 'CONFLICT',
-      data: { collection: 'slots', id: 's1' },
+      data: { collection: 'slots', id: 's1', fields: ['id'] },
     });
     expect((await slots.get('s1', unscoped))?.version).toBe(1);
   });

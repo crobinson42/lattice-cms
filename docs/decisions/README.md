@@ -54,5 +54,6 @@ These are not decided yet. Treat them as context, not rules.
 | [0039](0039-before-1-0-a-breaking-change-is-a-minor-release-with-a-migration.md) | Before 1.0, a breaking change is a minor release that says how to migrate | lock | Lattice reaches 1.0, or an app needs a fix on an older minor line. |
 | [0040](0040-repos-join-a-transaction-through-transaction.md) | Repos join a transaction through `transaction`, beside `repos` | default | A collection lives in a different store from another that one transaction writes, the outbox replaces held events, or apps compose use cases that each open a transaction. |
 | [0041](0041-repo-writes-take-a-condition-and-an-id.md) | Repo writes take a condition, and an insert takes an id | default | An app needs a condition on a generated update or delete from a client, or a conditional write that changes many rows at once. |
+| [0042](0042-conflict-names-the-clashing-fields.md) | CONFLICT names the clashing fields | default | A client needs to tell apart two unique indexes over the same fields, or a store cannot say which index clashed. |
 
 2 superseded records are history and not listed. Do not follow them.

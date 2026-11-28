@@ -10,6 +10,12 @@ const issue = z.object({
 
 const target = z.object({ collection: z.string(), id: z.string() });
 
+/**
+ * A clash on a unique key. `fields` are the clashing index's fields as
+ * declared, tenant field included, or `['id']` when the id exists.
+ */
+const clash = target.extend({ fields: z.array(z.string()) });
+
 const definitions = {
   VALIDATION: {
     message: 'Validation failed',
@@ -18,7 +24,10 @@ const definitions = {
   UNAUTHORIZED: { message: 'The actor is missing or invalid' },
   FORBIDDEN: { message: 'The actor may not do this' },
   NOT_FOUND: { message: 'No document with this id', data: target },
-  CONFLICT: { message: 'A document with this id already exists', data: target },
+  CONFLICT: {
+    message: 'A document with the same unique key already exists',
+    data: clash,
+  },
   REFERENCED: {
     message: 'Other documents refer to this one',
     data: target.extend({

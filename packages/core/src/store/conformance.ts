@@ -59,17 +59,21 @@ async function rejection(
   return outcome.value;
 }
 
-/** Fails unless `promise` rejects with Lattice's CONFLICT for `id`. */
+/**
+ * Fails unless `promise` rejects with Lattice's CONFLICT for `id`, naming
+ * the clashing index's `fields`.
+ */
 async function conflict(
   promise: Promise<unknown>,
   collection: string,
   id: string,
+  fields: readonly string[],
   what: string,
 ): Promise<void> {
   const error = await rejection(promise, what);
   same(
     LatticeError.is(error) ? { code: error.code, data: error.data } : error,
-    { code: 'CONFLICT', data: { collection, id } },
+    { code: 'CONFLICT', data: { collection, id, fields } },
     what,
   );
 }
@@ -339,6 +343,7 @@ export const storeCases: readonly StoreCase[] = [
         store.insert('m_conflict', post('p1', { title: 'again' })),
         'm_conflict',
         'p1',
+        ['id'],
         'insert p1 twice',
       );
       same(
@@ -1020,6 +1025,94 @@ export const storeCases: readonly StoreCase[] = [
       same(await store.get('x_nested', 'p2'), null, 'p2 after the rollback');
     },
   },
+  {
+    name: 'a transaction that starts while another runs does not join it, so the first one’s rollback keeps its writes',
+    needs: ['transactions'],
+    async run(store) {
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const first = store.transaction(async (tx) => {
+        await tx.insert('x_concurrent', post('p1'));
+        await gate;
+        throw new Error('first failed');
+      });
+      const second = store.transaction(async (tx) => {
+        same(
+          await tx.get('x_concurrent', 'p1'),
+          null,
+          'the first one’s write, unseen by the second',
+        );
+        await tx.insert('x_concurrent', post('p2'));
+      });
+      release();
+      await rejection(first, 'the first transaction');
+      await second;
+      same(await store.get('x_concurrent', 'p1'), null, 'p1, rolled back');
+      same(await store.get('x_concurrent', 'p2'), post('p2'), 'p2, committed');
+    },
+  },
+  {
+    name: 'a write outside a transaction is kept when the transaction rolls back',
+    needs: ['transactions'],
+    async run(store) {
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let started = () => {};
+      const running = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const failing = store.transaction(async (tx) => {
+        await tx.insert('x_outside', post('p1'));
+        started();
+        await gate;
+        throw new Error('failed');
+      });
+      await running;
+      await store.insert('x_outside', post('p2'));
+      release();
+      await rejection(failing, 'the transaction');
+      same(await store.get('x_outside', 'p1'), null, 'p1, rolled back');
+      same(await store.get('x_outside', 'p2'), post('p2'), 'p2, kept');
+    },
+  },
+  {
+    name: 'a call on the root store from inside work does not join, so a rollback keeps it',
+    needs: ['transactions'],
+    async run(store) {
+      await rejection(
+        store.transaction(async (tx) => {
+          await tx.insert('x_root', post('p1'));
+          await store.insert('x_root', post('p2'));
+          throw new Error('failed');
+        }),
+        'the transaction',
+      );
+      same(await store.get('x_root', 'p1'), null, 'p1, rolled back');
+      same(await store.get('x_root', 'p2'), post('p2'), 'p2, kept');
+    },
+  },
+  {
+    name: 'a transaction on the root store from inside work is a separate one, and commits on its own',
+    needs: ['transactions'],
+    async run(store) {
+      await rejection(
+        store.transaction(async (tx) => {
+          await tx.insert('x_separate', post('p1'));
+          await store.transaction(async (other) => {
+            await other.insert('x_separate', post('p2'));
+          });
+          throw new Error('failed');
+        }),
+        'the outer transaction',
+      );
+      same(await store.get('x_separate', 'p1'), null, 'p1, rolled back');
+      same(await store.get('x_separate', 'p2'), post('p2'), 'p2, committed');
+    },
+  },
 
   // ---------------------------------------------------------------- count
   {
@@ -1063,6 +1156,7 @@ export const storeCases: readonly StoreCase[] = [
         store.insert('e_keep', { id: 'u2', email: 'a@x' }),
         'e_keep',
         'u2',
+        ['email'],
         'a duplicate after ensure([])',
       );
     },
@@ -1079,6 +1173,7 @@ export const storeCases: readonly StoreCase[] = [
         store.insert('e_unique', { id: 'u3', email: 'a@x' }),
         'e_unique',
         'u3',
+        ['email'],
         'insert a duplicate email',
       );
       same(await store.get('e_unique', 'u3'), null, 'u3 after the conflict');
@@ -1086,6 +1181,7 @@ export const storeCases: readonly StoreCase[] = [
         store.update('e_unique', 'u2', { email: 'a@x' }),
         'e_unique',
         'u2',
+        ['email'],
         'update to a duplicate email',
       );
       same(
@@ -1114,6 +1210,7 @@ export const storeCases: readonly StoreCase[] = [
         store.insert('e_compound', { id: 'u3', org: 'o1', email: 'a@x' }),
         'e_compound',
         'u3',
+        ['org', 'email'],
         'insert the same org and email',
       );
     },
@@ -1127,13 +1224,133 @@ export const storeCases: readonly StoreCase[] = [
         store.insert('e_missing', { id: 'u2' }),
         'e_missing',
         'u2',
+        ['email'],
         'a second doc missing email',
       );
       await conflict(
         store.insert('e_missing', { id: 'u3', email: null }),
         'e_missing',
         'u3',
+        ['email'],
         'a null email beside a missing one',
+      );
+    },
+  },
+  {
+    name: 'a unique index over an array keys each element, so two docs that share one conflict',
+    async run(store) {
+      await store.ensure('e_multikey', [{ fields: { tags: 1 }, unique: true }]);
+      await seed(store, 'e_multikey', [
+        { id: 'u1', tags: ['a', 'b'] },
+        { id: 'u2', tags: ['c'] },
+        { id: 'u3', tags: ['d', 'd'] },
+      ]);
+      await conflict(
+        store.insert('e_multikey', { id: 'u4', tags: ['b', 'e'] }),
+        'e_multikey',
+        'u4',
+        ['tags'],
+        'insert a doc that shares b',
+      );
+      await conflict(
+        store.insert('e_multikey', { id: 'u4', tags: 'a' }),
+        'e_multikey',
+        'u4',
+        ['tags'],
+        'insert a scalar equal to an element',
+      );
+      await conflict(
+        store.update('e_multikey', 'u2', { tags: ['c', 'a'] }),
+        'e_multikey',
+        'u2',
+        ['tags'],
+        'update to share a',
+      );
+      same(
+        await store.update('e_multikey', 'u1', { tags: ['b', 'a', 'f'] }),
+        { id: 'u1', tags: ['b', 'a', 'f'] },
+        'update that keeps its own elements',
+      );
+    },
+  },
+  {
+    name: 'a unique index keys an empty array apart from a missing field',
+    async run(store) {
+      await store.ensure('e_empty', [{ fields: { tags: 1 }, unique: true }]);
+      await seed(store, 'e_empty', [{ id: 'u1', tags: [] }, { id: 'u2' }]);
+      await conflict(
+        store.insert('e_empty', { id: 'u3', tags: [] }),
+        'e_empty',
+        'u3',
+        ['tags'],
+        'a second empty array',
+      );
+    },
+  },
+  {
+    name: 'a unique index keys a null element as null, so it clashes with a missing field',
+    async run(store) {
+      await store.ensure('e_null_element', [
+        { fields: { tags: 1 }, unique: true },
+      ]);
+      await seed(store, 'e_null_element', [{ id: 'u1' }]);
+      await conflict(
+        store.insert('e_null_element', { id: 'u2', tags: [null] }),
+        'e_null_element',
+        'u2',
+        ['tags'],
+        'an array holding null',
+      );
+    },
+  },
+  {
+    name: 'an index refuses a document with two array fields, empty or not',
+    async run(store) {
+      await store.ensure('e_parallel', [{ fields: { a: 1, b: 1 } }]);
+      await seed(store, 'e_parallel', [{ id: 'u1', a: [1], b: 2 }]);
+      for (const doc of [
+        { id: 'u2', a: [1], b: [2] },
+        { id: 'u2', a: [], b: [] },
+      ]) {
+        const error = await rejection(
+          store.insert('e_parallel', doc),
+          `insert ${show(doc)}`,
+        );
+        assert.match(String(error), /parallel arrays/);
+      }
+      const error = await rejection(
+        store.update('e_parallel', 'u1', { b: [2] }),
+        'an update to two arrays',
+      );
+      assert.match(String(error), /parallel arrays/);
+      same(
+        await store.get('e_parallel', 'u1'),
+        { id: 'u1', a: [1], b: 2 },
+        'u1, unchanged',
+      );
+      same(await store.get('e_parallel', 'u2'), null, 'u2, not stored');
+    },
+  },
+  {
+    name: 'a compound unique index over an array keys each element with the other fields',
+    async run(store) {
+      await store.ensure('e_compound_multikey', [
+        { fields: { org: 1, tags: 1 }, unique: true },
+      ]);
+      await seed(store, 'e_compound_multikey', [
+        { id: 'u1', org: 'o1', tags: ['a', 'b'] },
+        { id: 'u2', org: 'o2', tags: ['a'] },
+      ]);
+      await conflict(
+        store.insert('e_compound_multikey', {
+          id: 'u3',
+          org: 'o1',
+          tags: ['b'],
+        }),
+        'e_compound_multikey',
+        'u3',
+        ['org', 'tags'],
+        'insert o1 with b',
       );
     },
   },
@@ -1147,6 +1364,16 @@ export const storeCases: readonly StoreCase[] = [
       await rejection(
         store.ensure('e_dupes', [{ fields: { email: 1 }, unique: true }]),
         'ensure a unique index over two a@x',
+      );
+      await seed(store, 'e_dupes_multikey', [
+        { id: 'u1', tags: ['a', 'b'] },
+        { id: 'u2', tags: ['b'] },
+      ]);
+      await rejection(
+        store.ensure('e_dupes_multikey', [
+          { fields: { tags: 1 }, unique: true },
+        ]),
+        'ensure a unique index over two docs that share b',
       );
     },
   },

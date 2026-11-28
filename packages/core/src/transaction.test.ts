@@ -245,8 +245,8 @@ class UpdateTicket extends AppUseCase('tickets.update', {
 
 /**
  * A store whose transactions fail once after `work` and run it again, as
- * MongoDB may. A nested transaction would retry too, so use it only for work
- * that opens none.
+ * MongoDB may. A transaction on the store `work` receives joins, and does
+ * not retry.
  */
 class RetryingOnce extends MemoryStore {
   override async transaction<T>(
@@ -312,8 +312,6 @@ describe('transaction in an override', () => {
     expect(published[0]).toBeInstanceOf(Tickets.events.updated);
   });
 
-  // MemoryStore's transaction hands work the store itself, so this cannot tell
-  // the transaction's store from the root one: store-mongo's transaction test does.
   it('rolls back the generated write too, and publishes nothing, when the work throws', async () => {
     const { local, repos, published } = overridden();
     const ticket = await repos.tickets.insert(

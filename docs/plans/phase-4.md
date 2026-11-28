@@ -41,6 +41,14 @@ Each step ends with its tests passing, an independent review, a changeset and a 
 - [x] `repo.insert(data, scope, { id })`: server code inserts with its own id, such as a projection that shares its source's id. An existing id is `CONFLICT`. Generated create keeps server UUIDs.
 - [x] Record: repo writes take a condition and an id ([0041](../decisions/0041-repo-writes-take-a-condition-and-an-id.md)).
 
+### 3a. Unique indexes
+
+- [x] `CONFLICT` data gains `fields`: the clashing unique index's fields as declared, or `['id']`. MemoryStore names the failed index, and MongoStore reads `keyPattern`. The generic message no longer says "id".
+- [x] MemoryStore keys an array field per element, as MongoDB's multikey index does, with conformance cases: `['a','b']` and `['b','c']` clash.
+- [x] Record: [0042](../decisions/0042-conflict-names-the-clashing-fields.md).
+- [x] MemoryStore hands `work` a store of its own and runs transactions one at a time. A rollback undoes only that store's writes and indexes. A `CONFLICT` inside a transaction aborts it, as on MongoDB. An index refuses two array fields. Conformance cases for each that MongoDB shares.
+- [ ] `Index` gains `present: [field]`: the index covers only rows where each field has a value, and an array has at least one element. Core compiles it from the schema, and MongoStore maps it to a `partialFilterExpression`. Conformance cases. Record 0043.
+
 ### 4. Tenancy by field, and no tenant
 
 - [ ] `family({ tenantOf })` becomes a map keyed by tenant field: `{ organizationId: (a) => …, professionalId: (a) => … }`. Each returns an id, `tenancy.bypass` or `tenancy.none`. `none` makes that collection `FORBIDDEN` for the actor. A collection whose tenant field has no entry is a compile error and a runtime throw. The tenant cache is per field. Breaking.
@@ -71,10 +79,15 @@ Recorded, not scheduled:
 - The CLI in a split monorepo: config paths that point at sibling workspace packages, so `lattice collection` can scaffold when collections and composition live in different packages.
 - A definition-time error when a slug collides with a reserved top-level router key.
 - An upsert on repos, if insert-then-update on `CONFLICT` proves awkward. Inside a MongoDB transaction, insert-then-update does not work: a duplicate key aborts the transaction.
+- A `prepare(data)` that parses, applies defaults and runs `beforeChange` without writing. Declined for now: seeding through the generated create covers StaffDuty. Reconsider when a second app needs a hooked document with no generated operation.
 
 ## Discoveries
 
 - The walkthrough packed every package as 0.1.0, which broke once the internal peer ranges moved. It now packs each package at its own version.
 - `{ field: {} }` passed the first access check. It is what `{ eq: undefined }` becomes after JSON, as from a remote policy service, and `MemoryStore` matched every row with it. A field in a code-built `Where` now needs an operator.
 - A `transaction` called inside another's `work` starts a separate transaction. On MongoDB its writes commit on their own, and MemoryStore joined it only through a store-wide flag. 0040 says it does not nest: inner code takes the repos `work` received.
-- `MemoryStore` does not isolate concurrent transactions: a rollback undoes writes that other calls made meanwhile. The README says it is for tests and development.
+- `MemoryStore` let a transaction that started during another join it, so the first one's rollback dropped the second's writes. It now runs them one at a time.
+- Inside a MongoDB transaction, a caught `CONFLICT` makes the driver run `work` again for about 120 seconds, its retry limit. `MemoryStore` throws at once.
+- A unique index keys a missing field as null and an empty array as one value, so two rows without a value clash on MongoDB. And `MemoryStore` compared an array key whole, where MongoDB compares each element.
+- `MemoryStore` joined any call made in `work`'s async context, so a timer that fired after the commit joined a finished transaction, and a root-store call inside `work` joined where MongoDB's would not. `work` now gets its own store, as a MongoDB session binds calls. Async context remains only to let a root `transaction` inside `work` run beside the outer one instead of deadlocking.
+- MongoDB refuses an index over two array fields in one document, even empty ones (code 171). `MemoryStore` accepted it.
