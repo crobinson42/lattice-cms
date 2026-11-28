@@ -54,7 +54,7 @@ describe('a client generated from the catalog', () => {
     expect(plain.amount).toBeUndefined();
     // A populated ref is the company, or { id } when the caller may not read it.
     const populatedCompany = populated.companyId;
-    if (!('name' in populatedCompany)) throw new Error('withheld');
+    if (!('createdAt' in populatedCompany)) throw new Error('withheld');
     expect(populatedCompany.name).toBe('Acme');
   });
 });

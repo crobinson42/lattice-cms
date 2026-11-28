@@ -18,11 +18,12 @@ export type CompanyRef = InferExpandedOutput<
   ['companyId']
 >['companyId'];
 
-/** Whether the caller may read the populated company: it has its fields. */
+/** Whether the caller may read the populated company: it has its fields. Every
+ * populated document has `createdAt`; `Withheld` is only `{ id }`. */
 export function isReadableCompany(
   company: CompanyRef,
-): company is Extract<CompanyRef, { readonly name: string }> {
-  return 'name' in company;
+): company is Extract<CompanyRef, { readonly createdAt: string }> {
+  return 'createdAt' in company;
 }
 
 type Inputs = InferContractInputs<typeof contract>['companies'];
